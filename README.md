@@ -1,2 +1,2 @@
-# phaneron
-Clustered, accelerated and cloud-fit video server with its building blocks. 
+# Phaneron
+Clustered, accelerated and cloud-fit video server, pre-assembled and in kit form.
