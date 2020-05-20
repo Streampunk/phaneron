@@ -1,0 +1,72 @@
+/*
+  Phaneron - Clustered, accelerated and cloud-fit video server, pre-assembled and in kit form.
+  Copyright (C) 2020 Streampunk Media Ltd.
+
+  This program is free software: you can redistribute it and/or modify
+  it under the terms of the GNU General Public License as published by
+  the Free Software Foundation, either version 3 of the License, or
+  (at your option) any later version.
+
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+  GNU General Public License for more details.
+
+  You should have received a copy of the GNU General Public License
+  along with this program.  If not, see <https://www.gnu.org/licenses/>.
+  https://www.streampunk.media/ mailto:furnace@streampunk.media
+  14 Ormiscaig, Aultbea, Achnasheen, IV22 2JJ  U.K.
+*/
+
+import { clContext as nodenCLContext, OpenCLBuffer } from 'nodencl'
+import { SourceFrame } from '../chanLayer'
+import { MacadamConsumerFactory } from './macadamConsumer'
+import { RedioPipe, RedioStream } from 'redioactive'
+
+export interface Consumer {
+	initialise(pipe: RedioPipe<SourceFrame>): Promise<RedioStream<OpenCLBuffer> | null>
+}
+
+export interface ConsumerFactory<T extends Consumer> {
+	createConsumer(channel: number): T
+}
+
+export class InvalidConsumerError extends Error {
+	constructor(message?: string) {
+		super(message)
+		// see: typescriptlang.org/docs/handbook/release-notes/typescript-2-2.html
+		Object.setPrototypeOf(this, new.target.prototype) // restore prototype chain
+		this.name = InvalidConsumerError.name // stack traces display correctly now
+	}
+}
+export class ConsumerRegistry {
+	private readonly consumerFactories: ConsumerFactory<Consumer>[]
+
+	constructor(clContext: nodenCLContext) {
+		this.consumerFactories = []
+		this.consumerFactories.push(new MacadamConsumerFactory(clContext))
+	}
+
+	async createSpout(
+		channel: number,
+		pipe: RedioPipe<SourceFrame>
+	): Promise<RedioStream<OpenCLBuffer> | null> {
+		let p: RedioStream<OpenCLBuffer> | null = null
+		for (const f of this.consumerFactories) {
+			try {
+				const consumer = f.createConsumer(channel) as Consumer
+				if ((p = await consumer.initialise(pipe)) !== null) break
+			} catch (err) {
+				if (!(err instanceof InvalidConsumerError)) {
+					throw err
+				}
+			}
+		}
+
+		if (p === null) {
+			console.log(`Failed to find consumer for channel: '${channel}'`)
+		}
+
+		return p
+	}
+}
