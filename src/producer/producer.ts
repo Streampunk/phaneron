@@ -50,11 +50,13 @@ export class ProducerRegistry {
 	async createSource(chanLay: ChanLayer, params: string[]): Promise<RedioPipe<SourceFrame> | null> {
 		const id = `${chanLay.channel}-${chanLay.layer}`
 		let p: RedioPipe<SourceFrame> | null = null
+		let producerErr = ''
 		for (const f of this.producerFactories) {
 			try {
 				const producer = f.createProducer(id, params) as Producer
 				if ((p = await producer.initialise()) !== null) break
 			} catch (err) {
+				producerErr = err.message
 				if (!(err instanceof InvalidProducerError)) {
 					throw err
 				}
@@ -62,6 +64,7 @@ export class ProducerRegistry {
 		}
 
 		if (p === null) {
+			if (producerErr !== '') console.log(producerErr)
 			console.log(`Failed to find producer for params: '${params}'`)
 		}
 

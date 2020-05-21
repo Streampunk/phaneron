@@ -43,7 +43,9 @@ export class Channel {
 
 	async createSource(chanLay: ChanLayer, params: string[]): Promise<boolean> {
 		this.background = await this.producerRegistry.createSource(chanLay, params)
-		return this.background != null
+		if (this.background === null)
+			console.log(`Failed to create source for channel ${chanLay.channel}, layer ${chanLay.layer}`)
+		return this.background !== null
 	}
 
 	async play(): Promise<boolean> {
@@ -52,9 +54,11 @@ export class Channel {
 			this.background = null
 		}
 
-		if (this.foreground != null)
+		if (this.foreground !== null)
 			this.spout = await this.consumerRegistry.createSpout(this.channel, this.foreground)
 
-		return Promise.resolve(this.spout != null)
+		if (!this.spout) console.log(`Failed to create spout for channel ${this.channel}`)
+
+		return Promise.resolve(this.spout !== null)
 	}
 }

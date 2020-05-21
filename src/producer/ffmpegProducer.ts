@@ -25,6 +25,7 @@ import { Demuxer, demuxer, Decoder, decoder, Filterer, filterer, Packet, Frame }
 import redio, { RedioPipe, nil, isEnd, isNil } from 'redioactive'
 import { ToRGBA } from '../process/io'
 import { Reader } from '../process/yuv422p10'
+import Yadif from '../process/yadif'
 
 export class FFmpegProducer implements Producer {
 	private readonly id: string
@@ -35,10 +36,12 @@ export class FFmpegProducer implements Producer {
 	private readonly filterers: Filterer[]
 	private vidSource: RedioPipe<Packet> | undefined
 	private vidDecode: RedioPipe<Frame> | undefined
-	private vidFilter: RedioPipe<Frame> | undefined
 	private vidLoader: RedioPipe<Array<OpenCLBuffer>> | undefined
-	private vidProcess: RedioPipe<SourceFrame> | undefined
+	private vidProcess: RedioPipe<OpenCLBuffer> | undefined
+	private vidDeint: RedioPipe<OpenCLBuffer> | undefined
+	private makeSource: RedioPipe<SourceFrame> | undefined
 	private toRGBA: ToRGBA | undefined
+	private yadif: Yadif | undefined
 
 	constructor(id: string, params: string[], context: nodenCLContext) {
 		this.id = id
@@ -90,6 +93,9 @@ export class FFmpegProducer implements Producer {
 				new Reader(vidStream.codecpar.width, vidStream.codecpar.height)
 			)
 			await this.toRGBA.init()
+
+			this.yadif = new Yadif(this.clContext, width, height, 'send_field', 'tff', 'all')
+			await this.yadif.init()
 		} catch (err) {
 			throw new InvalidProducerError(err)
 		}
@@ -117,20 +123,7 @@ export class FFmpegProducer implements Producer {
 			{ bufferSizeMax: 3, oneToMany: true }
 		)
 
-		this.vidFilter = this.vidDecode.valve<Frame>(
-			async (frame) => {
-				if (!isEnd(frame) && !isNil(frame)) {
-					const frm = frame as Frame
-					const ff = await this.filterers[0].filter([frm])
-					return ff[0].frames.length > 0 ? ff[0].frames : nil
-				} else {
-					return frame
-				}
-			},
-			{ bufferSizeMax: 3, oneToMany: true }
-		)
-
-		this.vidLoader = this.vidFilter.valve<Array<OpenCLBuffer>>(
+		this.vidLoader = this.vidDecode.valve<Array<OpenCLBuffer>>(
 			async (frame) => {
 				if (!isEnd(frame) && !isNil(frame)) {
 					const frm = frame as Frame
@@ -146,7 +139,7 @@ export class FFmpegProducer implements Producer {
 			{ bufferSizeMax: 3, oneToMany: false }
 		)
 
-		this.vidProcess = this.vidLoader.valve<SourceFrame>(
+		this.vidProcess = this.vidLoader.valve<OpenCLBuffer>(
 			async (clSources) => {
 				if (!isEnd(clSources) && !isNil(clSources)) {
 					const clSrcs = clSources as Array<OpenCLBuffer>
@@ -155,8 +148,7 @@ export class FFmpegProducer implements Producer {
 					await toRGBA.processFrame(clSrcs, clDest, this.clContext.queue.process)
 					await this.clContext.waitFinish(this.clContext.queue.process)
 					clSrcs.forEach((s) => s.release())
-					const sourceFrame: SourceFrame = { video: clDest, audio: Buffer.alloc(0), timestamp: 0 }
-					return sourceFrame
+					return clDest
 				} else {
 					return clSources
 				}
@@ -164,8 +156,35 @@ export class FFmpegProducer implements Producer {
 			{ bufferSizeMax: 3, oneToMany: false }
 		)
 
+		this.vidDeint = this.vidProcess.valve<OpenCLBuffer>(
+			async (frame) => {
+				if (!isEnd(frame) && !isNil(frame)) {
+					const yadif = this.yadif as Yadif
+					const yadifDests: Array<OpenCLBuffer> = []
+					await yadif.processFrame(frame, yadifDests, this.clContext.queue.process)
+					await this.clContext.waitFinish(this.clContext.queue.process)
+					return yadifDests.length > 0 ? yadifDests : nil
+				} else {
+					return frame
+				}
+			},
+			{ bufferSizeMax: 3, oneToMany: true }
+		)
+
+		this.makeSource = this.vidDeint.valve<SourceFrame>(
+			async (frame) => {
+				if (!isEnd(frame) && !isNil(frame)) {
+					const sourceFrame: SourceFrame = { video: frame, audio: Buffer.alloc(0), timestamp: 0 }
+					return sourceFrame
+				} else {
+					return frame
+				}
+			},
+			{ bufferSizeMax: 3, oneToMany: false }
+		)
+
 		console.log(`Created FFmpeg producer ${this.id} for path ${url}`)
-		return this.vidProcess
+		return this.makeSource
 	}
 }
 

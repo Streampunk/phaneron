@@ -106,7 +106,7 @@ export async function start(commands?: Commands): Promise<string> {
 		})
 		server.listen(5250, () => {
 			resolved = true
-			resolve('CasparCL server AMCP protocol running on port 5250')
+			resolve('Phaneron server AMCP protocol running on port 5250')
 		})
 	})
 }
@@ -120,13 +120,13 @@ export async function stop(): Promise<string> {
 		server.close((e) => {
 			if (e) return reject(e)
 			resolved = true
-			resolve('CasparCL server closed')
+			resolve('Phaneron server closed')
 		})
 	})
 }
 
 server.on('listening', () => {
-	// console.log('CasparCL server AMCP protocol running on port 5250')
+	// console.log('Phaneron server AMCP protocol running on port 5250')
 })
 
 server.on('connection', (sock) => {

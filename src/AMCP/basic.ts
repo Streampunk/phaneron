@@ -27,7 +27,7 @@ export class Basic {
 	private readonly channels: Array<Channel>
 
 	constructor(clContext: nodenCLContext) {
-		this.channels = Array.from([1, 2, 3, 4], (c) => new Channel(clContext, c))
+		this.channels = Array.from([1, 2, 3, 4, 5], (c) => new Channel(clContext, c))
 	}
 
 	/** Add the supported basic transport commands */
