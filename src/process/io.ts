@@ -61,7 +61,7 @@ export class ToRGBA {
 	async createSources(): Promise<Array<OpenCLBuffer>> {
 		return Promise.all(
 			this.numBytes.map((bytes) =>
-				this.clContext.createBuffer(bytes, 'readonly', 'coarse', undefined, 'ToRGBA')
+				this.clContext.createBuffer(bytes, 'readonly', 'coarse', undefined, 'ToRGBA src')
 			)
 		)
 	}
@@ -161,7 +161,7 @@ export class FromRGBA {
 	async createDests(): Promise<Array<OpenCLBuffer>> {
 		return Promise.all(
 			this.numBytes.map((bytes) =>
-				this.clContext.createBuffer(bytes, 'readonly', 'coarse', undefined, 'ToRGBA')
+				this.clContext.createBuffer(bytes, 'readonly', 'coarse', undefined, 'FromRGBA')
 			)
 		)
 	}

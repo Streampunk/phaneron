@@ -21,10 +21,13 @@
 import { clContext as nodenCLContext } from 'nodencl'
 import { ChanLayer, SourceFrame } from '../chanLayer'
 import { FFmpegProducerFactory } from './ffmpegProducer'
-import { RedioPipe } from 'redioactive'
+import { RedioPipe, RedioEnd } from 'redioactive'
 
 export interface Producer {
-	initialise(): Promise<RedioPipe<SourceFrame> | null>
+	initialise(): void
+	getSourcePipe(): RedioPipe<SourceFrame | RedioEnd> | undefined
+	setPaused(pause: boolean): void
+	release(): void
 }
 
 export interface ProducerFactory<T extends Producer> {
@@ -39,6 +42,7 @@ export class InvalidProducerError extends Error {
 		this.name = InvalidProducerError.name // stack traces display correctly now
 	}
 }
+
 export class ProducerRegistry {
 	private readonly producerFactories: ProducerFactory<Producer>[]
 
@@ -47,14 +51,14 @@ export class ProducerRegistry {
 		this.producerFactories.push(new FFmpegProducerFactory(clContext))
 	}
 
-	async createSource(chanLay: ChanLayer, params: string[]): Promise<RedioPipe<SourceFrame> | null> {
+	async createSource(chanLay: ChanLayer, params: string[]): Promise<Producer | null> {
 		const id = `${chanLay.channel}-${chanLay.layer}`
-		let p: RedioPipe<SourceFrame> | null = null
 		let producerErr = ''
 		for (const f of this.producerFactories) {
 			try {
-				const producer = f.createProducer(id, params) as Producer
-				if ((p = await producer.initialise()) !== null) break
+				const producer = f.createProducer(id, params)
+				await producer.initialise()
+				return producer
 			} catch (err) {
 				producerErr = err.message
 				if (!(err instanceof InvalidProducerError)) {
@@ -63,11 +67,8 @@ export class ProducerRegistry {
 			}
 		}
 
-		if (p === null) {
-			if (producerErr !== '') console.log(producerErr)
-			console.log(`Failed to find producer for params: '${params}'`)
-		}
-
-		return p
+		if (producerErr !== '') console.log(producerErr)
+		console.log(`Failed to find producer for params: '${params}'`)
+		return null
 	}
 }

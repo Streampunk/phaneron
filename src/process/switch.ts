@@ -124,27 +124,34 @@ export default class Switch {
 		output: OpenCLBuffer,
 		clQueue: number
 	): Promise<RunTimings> {
-		if (!(this.xform0 && this.xform1 && this.mixer && this.wiper && this.combiner))
-			throw new Error('Switch needs to be initialised')
+		if (
+			!(
+				this.xform0 &&
+				(this.numInputs === 1 || (this.xform1 && this.mixer && this.wiper)) &&
+				this.combiner
+			)
+		)
+			throw new Error(`Switch needs to be initialised ${this.numInputs}`)
 
 		inParams[0].output = this.rgbaXf0
 		await this.xform0.run(inParams[0], clQueue)
 
 		if (this.numInputs > 1) {
 			inParams[1].output = this.rgbaXf1
-			await this.xform1.run(inParams[1], clQueue)
+			await this.xform1?.run(inParams[1], clQueue)
 			if (mixParams.wipe) {
-				/*mixParams.frac*/
-				await this.wiper.run(
+				await this.wiper?.run(
 					{ input0: this.rgbaXf0, input1: this.rgbaXf1, wipe: mixParams.frac, output: this.rgbaMx },
 					clQueue
 				)
 			} else {
-				await this.mixer.run(
+				await this.mixer?.run(
 					{ input0: this.rgbaXf0, input1: this.rgbaXf1, mix: mixParams.frac, output: this.rgbaMx },
 					clQueue
 				)
 			}
+		} else {
+			this.rgbaMx = this.rgbaXf0
 		}
 
 		return await this.combiner.run({ bgIn: this.rgbaMx, ovIn: overlays, output: output }, clQueue)

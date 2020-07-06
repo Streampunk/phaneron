@@ -18,7 +18,6 @@
   14 Ormiscaig, Aultbea, Achnasheen, IV22 2JJ  U.K.
 */
 
-import { clContext as nodenCLContext } from 'nodencl'
 import { Commands } from './commands'
 import { ChanLayer } from '../chanLayer'
 import { Channel } from '../channel'
@@ -26,8 +25,8 @@ import { Channel } from '../channel'
 export class Basic {
 	private readonly channels: Array<Channel>
 
-	constructor(clContext: nodenCLContext) {
-		this.channels = Array.from([1, 2, 3, 4, 5], (c) => new Channel(clContext, c))
+	constructor(channels: Array<Channel>) {
+		this.channels = channels
 	}
 
 	/** Add the supported basic transport commands */
@@ -65,7 +64,7 @@ export class Basic {
 		const autoPlay = params.find((param) => param === 'AUTO') !== undefined
 		console.log(`loadbg: clip '${clip}', loop ${loop}, auto play ${autoPlay}`)
 
-		const bgOK = this.channels[chanLay.channel - 1].createSource(chanLay, params)
+		const bgOK = this.channels[chanLay.channel - 1].loadSource(chanLay, params, false, autoPlay)
 
 		return bgOK
 	}
@@ -77,7 +76,7 @@ export class Basic {
 	async load(chanLay: ChanLayer, params: string[]): Promise<boolean> {
 		if (!chanLay.valid) return Promise.resolve(false)
 
-		const bgOK = this.channels[chanLay.channel - 1].createSource(chanLay, params)
+		const bgOK = this.channels[chanLay.channel - 1].loadSource(chanLay, params, true)
 
 		return bgOK
 	}
@@ -92,35 +91,46 @@ export class Basic {
 
 		if (params.length !== 0) await this.loadbg(chanLay, params)
 
-		const fgOK = this.channels[chanLay.channel - 1].play()
+		const fgOK = this.channels[chanLay.channel - 1].play(chanLay)
 
 		return fgOK
 	}
 
-	/** Pauses playback of the foreground clip on the specified layer. The RESUME command can be used to resume playback again. */
-	async pause(chanLay: ChanLayer, params: string[]): Promise<boolean> {
-		console.log('pause', params)
-		return chanLay.valid
+	/**
+	 * Pauses playback of the foreground clip on the specified layer.
+	 * The RESUME command can be used to resume playback again.
+	 */
+	// eslint-disable-next-line @typescript-eslint/no-unused-vars
+	async pause(chanLay: ChanLayer, _params: string[]): Promise<boolean> {
+		if (!chanLay.valid) return Promise.resolve(false)
+		this.channels[chanLay.channel - 1].pause(chanLay)
+		return Promise.resolve(true)
 	}
 
 	/** Resumes playback of a foreground clip previously paused with the PAUSE command. */
-	async resume(chanLay: ChanLayer, params: string[]): Promise<boolean> {
-		console.log('resume', params)
-		return chanLay.valid
+	// eslint-disable-next-line @typescript-eslint/no-unused-vars
+	async resume(chanLay: ChanLayer, _params: string[]): Promise<boolean> {
+		if (!chanLay.valid) return Promise.resolve(false)
+		this.channels[chanLay.channel - 1].resume(chanLay)
+		return Promise.resolve(true)
 	}
 
 	/** Removes the foreground clip of the specified layer */
-	async stop(chanLay: ChanLayer, params: string[]): Promise<boolean> {
-		console.log('stop', params)
-		return chanLay.valid
+	// eslint-disable-next-line @typescript-eslint/no-unused-vars
+	async stop(chanLay: ChanLayer, _params: string[]): Promise<boolean> {
+		if (!chanLay.valid) return Promise.resolve(false)
+		this.channels[chanLay.channel - 1].stop(chanLay)
+		return Promise.resolve(true)
 	}
 
 	/**
 	 * Removes all clips (both foreground and background) of the specified layer.
 	 * If no layer is specified then all layers in the specified video_channel are cleared.
 	 */
-	async clear(chanLay: ChanLayer, params: string[]): Promise<boolean> {
-		console.log('clear', params)
-		return chanLay.valid
+	// eslint-disable-next-line @typescript-eslint/no-unused-vars
+	async clear(chanLay: ChanLayer, _params: string[]): Promise<boolean> {
+		if (!chanLay.valid) return Promise.resolve(false)
+		this.channels[chanLay.channel - 1].clear(chanLay)
+		return Promise.resolve(true)
 	}
 }

@@ -21,7 +21,7 @@
 import { SourceFrame } from '../chanLayer'
 import { clContext as nodenCLContext, OpenCLBuffer } from 'nodencl'
 import { ConsumerFactory, Consumer } from './consumer'
-import { RedioPipe, RedioStream, nil, isEnd, isNil } from 'redioactive'
+import { RedioPipe, RedioEnd, nil, isValue, isEnd } from 'redioactive'
 import * as Macadam from 'macadam'
 import { FromRGBA } from '../process/io'
 import { Writer } from '../process/v210'
@@ -30,11 +30,8 @@ export class MacadamConsumer implements Consumer {
 	private readonly channel: number
 	private clContext: nodenCLContext
 	private playback: Macadam.PlaybackChannel | null = null
-	private fromRGBA: FromRGBA | undefined
-	private vidProcess: RedioPipe<OpenCLBuffer> | undefined
-	private vidSaver: RedioPipe<OpenCLBuffer> | undefined
-	private spout: RedioStream<OpenCLBuffer> | undefined
-	private clDests: Array<OpenCLBuffer> | undefined
+	private fromRGBA: FromRGBA | null = null
+	private clDests: OpenCLBuffer[] = []
 	private field: number
 	private frameNumber: number
 	private readonly latency: number
@@ -47,7 +44,7 @@ export class MacadamConsumer implements Consumer {
 		this.latency = 3
 	}
 
-	async initialise(pipe: RedioPipe<SourceFrame>): Promise<RedioStream<OpenCLBuffer> | null> {
+	async initialise(): Promise<boolean> {
 		this.playback = await Macadam.playback({
 			deviceIndex: this.channel - 1,
 			displayMode: Macadam.bmdModeHD1080i50,
@@ -65,74 +62,95 @@ export class MacadamConsumer implements Consumer {
 		)
 		await this.fromRGBA.init()
 
-		this.vidProcess = pipe.valve<OpenCLBuffer>(
-			async (frame) => {
-				if (!isEnd(frame) && !isNil(frame)) {
+		console.log(`Created Macadam consumer for Blackmagic id: ${this.channel - 1}`)
+		return this.playback !== null
+	}
+
+	connect(mixerPipe: RedioPipe<SourceFrame | RedioEnd>): void {
+		this.field = 0
+		this.frameNumber = 0
+
+		// TODO: fork the incoming stream into audio, video
+		const vidProcess = mixerPipe.valve<OpenCLBuffer | RedioEnd>(
+			async (frame: SourceFrame | RedioEnd) => {
+				if (isValue(frame)) {
 					const fromRGBA = this.fromRGBA as FromRGBA
 					if (this.field === 0) this.clDests = await fromRGBA.createDests()
-					const clDests = this.clDests as Array<OpenCLBuffer>
-					const srcFrame = frame as SourceFrame
 					const queue = this.clContext.queue.process
 					const interlace = 0x1 | (this.field << 1)
-					await fromRGBA.processFrame(srcFrame.video, clDests, queue, interlace)
+					await fromRGBA.processFrame(frame.video, this.clDests, queue, interlace)
 					await this.clContext.waitFinish(queue)
-					srcFrame.video.release()
+					frame.video.release()
 					this.field = 1 - this.field
-					return this.field === 1 ? nil : clDests[0]
+					return this.field === 1 ? nil : this.clDests[0]
 				} else {
 					return frame
 				}
 			},
-			{ bufferSizeMax: 3, oneToMany: false }
+			{ bufferSizeMax: 1, oneToMany: false }
 		)
 
-		this.vidSaver = this.vidProcess.valve<OpenCLBuffer>(
-			async (frame) => {
-				if (!isEnd(frame) && !isNil(frame)) {
-					const v210Frame = frame as OpenCLBuffer
+		const vidSaver = vidProcess.valve<OpenCLBuffer | RedioEnd>(
+			async (frame: OpenCLBuffer | RedioEnd) => {
+				if (isValue(frame)) {
 					const fromRGBA = this.fromRGBA as FromRGBA
-					await fromRGBA.saveFrame(v210Frame, this.clContext.queue.unload)
+					await fromRGBA.saveFrame(frame, this.clContext.queue.unload)
 					await this.clContext.waitFinish(this.clContext.queue.unload)
-					return v210Frame
+					return frame
 				} else {
+					if (isEnd(frame)) {
+						this.clDests.forEach((d) => d.release())
+						this.fromRGBA = null
+					}
 					return frame
 				}
 			},
-			{ bufferSizeMax: 3, oneToMany: false }
+			{ bufferSizeMax: 1, oneToMany: false }
 		)
 
-		this.spout = this.vidSaver.spout(
-			async (frame) => {
-				if (!isEnd(frame) && !isNil(frame)) {
-					const v210Frame = frame as OpenCLBuffer
-					this.playback?.schedule({ video: v210Frame, time: 1000 * this.frameNumber })
+		vidSaver.spout(
+			async (frame: OpenCLBuffer | RedioEnd) => {
+				if (isValue(frame)) {
+					this.playback?.schedule({ video: frame, time: 1000 * this.frameNumber })
 					if (this.frameNumber === this.latency) this.playback?.start({ startTime: 0 })
 					if (this.frameNumber >= this.latency)
 						await this.playback?.played((this.frameNumber - this.latency) * 1000)
 
 					this.frameNumber++
-					v210Frame.release()
+					frame.release()
 					return Promise.resolve()
 				} else {
+					if (isEnd(frame)) this.playback?.stop()
+					this.clContext.logBuffers()
 					return Promise.resolve()
 				}
 			},
-			{ bufferSizeMax: 3, oneToMany: false }
+			{ bufferSizeMax: 2, oneToMany: false }
 		)
+	}
 
-		console.log(`Created Macadam consumer for Blackmagic id: ${this.channel - 1}`)
-		return this.spout
+	release(): void {
+		// this.playback?.stop()
+		// this.playback = null
 	}
 }
 
 export class MacadamConsumerFactory implements ConsumerFactory<MacadamConsumer> {
-	private clContext: nodenCLContext
+	private readonly clContext: nodenCLContext
+	private readonly consumers: Map<number, MacadamConsumer>
 
 	constructor(clContext: nodenCLContext) {
 		this.clContext = clContext
+		this.consumers = new Map<number, MacadamConsumer>()
 	}
 
 	createConsumer(channel: number): MacadamConsumer {
-		return new MacadamConsumer(channel, this.clContext)
+		const oldConsumer = this.consumers.get(channel)
+		if (oldConsumer) oldConsumer.release()
+		this.consumers.delete(channel)
+
+		const consumer = new MacadamConsumer(channel, this.clContext)
+		this.consumers.set(channel, consumer)
+		return consumer
 	}
 }

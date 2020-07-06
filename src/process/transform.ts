@@ -114,7 +114,7 @@ export default class Transform extends ProcessImpl {
 
 		const translateMatrix = [...new Array(3)].map(() => new Float32Array(3))
 		translateMatrix[0] = Float32Array.from([1.0, 0.0, offsetX])
-		translateMatrix[1] = Float32Array.from([0.0, 1.0, offsetY])
+		translateMatrix[1] = Float32Array.from([0.0, 1.0, offsetY / aspect])
 		translateMatrix[2] = Float32Array.from([0.0, 0.0, 1.0])
 
 		const rotateMatrix = [...new Array(3)].map(() => new Float32Array(3))

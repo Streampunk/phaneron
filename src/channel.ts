@@ -18,47 +18,99 @@
   14 Ormiscaig, Aultbea, Achnasheen, IV22 2JJ  U.K.
 */
 
-import { clContext as nodenCLContext, OpenCLBuffer } from 'nodencl'
-import { ChanLayer, SourceFrame } from './chanLayer'
+import { clContext as nodenCLContext } from 'nodencl'
+import { ChanLayer } from './chanLayer'
 import { ProducerRegistry } from './producer/producer'
-import { ConsumerRegistry } from './consumer/consumer'
-import { RedioPipe, RedioStream } from 'redioactive'
+import { Layer } from './layer'
+import { ConsumerRegistry, Consumer } from './consumer/consumer'
+import { Mixer } from './mixer'
 
 export class Channel {
 	private readonly channel: number
-	private readonly producerRegistry: ProducerRegistry
 	private readonly consumerRegistry: ConsumerRegistry
-	private foreground: RedioPipe<SourceFrame> | null
-	private background: RedioPipe<SourceFrame> | null
-	private spout: RedioStream<OpenCLBuffer> | null
+	private readonly producerRegistry: ProducerRegistry
+	private consumer: Consumer | null = null
+	private readonly mixer: Mixer
+	private layers: Map<number, Layer>
 
-	constructor(clContext: nodenCLContext, channel: number) {
+	constructor(
+		clContext: nodenCLContext,
+		channel: number,
+		consumerRegistry: ConsumerRegistry,
+		producerRegistry: ProducerRegistry
+	) {
 		this.channel = channel
-		this.producerRegistry = new ProducerRegistry(clContext)
-		this.consumerRegistry = new ConsumerRegistry(clContext)
-		this.foreground = null
-		this.background = null
-		this.spout = null
+		this.consumerRegistry = consumerRegistry
+		this.producerRegistry = producerRegistry
+		this.mixer = new Mixer(clContext, 1920, 1080)
+		this.layers = new Map<number, Layer>()
 	}
 
-	async createSource(chanLay: ChanLayer, params: string[]): Promise<boolean> {
-		this.background = await this.producerRegistry.createSource(chanLay, params)
-		if (this.background === null)
-			console.log(`Failed to create source for channel ${chanLay.channel}, layer ${chanLay.layer}`)
-		return this.background !== null
-	}
-
-	async play(): Promise<boolean> {
-		if (this.background !== null) {
-			this.foreground = this.background
-			this.background = null
+	async loadSource(
+		chanLay: ChanLayer,
+		params: string[],
+		preview = false,
+		autoPlay = false
+	): Promise<boolean> {
+		const producer = await this.producerRegistry.createSource(chanLay, params)
+		if (producer === null) {
+			console.log(`Failed to create source for params ${params}`)
+			return false
 		}
 
-		if (this.foreground !== null)
-			this.spout = await this.consumerRegistry.createSpout(this.channel, this.foreground)
+		const layer = new Layer()
+		layer.load(producer, preview, autoPlay)
+		this.layers.set(chanLay.layer, layer)
+		const srcPipe = producer.getSourcePipe()
+		if (srcPipe === undefined) {
+			console.log(`Failed to create source pipe for params ${params}`)
+			return false
+		}
 
-		if (!this.spout) console.log(`Failed to create spout for channel ${this.channel}`)
+		const mixerPipe = await this.mixer.init(srcPipe)
+		if (mixerPipe === undefined) {
+			console.log(`Failed to create mixer pipe for params ${params}`)
+			return false
+		}
 
-		return Promise.resolve(this.spout !== null)
+		this.consumer = await this.consumerRegistry.createSpout(this.channel, mixerPipe)
+		if (!this.consumer) console.log(`Failed to create spout for channel ${this.channel}`)
+
+		return true
+	}
+
+	async play(chanLay: ChanLayer): Promise<boolean> {
+		const layer = this.layers.get(chanLay.layer) as Layer // !!! TODO
+		layer.play()
+		return true
+	}
+
+	pause(chanLay: ChanLayer): boolean {
+		const layer = this.layers.get(chanLay.layer) as Layer // !!! TODO
+		layer.pause()
+		return true
+	}
+
+	resume(chanLay: ChanLayer): boolean {
+		const layer = this.layers.get(chanLay.layer) as Layer // !!! TODO
+		layer.resume()
+		return true
+	}
+
+	stop(chanLay: ChanLayer): boolean {
+		this.consumer?.release()
+		const layer = this.layers.get(chanLay.layer) as Layer // !!! TODO
+		layer.stop()
+		return true
+	}
+
+	clear(chanLay: ChanLayer): boolean {
+		this.consumer?.release()
+		if (chanLay.layer === 0) this.layers.clear()
+		else {
+			this.stop(chanLay)
+			this.layers.delete(chanLay.layer)
+		}
+		return true
 	}
 }

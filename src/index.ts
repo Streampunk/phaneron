@@ -21,7 +21,10 @@
 import { clContext as nodenCLContext } from 'nodencl'
 import { start, processCommand } from './AMCP/server'
 import { Commands } from './AMCP/commands'
+import { Channel } from './channel'
 import { Basic } from './AMCP/basic'
+import { ConsumerRegistry } from './consumer/consumer'
+import { ProducerRegistry } from './producer/producer'
 import readline from 'readline'
 
 const initialiseOpenCL = async (): Promise<nodenCLContext> => {
@@ -67,9 +70,18 @@ rl.on('SIGINT', () => {
 console.log('\nWelcome to Phaneron\n')
 
 const commands: Commands = new Commands()
-initialiseOpenCL().then((context) => {
-	const basic = new Basic(context)
+initialiseOpenCL().then(async (clContext) => {
+	const consumerRegistry = new ConsumerRegistry(clContext)
+	const producerRegistry = new ProducerRegistry(clContext)
+	const channels = await Promise.all(
+		Array.from(
+			[1, 2, 3, 4],
+			async (c) => new Channel(clContext, c, consumerRegistry, producerRegistry)
+		)
+	)
+	const basic = new Basic(channels)
 	basic.addCmds(commands)
+	// setInterval(() => clContext.logBuffers(), 2000)
 })
 
 start(commands).then((fulfilled) => console.log('Command:', fulfilled), console.error)

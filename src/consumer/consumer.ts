@@ -18,13 +18,15 @@
   14 Ormiscaig, Aultbea, Achnasheen, IV22 2JJ  U.K.
 */
 
-import { clContext as nodenCLContext, OpenCLBuffer } from 'nodencl'
+import { clContext as nodenCLContext } from 'nodencl'
 import { SourceFrame } from '../chanLayer'
 import { MacadamConsumerFactory } from './macadamConsumer'
-import { RedioPipe, RedioStream } from 'redioactive'
+import { RedioPipe, RedioEnd } from 'redioactive'
 
 export interface Consumer {
-	initialise(pipe: RedioPipe<SourceFrame>): Promise<RedioStream<OpenCLBuffer> | null>
+	initialise(): Promise<boolean>
+	connect(mixerPipe: RedioPipe<SourceFrame | RedioEnd>): void
+	release(): void
 }
 
 export interface ConsumerFactory<T extends Consumer> {
@@ -49,13 +51,17 @@ export class ConsumerRegistry {
 
 	async createSpout(
 		channel: number,
-		pipe: RedioPipe<SourceFrame>
-	): Promise<RedioStream<OpenCLBuffer> | null> {
-		let p: RedioStream<OpenCLBuffer> | null = null
+		mixerPipe: RedioPipe<SourceFrame | RedioEnd>
+	): Promise<Consumer | null> {
+		let consumerOK = false
 		for (const f of this.consumerFactories) {
 			try {
 				const consumer = f.createConsumer(channel) as Consumer
-				if ((p = await consumer.initialise(pipe)) !== null) break
+				consumerOK = await consumer.initialise()
+				if (consumerOK) {
+					consumer.connect(mixerPipe)
+					return consumer
+				}
 			} catch (err) {
 				if (!(err instanceof InvalidConsumerError)) {
 					throw err
@@ -63,10 +69,7 @@ export class ConsumerRegistry {
 			}
 		}
 
-		if (p === null) {
-			console.log(`Failed to find consumer for channel: '${channel}'`)
-		}
-
-		return p
+		console.log(`Failed to find consumer for channel: '${channel}'`)
+		return null
 	}
 }

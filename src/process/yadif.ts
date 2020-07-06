@@ -138,6 +138,7 @@ export default class Yadif {
 			timings.kernelExec += t.kernelExec
 		}
 
+		input.addRef()
 		if (this.prev) this.prev.release()
 		this.prev = this.cur
 		this.cur = this.next
@@ -164,5 +165,11 @@ export default class Yadif {
 		timings.kernelExec += t.kernelExec
 
 		return timings
+	}
+
+	release(): void {
+		if (this.prev) this.prev.release()
+		if (this.cur) this.cur.release()
+		if (this.next) this.next.release()
 	}
 }
