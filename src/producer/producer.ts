@@ -21,6 +21,7 @@
 import { clContext as nodenCLContext } from 'nodencl'
 import { ChanLayer, SourceFrame } from '../chanLayer'
 import { FFmpegProducerFactory } from './ffmpegProducer'
+import { MacadamProducerFactory } from './macadamProducer'
 import { RedioPipe, RedioEnd } from 'redioactive'
 
 export interface Producer {
@@ -49,6 +50,7 @@ export class ProducerRegistry {
 	constructor(clContext: nodenCLContext) {
 		this.producerFactories = []
 		this.producerFactories.push(new FFmpegProducerFactory(clContext))
+		this.producerFactories.push(new MacadamProducerFactory(clContext))
 	}
 
 	async createSource(chanLay: ChanLayer, params: string[]): Promise<Producer | null> {

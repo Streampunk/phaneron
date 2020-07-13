@@ -21,20 +21,18 @@
 import { SourceFrame } from '../chanLayer'
 import { ProducerFactory, Producer, InvalidProducerError } from './producer'
 import { clContext as nodenCLContext, OpenCLBuffer } from 'nodencl'
-import { Demuxer, demuxer, Decoder, decoder, Filterer, filterer, Packet, Frame } from 'beamcoder'
 import redio, { RedioPipe, nil, end, isValue, RedioEnd, isEnd } from 'redioactive'
+import * as Macadam from 'macadam'
 import { ToRGBA } from '../process/io'
-import { Reader as yuv422p10Reader } from '../process/yuv422p10'
+import { Reader as v210Reader } from '../process/v210'
 import Yadif from '../process/yadif'
 import { EventEmitter } from 'events'
 
-export class FFmpegProducer implements Producer {
+export class MacadamProducer implements Producer {
 	private readonly id: string
 	private params: string[]
 	private clContext: nodenCLContext
-	private demuxer: Demuxer | null = null
-	private readonly decoders: Decoder[]
-	private readonly filterers: Filterer[]
+	private capture: Macadam.CaptureChannel | null = null
 	private makeSource: RedioPipe<SourceFrame | RedioEnd> | undefined
 	private toRGBA: ToRGBA | null = null
 	private yadif: Yadif | null = null
@@ -46,47 +44,26 @@ export class FFmpegProducer implements Producer {
 		this.id = id
 		this.params = params
 		this.clContext = context
-		this.decoders = []
-		this.filterers = []
 		this.pauseEvent = new EventEmitter()
 	}
 
 	async initialise(): Promise<void> {
-		const url = this.params[0]
+		if (this.params[0] != 'DECKLINK')
+			throw new InvalidProducerError('Macadam producer supports decklink devices')
+
+		const channel = +this.params[1]
 		let width = 0
 		let height = 0
 		try {
-			this.demuxer = await demuxer(url)
-			await this.demuxer.seek({ time: 20 })
-			// console.log('NumStreams:', this.demuxer.streams.length)
-			this.demuxer.streams.forEach((_s, i) => {
-				this.decoders.push(decoder({ demuxer: this.demuxer as Demuxer, stream_index: i }))
+			this.capture = await Macadam.capture({
+				deviceIndex: channel - 1,
+				displayMode: Macadam.bmdModeHD1080i50,
+				pixelFormat: Macadam.bmdFormat10BitYUV
 			})
+			width = this.capture.width
+			height = this.capture.height
 
-			const vidStream = this.demuxer.streams[0]
-			width = vidStream.codecpar.width
-			height = vidStream.codecpar.height
-			this.filterers[0] = await filterer({
-				filterType: 'video',
-				inputParams: [
-					{
-						width: width,
-						height: height,
-						pixelFormat: vidStream.codecpar.format,
-						timeBase: vidStream.time_base,
-						pixelAspect: vidStream.codecpar.sample_aspect_ratio
-					}
-				],
-				outputParams: [
-					{
-						pixelFormat: vidStream.codecpar.format
-					}
-				],
-				filterSpec: 'fps=fps=25/1' // !!! TODO !!!
-				// filterSpec: 'fps=fps=25/1:start_time=0' // !!! TODO !!!
-			})
-
-			this.toRGBA = new ToRGBA(this.clContext, '709', '709', new yuv422p10Reader(width, height))
+			this.toRGBA = new ToRGBA(this.clContext, '709', '709', new v210Reader(width, height))
 			await this.toRGBA.init()
 
 			this.yadif = new Yadif(this.clContext, width, height, 'send_field', 'tff', 'all')
@@ -95,60 +72,35 @@ export class FFmpegProducer implements Producer {
 			throw new InvalidProducerError(err)
 		}
 
-		const vidSource = redio<Packet | RedioEnd>(
+		const vidSource = redio<Buffer | RedioEnd>(
 			async (push, next) => {
-				if (this.running) {
-					const packet = await this.demuxer?.read()
-					// console.log('PKT:', packet?.stream_index, packet?.pts)
-					if (packet && packet?.stream_index === 0) push(packet)
-					else push(nil)
+				if (this.capture && this.running) {
+					const frame = await this.capture.frame()
+					push(frame.video.data)
 					next()
-				} else if (this.demuxer) {
+				} else if (this.capture) {
 					push(end)
 					next()
-					this.demuxer = null
+					this.capture.stop()
+					this.capture = null
 				}
 			},
-			{ bufferSizeMax: 3 }
+			{ bufferSizeMax: 1 }
 		)
 
-		const vidDecode = vidSource.valve<Frame | RedioEnd>(
-			async (packet: Packet | RedioEnd) => {
-				if (isValue(packet)) {
-					const frm = await this.decoders[packet.stream_index].decode(packet)
-					return frm.frames
-				} else {
-					return packet
-				}
-			},
-			{ bufferSizeMax: 2, oneToMany: true }
-		)
-
-		const vidFilter = vidDecode.valve<Frame | RedioEnd>(
-			async (frame: Frame | RedioEnd) => {
-				if (isValue(frame)) {
-					const ff = await this.filterers[0].filter([frame])
-					return ff[0].frames.length > 0 ? ff[0].frames : nil
-				} else {
-					return frame
-				}
-			},
-			{ bufferSizeMax: 2, oneToMany: true }
-		)
-
-		const vidLoader = vidFilter.valve<OpenCLBuffer[] | RedioEnd>(
-			async (frame: Frame | RedioEnd) => {
+		const vidLoader = vidSource.valve<OpenCLBuffer[] | RedioEnd>(
+			async (frame: Buffer | RedioEnd) => {
 				if (isValue(frame)) {
 					const toRGBA = this.toRGBA as ToRGBA
 					const clSources = await toRGBA.createSources()
-					await toRGBA.loadFrame(frame.data, clSources, this.clContext.queue.load)
+					await toRGBA.loadFrame(frame, clSources, this.clContext.queue.load)
 					await this.clContext.waitFinish(this.clContext.queue.load)
 					return clSources
 				} else {
 					return frame
 				}
 			},
-			{ bufferSizeMax: 2, oneToMany: false }
+			{ bufferSizeMax: 1, oneToMany: false }
 		)
 
 		const vidProcess = vidLoader.valve<OpenCLBuffer | RedioEnd>(
@@ -191,8 +143,6 @@ export class FFmpegProducer implements Producer {
 		this.makeSource = vidDeint.valve<SourceFrame | RedioEnd>(
 			async (frame: OpenCLBuffer | RedioEnd) => {
 				if (isValue(frame)) {
-					while (this.paused)
-						await new Promise((resolve) => this.pauseEvent.once('update', resolve))
 					const sourceFrame: SourceFrame = { video: frame, audio: Buffer.alloc(0), timestamp: 0 }
 					return sourceFrame
 				} else {
@@ -202,7 +152,7 @@ export class FFmpegProducer implements Producer {
 			{ bufferSizeMax: 1, oneToMany: false }
 		)
 
-		console.log(`Created FFmpeg producer ${this.id} for path ${url}`)
+		console.log(`Created Macadam producer ${this.id} for channel ${channel}`)
 	}
 
 	getSourcePipe(): RedioPipe<SourceFrame | RedioEnd> | undefined {
@@ -211,6 +161,7 @@ export class FFmpegProducer implements Producer {
 
 	setPaused(pause: boolean): void {
 		this.paused = pause
+		console.log(this.id, ': setPaused', this.paused)
 		this.pauseEvent.emit('update')
 	}
 
@@ -219,14 +170,14 @@ export class FFmpegProducer implements Producer {
 	}
 }
 
-export class FFmpegProducerFactory implements ProducerFactory<FFmpegProducer> {
+export class MacadamProducerFactory implements ProducerFactory<MacadamProducer> {
 	private clContext: nodenCLContext
 
 	constructor(clContext: nodenCLContext) {
 		this.clContext = clContext
 	}
 
-	createProducer(id: string, params: string[]): FFmpegProducer {
-		return new FFmpegProducer(id, params, this.clContext)
+	createProducer(id: string, params: string[]): MacadamProducer {
+		return new MacadamProducer(id, params, this.clContext)
 	}
 }

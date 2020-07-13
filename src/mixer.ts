@@ -87,9 +87,9 @@ export class Mixer {
 					await this.transform?.run(
 						{
 							input: frame.video,
-							scale: 0.5,
-							offsetX: 0.5,
-							offsetY: 0.5,
+							scale: 1.0, //0.5,
+							offsetX: 0.0, //0.5,
+							offsetY: 0.0, //0.5,
 							flipH: false,
 							flipV: false,
 							rotate: 0.0,
