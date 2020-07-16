@@ -18,11 +18,11 @@
   14 Ormiscaig, Aultbea, Achnasheen, IV22 2JJ  U.K.
 */
 
-import { clContext as nodenCLContext } from 'nodencl'
-import { SourceFrame } from './chanLayer'
+import { clContext as nodenCLContext, OpenCLBuffer } from 'nodencl'
 import { RedioPipe, RedioEnd, isValue, isEnd } from 'redioactive'
 import ImageProcess from './process/imageProcess'
 import Transform from './process/transform'
+import { Frame } from 'beamcoder'
 
 export class Mixer {
 	private readonly clContext: nodenCLContext
@@ -30,6 +30,8 @@ export class Mixer {
 	private readonly height: number
 	private transform: ImageProcess | null
 	// private black: OpenCLBuffer | null = null
+	private mixAudio: RedioPipe<Frame | RedioEnd> | undefined
+	private mixVideo: RedioPipe<OpenCLBuffer | RedioEnd> | undefined
 
 	constructor(clContext: nodenCLContext, width: number, height: number) {
 		this.clContext = clContext
@@ -41,9 +43,13 @@ export class Mixer {
 		)
 	}
 
-	async init(src: RedioPipe<SourceFrame | RedioEnd>): Promise<RedioPipe<SourceFrame | RedioEnd>> {
-		await this.transform?.init()
+	async init(
+		srcAudio: RedioPipe<Frame | RedioEnd> | undefined,
+		srcVideo: RedioPipe<OpenCLBuffer | RedioEnd>
+	): Promise<void> {
+		this.mixAudio = srcAudio
 
+		await this.transform?.init()
 		const numBytesRGBA = this.width * this.height * 4 * 4
 		// this.black = await this.clContext.createBuffer(
 		// 	numBytesRGBA,
@@ -70,8 +76,8 @@ export class Mixer {
 		// await this.black.hostAccess('writeonly')
 		// Buffer.from(blackFloat.buffer).copy(this.black)
 
-		const mixValve = src.valve<SourceFrame | RedioEnd>(
-			async (frame: SourceFrame | RedioEnd) => {
+		const mixVidValve = srcVideo.valve<OpenCLBuffer | RedioEnd>(
+			async (frame: OpenCLBuffer | RedioEnd) => {
 				if (isValue(frame)) {
 					const xfDest = await this.clContext.createBuffer(
 						numBytesRGBA,
@@ -83,10 +89,11 @@ export class Mixer {
 						},
 						'switch'
 					)
+					xfDest.timestamp = frame.timestamp
 
 					await this.transform?.run(
 						{
-							input: frame.video,
+							input: frame,
 							scale: 1.0, //0.5,
 							offsetX: 0.0, //0.5,
 							offsetY: 0.0, //0.5,
@@ -99,14 +106,8 @@ export class Mixer {
 					)
 
 					await this.clContext.waitFinish(this.clContext.queue.process)
-					frame.video.release()
-
-					const sourceFrame: SourceFrame = {
-						video: xfDest,
-						audio: Buffer.alloc(0),
-						timestamp: 0
-					}
-					return sourceFrame
+					frame.release()
+					return xfDest
 				} else {
 					if (isEnd(frame)) {
 						// this.black?.release()
@@ -118,6 +119,13 @@ export class Mixer {
 			{ bufferSizeMax: 1, oneToMany: false }
 		)
 
-		return mixValve
+		this.mixVideo = mixVidValve
+	}
+
+	getMixAudio(): RedioPipe<Frame | RedioEnd> | undefined {
+		return this.mixAudio
+	}
+	getMixVideo(): RedioPipe<OpenCLBuffer | RedioEnd> | undefined {
+		return this.mixVideo
 	}
 }

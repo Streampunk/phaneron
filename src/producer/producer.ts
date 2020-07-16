@@ -18,15 +18,17 @@
   14 Ormiscaig, Aultbea, Achnasheen, IV22 2JJ  U.K.
 */
 
-import { clContext as nodenCLContext } from 'nodencl'
-import { ChanLayer, SourceFrame } from '../chanLayer'
+import { clContext as nodenCLContext, OpenCLBuffer } from 'nodencl'
+import { ChanLayer, ChanProperties } from '../chanLayer'
 import { FFmpegProducerFactory } from './ffmpegProducer'
 import { MacadamProducerFactory } from './macadamProducer'
 import { RedioPipe, RedioEnd } from 'redioactive'
+import { Frame } from 'beamcoder'
 
 export interface Producer {
-	initialise(): void
-	getSourcePipe(): RedioPipe<SourceFrame | RedioEnd> | undefined
+	initialise(chanProperties: ChanProperties): void
+	getSourceAudio(): RedioPipe<Frame | RedioEnd> | undefined
+	getSourceVideo(): RedioPipe<OpenCLBuffer | RedioEnd> | undefined
 	setPaused(pause: boolean): void
 	release(): void
 }
@@ -49,17 +51,21 @@ export class ProducerRegistry {
 
 	constructor(clContext: nodenCLContext) {
 		this.producerFactories = []
-		this.producerFactories.push(new FFmpegProducerFactory(clContext))
 		this.producerFactories.push(new MacadamProducerFactory(clContext))
+		this.producerFactories.push(new FFmpegProducerFactory(clContext))
 	}
 
-	async createSource(chanLay: ChanLayer, params: string[]): Promise<Producer | null> {
+	async createSource(
+		chanLay: ChanLayer,
+		params: string[],
+		chanProperties: ChanProperties
+	): Promise<Producer | null> {
 		const id = `${chanLay.channel}-${chanLay.layer}`
 		let producerErr = ''
 		for (const f of this.producerFactories) {
 			try {
 				const producer = f.createProducer(id, params)
-				await producer.initialise()
+				await producer.initialise(chanProperties)
 				return producer
 			} catch (err) {
 				producerErr = err.message

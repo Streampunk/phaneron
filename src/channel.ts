@@ -19,7 +19,7 @@
 */
 
 import { clContext as nodenCLContext } from 'nodencl'
-import { ChanLayer } from './chanLayer'
+import { ChanLayer, ChanProperties } from './chanLayer'
 import { ProducerRegistry } from './producer/producer'
 import { Layer } from './layer'
 import { ConsumerRegistry, Consumer } from './consumer/consumer'
@@ -29,6 +29,7 @@ export class Channel {
 	private readonly channel: number
 	private readonly consumerRegistry: ConsumerRegistry
 	private readonly producerRegistry: ProducerRegistry
+	private readonly chanProperties: ChanProperties
 	private consumer: Consumer | null = null
 	private readonly mixer: Mixer
 	private layers: Map<number, Layer>
@@ -42,6 +43,7 @@ export class Channel {
 		this.channel = channel
 		this.consumerRegistry = consumerRegistry
 		this.producerRegistry = producerRegistry
+		this.chanProperties = { audioTimebase: [1, 48000], videoTimebase: [1, 50] }
 		this.mixer = new Mixer(clContext, 1920, 1080)
 		this.layers = new Map<number, Layer>()
 	}
@@ -52,7 +54,7 @@ export class Channel {
 		preview = false,
 		autoPlay = false
 	): Promise<boolean> {
-		const producer = await this.producerRegistry.createSource(chanLay, params)
+		const producer = await this.producerRegistry.createSource(chanLay, params, this.chanProperties)
 		if (producer === null) {
 			console.log(`Failed to create source for params ${params}`)
 			return false
@@ -61,19 +63,27 @@ export class Channel {
 		const layer = new Layer()
 		layer.load(producer, preview, autoPlay)
 		this.layers.set(chanLay.layer, layer)
-		const srcPipe = producer.getSourcePipe()
-		if (srcPipe === undefined) {
-			console.log(`Failed to create source pipe for params ${params}`)
+		const srcAudio = producer.getSourceAudio()
+		const srcVideo = producer.getSourceVideo()
+		if (srcVideo === undefined) {
+			console.log(`Failed to create sources for params ${params}`)
 			return false
 		}
 
-		const mixerPipe = await this.mixer.init(srcPipe)
-		if (mixerPipe === undefined) {
-			console.log(`Failed to create mixer pipe for params ${params}`)
+		await this.mixer.init(srcAudio, srcVideo)
+		const mixAudio = this.mixer.getMixAudio()
+		const mixVideo = this.mixer.getMixVideo()
+		if (mixVideo === undefined) {
+			console.log(`Failed to create mixer for params ${params}`)
 			return false
 		}
 
-		this.consumer = await this.consumerRegistry.createSpout(this.channel, mixerPipe)
+		this.consumer = await this.consumerRegistry.createSpout(
+			this.channel,
+			mixAudio,
+			mixVideo,
+			this.chanProperties
+		)
 		if (!this.consumer) console.log(`Failed to create spout for channel ${this.channel}`)
 
 		return true

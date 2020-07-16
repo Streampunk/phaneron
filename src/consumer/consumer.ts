@@ -18,14 +18,18 @@
   14 Ormiscaig, Aultbea, Achnasheen, IV22 2JJ  U.K.
 */
 
-import { clContext as nodenCLContext } from 'nodencl'
-import { SourceFrame } from '../chanLayer'
+import { clContext as nodenCLContext, OpenCLBuffer } from 'nodencl'
 import { MacadamConsumerFactory } from './macadamConsumer'
 import { RedioPipe, RedioEnd } from 'redioactive'
+import { Frame } from 'beamcoder'
+import { ChanProperties } from '../chanLayer'
 
 export interface Consumer {
-	initialise(): Promise<boolean>
-	connect(mixerPipe: RedioPipe<SourceFrame | RedioEnd>): void
+	initialise(chanProperties: ChanProperties): Promise<boolean>
+	connect(
+		mixAudio: RedioPipe<Frame | RedioEnd> | undefined,
+		mixVideo: RedioPipe<OpenCLBuffer | RedioEnd>
+	): void
 	release(): void
 }
 
@@ -51,15 +55,17 @@ export class ConsumerRegistry {
 
 	async createSpout(
 		channel: number,
-		mixerPipe: RedioPipe<SourceFrame | RedioEnd>
+		mixAudio: RedioPipe<Frame | RedioEnd> | undefined,
+		mixVideo: RedioPipe<OpenCLBuffer | RedioEnd>,
+		chanProperties: ChanProperties
 	): Promise<Consumer | null> {
 		let consumerOK = false
 		for (const f of this.consumerFactories) {
 			try {
 				const consumer = f.createConsumer(channel) as Consumer
-				consumerOK = await consumer.initialise()
+				consumerOK = await consumer.initialise(chanProperties)
 				if (consumerOK) {
-					consumer.connect(mixerPipe)
+					consumer.connect(mixAudio, mixVideo)
 					return consumer
 				}
 			} catch (err) {

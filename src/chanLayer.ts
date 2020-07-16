@@ -18,16 +18,13 @@
   14 Ormiscaig, Aultbea, Achnasheen, IV22 2JJ  U.K.
 */
 
-import { OpenCLBuffer } from 'nodencl'
-
 export interface ChanLayer {
 	valid: boolean
 	channel: number
 	layer: number
 }
 
-export interface SourceFrame {
-	video: OpenCLBuffer
-	audio: Buffer
-	timestamp: number
+export interface ChanProperties {
+	audioTimebase: number[]
+	videoTimebase: number[]
 }

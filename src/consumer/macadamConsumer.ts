@@ -18,13 +18,14 @@
   14 Ormiscaig, Aultbea, Achnasheen, IV22 2JJ  U.K.
 */
 
-import { SourceFrame } from '../chanLayer'
 import { clContext as nodenCLContext, OpenCLBuffer } from 'nodencl'
 import { ConsumerFactory, Consumer } from './consumer'
 import { RedioPipe, RedioEnd, nil, isValue, isEnd } from 'redioactive'
 import * as Macadam from 'macadam'
 import { FromRGBA } from '../process/io'
 import { Writer } from '../process/v210'
+import { Frame } from 'beamcoder'
+import { ChanProperties } from '../chanLayer'
 
 export class MacadamConsumer implements Consumer {
 	private readonly channel: number
@@ -32,21 +33,35 @@ export class MacadamConsumer implements Consumer {
 	private playback: Macadam.PlaybackChannel | null = null
 	private fromRGBA: FromRGBA | null = null
 	private clDests: OpenCLBuffer[] = []
-	private field: number
+	private audField: number
+	private vidField: number
 	private frameNumber: number
 	private readonly latency: number
+	private readonly audioChannels = 2
+	private chanProperties: ChanProperties | null = null
+	private curAudBuf: Buffer | null = null
+	private lastAudio: Buffer[] = []
+	private vidTimestamp = 0
 
 	constructor(channel: number, context: nodenCLContext) {
 		this.channel = channel
 		this.clContext = context
-		this.field = 0
+		this.audField = 0
+		this.vidField = 0
 		this.frameNumber = 0
 		this.latency = 3
 	}
 
-	async initialise(): Promise<boolean> {
+	async initialise(chanProperties: ChanProperties): Promise<boolean> {
+		this.chanProperties = chanProperties
+		// This consumer removes interlace
+		this.chanProperties.videoTimebase[1] /= 2
+
 		this.playback = await Macadam.playback({
 			deviceIndex: this.channel - 1,
+			channels: this.audioChannels,
+			sampleRate: Macadam.bmdAudioSampleRate48kHz,
+			sampleType: Macadam.bmdAudioSampleType32bitInteger,
 			displayMode: Macadam.bmdModeHD1080i50,
 			pixelFormat: Macadam.bmdFormat10BitYUV
 		})
@@ -66,23 +81,55 @@ export class MacadamConsumer implements Consumer {
 		return this.playback !== null
 	}
 
-	connect(mixerPipe: RedioPipe<SourceFrame | RedioEnd>): void {
-		this.field = 0
+	wait = async (timeout: number): Promise<void> =>
+		new Promise((resolve) => setTimeout(() => resolve(), timeout))
+
+	connect(
+		mixAudio: RedioPipe<Frame | RedioEnd> | undefined,
+		mixVideo: RedioPipe<OpenCLBuffer | RedioEnd>
+	): void {
+		this.audField = 0
+		this.vidField = 0
 		this.frameNumber = 0
 
-		// TODO: fork the incoming stream into audio, video
-		const vidProcess = mixerPipe.valve<OpenCLBuffer | RedioEnd>(
-			async (frame: SourceFrame | RedioEnd) => {
+		if (mixAudio) {
+			mixAudio.spout(
+				async (frame: Frame | RedioEnd) => {
+					if (isValue(frame)) {
+						const tb = this.chanProperties?.audioTimebase as number[]
+						const audTimestamp = (frame.pts * tb[0]) / tb[1]
+						// console.log('Audio spout:', audTimestamp, ' samples:', frame.nb_samples)
+						while (audTimestamp > this.vidTimestamp) await this.wait(10)
+						const frameBytes = frame.nb_samples * this.audioChannels * 4
+						if (this.audField === 0) this.curAudBuf = Buffer.alloc(frameBytes * 2, 0)
+						const destStart = this.audField === 0 ? 0 : frameBytes
+						frame.data[0].copy(this.curAudBuf as Buffer, destStart, 0, frameBytes)
+						if (this.audField === 1 && this.curAudBuf) this.lastAudio.push(this.curAudBuf)
+						this.audField = 1 - this.audField
+						return Promise.resolve()
+					} else {
+						return Promise.resolve()
+					}
+				},
+				{ bufferSizeMax: 2, oneToMany: false }
+			)
+		}
+
+		const vidProcess = mixVideo.valve<OpenCLBuffer | RedioEnd>(
+			async (frame: OpenCLBuffer | RedioEnd) => {
 				if (isValue(frame)) {
 					const fromRGBA = this.fromRGBA as FromRGBA
-					if (this.field === 0) this.clDests = await fromRGBA.createDests()
+					if (this.vidField === 0) {
+						this.clDests = await fromRGBA.createDests()
+						this.clDests.forEach((d) => (d.timestamp = (frame.timestamp / 2) << 0))
+					}
 					const queue = this.clContext.queue.process
-					const interlace = 0x1 | (this.field << 1)
-					await fromRGBA.processFrame(frame.video, this.clDests, queue, interlace)
+					const interlace = 0x1 | (this.vidField << 1)
+					await fromRGBA.processFrame(frame, this.clDests, queue, interlace)
 					await this.clContext.waitFinish(queue)
-					frame.video.release()
-					this.field = 1 - this.field
-					return this.field === 1 ? nil : this.clDests[0]
+					frame.release()
+					this.vidField = 1 - this.vidField
+					return this.vidField === 1 ? nil : this.clDests[0]
 				} else {
 					return frame
 				}
@@ -111,12 +158,23 @@ export class MacadamConsumer implements Consumer {
 		vidSaver.spout(
 			async (frame: OpenCLBuffer | RedioEnd) => {
 				if (isValue(frame)) {
-					this.playback?.schedule({ video: frame, time: 1000 * this.frameNumber })
-					if (this.frameNumber === this.latency) this.playback?.start({ startTime: 0 })
-					if (this.frameNumber >= this.latency)
-						await this.playback?.played((this.frameNumber - this.latency) * 1000)
+					const tb = this.chanProperties?.videoTimebase as number[]
+					const timestamp = (frame.timestamp * tb[0]) / tb[1]
+					this.vidTimestamp = timestamp
+					// console.log('Video spout:', timestamp, ' pts:', frame.timestamp)
+					const audioBuf = this.lastAudio.pop()
+					if (audioBuf) {
+						this.playback?.schedule({
+							video: frame,
+							audio: audioBuf,
+							time: 1000 * this.frameNumber
+						})
+						if (this.frameNumber === this.latency) this.playback?.start({ startTime: 0 })
+						if (this.frameNumber >= this.latency)
+							await this.playback?.played((this.frameNumber - this.latency) * 1000)
+						this.frameNumber++
+					}
 
-					this.frameNumber++
 					frame.release()
 					return Promise.resolve()
 				} else {
