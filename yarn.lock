@@ -1522,10 +1522,10 @@ redent@^1.0.0:
     indent-string "^2.1.0"
     strip-indent "^1.0.1"
 
-redioactive@^0.0.4:
-  version "0.0.4"
-  resolved "https://registry.yarnpkg.com/redioactive/-/redioactive-0.0.4.tgz#347e3f2ab4e3af229f3e7fc2deaef80f059961d1"
-  integrity sha512-774YHf5rXRau7IDvQR7Y9irz963C3VhhT9sfV1CC/srVCKMxoocJKb82fejDwvPWx9FAzy3WnoKO/NmdFAL7ZQ==
+redioactive@^0.0.5:
+  version "0.0.5"
+  resolved "https://registry.yarnpkg.com/redioactive/-/redioactive-0.0.5.tgz#140abb4cdc26e6950858696c76a7d36368d6bfe0"
+  integrity sha512-v7TSzmRMqavhzO3icjOOd2PMUK7EYdw6wurgsg50P5ZjBLKtWGPp3rd+TaAXKpI3UFY/Lnm/UOpRbtjhx5Tjlg==
 
 regexpp@^3.0.0, regexpp@^3.1.0:
   version "3.1.0"

@@ -19,7 +19,7 @@
 */
 
 import { clContext as nodenCLContext, OpenCLBuffer } from 'nodencl'
-import { RedioPipe, RedioEnd, isValue, isEnd } from 'redioactive'
+import { RedioPipe, RedioEnd, isValue, isEnd, Valve } from 'redioactive'
 import ImageProcess from './process/imageProcess'
 import Transform from './process/transform'
 import { Frame } from 'beamcoder'
@@ -44,11 +44,9 @@ export class Mixer {
 	}
 
 	async init(
-		srcAudio: RedioPipe<Frame | RedioEnd> | undefined,
+		srcAudio: RedioPipe<Frame | RedioEnd>,
 		srcVideo: RedioPipe<OpenCLBuffer | RedioEnd>
 	): Promise<void> {
-		this.mixAudio = srcAudio
-
 		await this.transform?.init()
 		const numBytesRGBA = this.width * this.height * 4 * 4
 		// this.black = await this.clContext.createBuffer(
@@ -76,50 +74,51 @@ export class Mixer {
 		// await this.black.hostAccess('writeonly')
 		// Buffer.from(blackFloat.buffer).copy(this.black)
 
-		const mixVidValve = srcVideo.valve<OpenCLBuffer | RedioEnd>(
-			async (frame: OpenCLBuffer | RedioEnd) => {
-				if (isValue(frame)) {
-					const xfDest = await this.clContext.createBuffer(
-						numBytesRGBA,
-						'readwrite',
-						'coarse',
-						{
-							width: this.width,
-							height: this.height
-						},
-						'switch'
-					)
-					xfDest.timestamp = frame.timestamp
+		const mixVidValve: Valve<OpenCLBuffer | RedioEnd, OpenCLBuffer | RedioEnd> = async (frame) => {
+			if (isValue(frame)) {
+				const xfDest = await this.clContext.createBuffer(
+					numBytesRGBA,
+					'readwrite',
+					'coarse',
+					{
+						width: this.width,
+						height: this.height
+					},
+					'switch'
+				)
+				xfDest.timestamp = frame.timestamp
 
-					await this.transform?.run(
-						{
-							input: frame,
-							scale: 1.0, //0.5,
-							offsetX: 0.0, //0.5,
-							offsetY: 0.0, //0.5,
-							flipH: false,
-							flipV: false,
-							rotate: 0.0,
-							output: xfDest
-						},
-						this.clContext.queue.process
-					)
+				await this.transform?.run(
+					{
+						input: frame,
+						scale: 1.0, //0.5,
+						offsetX: 0.0, //0.5,
+						offsetY: 0.0, //0.5,
+						flipH: false,
+						flipV: false,
+						rotate: 0.0,
+						output: xfDest
+					},
+					this.clContext.queue.process
+				)
 
-					await this.clContext.waitFinish(this.clContext.queue.process)
-					frame.release()
-					return xfDest
-				} else {
-					if (isEnd(frame)) {
-						// this.black?.release()
-						this.transform = null
-					}
-					return frame
+				await this.clContext.waitFinish(this.clContext.queue.process)
+				frame.release()
+				return xfDest
+			} else {
+				if (isEnd(frame)) {
+					// this.black?.release()
+					this.transform = null
 				}
-			},
-			{ bufferSizeMax: 1, oneToMany: false }
-		)
+				return frame
+			}
+		}
 
-		this.mixVideo = mixVidValve
+		this.mixAudio = srcAudio
+
+		// eslint-disable-next-line prettier/prettier
+		this.mixVideo = srcVideo
+			.valve(mixVidValve, { bufferSizeMax: 1, oneToMany: false })
 	}
 
 	getMixAudio(): RedioPipe<Frame | RedioEnd> | undefined {

@@ -25,16 +25,13 @@ import { Frame } from 'beamcoder'
 import { ChanProperties } from '../chanLayer'
 
 export interface Consumer {
-	initialise(chanProperties: ChanProperties): Promise<boolean>
-	connect(
-		mixAudio: RedioPipe<Frame | RedioEnd> | undefined,
-		mixVideo: RedioPipe<OpenCLBuffer | RedioEnd>
-	): void
+	initialise(): Promise<boolean>
+	connect(mixAudio: RedioPipe<Frame | RedioEnd>, mixVideo: RedioPipe<OpenCLBuffer | RedioEnd>): void
 	release(): void
 }
 
 export interface ConsumerFactory<T extends Consumer> {
-	createConsumer(channel: number): T
+	createConsumer(channel: number, chanProperties: ChanProperties): T
 }
 
 export class InvalidConsumerError extends Error {
@@ -55,15 +52,15 @@ export class ConsumerRegistry {
 
 	async createSpout(
 		channel: number,
-		mixAudio: RedioPipe<Frame | RedioEnd> | undefined,
+		mixAudio: RedioPipe<Frame | RedioEnd>,
 		mixVideo: RedioPipe<OpenCLBuffer | RedioEnd>,
 		chanProperties: ChanProperties
 	): Promise<Consumer | null> {
 		let consumerOK = false
 		for (const f of this.consumerFactories) {
 			try {
-				const consumer = f.createConsumer(channel) as Consumer
-				consumerOK = await consumer.initialise(chanProperties)
+				const consumer = f.createConsumer(channel, chanProperties) as Consumer
+				consumerOK = await consumer.initialise()
 				if (consumerOK) {
 					consumer.connect(mixAudio, mixVideo)
 					return consumer

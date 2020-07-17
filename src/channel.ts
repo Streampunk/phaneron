@@ -65,7 +65,7 @@ export class Channel {
 		this.layers.set(chanLay.layer, layer)
 		const srcAudio = producer.getSourceAudio()
 		const srcVideo = producer.getSourceVideo()
-		if (srcVideo === undefined) {
+		if (!(srcVideo !== undefined && srcAudio !== undefined)) {
 			console.log(`Failed to create sources for params ${params}`)
 			return false
 		}
@@ -73,7 +73,7 @@ export class Channel {
 		await this.mixer.init(srcAudio, srcVideo)
 		const mixAudio = this.mixer.getMixAudio()
 		const mixVideo = this.mixer.getMixVideo()
-		if (mixVideo === undefined) {
+		if (!(mixVideo !== undefined && mixAudio !== undefined)) {
 			console.log(`Failed to create mixer for params ${params}`)
 			return false
 		}
