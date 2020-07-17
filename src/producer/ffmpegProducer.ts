@@ -30,9 +30,10 @@ import {
 	Stream,
 	Packet,
 	Frame,
+	frame,
 	AudioInputParam
 } from 'beamcoder'
-import redio, { RedioPipe, nil, end, isValue, RedioEnd, isEnd, Generator, Valve } from 'redioactive'
+import redio, { RedioPipe, nil, end, isValue, RedioEnd, Generator, Valve } from 'redioactive'
 import { ChanProperties } from '../chanLayer'
 import { ToRGBA } from '../process/io'
 import { Reader as yuv422p10Reader } from '../process/yuv422p10'
@@ -67,7 +68,7 @@ export class FFmpegProducer implements Producer {
 	private yadif: Yadif | null = null
 	private running = true
 	private paused = false
-	private lastPacket: Packet | null = null
+	private silentFrame: Frame | null = null
 
 	constructor(id: string, params: string[], context: nodenCLContext) {
 		this.id = id
@@ -110,20 +111,33 @@ export class FFmpegProducer implements Producer {
 				})
 				inStr += `[in${i}:a]`
 			})
-			this.audFilterer = await filterer({
-				filterType: 'audio',
-				inputParams: inParams,
-				outputParams: [
-					{
-						name: 'out0:a',
-						sampleRate: audStream.codecpar.sample_rate,
-						sampleFormat: audStream.codecpar.format,
-						channelLayout: 'stereo'
-					}
-				],
-				filterSpec: `${inStr} amerge=inputs=${audioStreams.length}, asetnsamples=n=1024:p=1 [out0:a]`
-			})
-			console.log(this.audFilterer.graph.dump())
+
+			if (audStream) {
+				this.audFilterer = await filterer({
+					filterType: 'audio',
+					inputParams: inParams,
+					outputParams: [
+						{
+							name: 'out0:a',
+							sampleRate: audStream.codecpar.sample_rate,
+							sampleFormat: audStream.codecpar.format,
+							channelLayout: 'stereo'
+						}
+					],
+					filterSpec: `${inStr} amerge=inputs=${audioStreams.length}, asetnsamples=n=1024:p=1 [out0:a]`
+				})
+				console.log(this.audFilterer.graph.dump())
+			} else {
+				this.silentFrame = frame({
+					nb_samples: 1024,
+					format: 's32',
+					pts: 10000,
+					sample_rate: 48000,
+					channels: 2,
+					channel_layout: 'stereo',
+					data: [Buffer.alloc(1024 * 2 * 4)]
+				})
+			}
 
 			const vidStream = this.streams[videoStreams[0]]
 			width = vidStream.codecpar.width
@@ -132,22 +146,28 @@ export class FFmpegProducer implements Producer {
 			let filterOutputFormat = vidStream.codecpar.format
 			switch (vidStream.codecpar.format) {
 				case 'yuv422p':
+					console.log('Using yuv422p8 loader')
 					this.toRGBA = new ToRGBA(this.clContext, '709', '709', new yuv422p8Reader(width, height))
 					break
 				case 'yuv422p10le':
+					console.log('Using yuv422p10 loader')
 					this.toRGBA = new ToRGBA(this.clContext, '709', '709', new yuv422p10Reader(width, height))
 					break
 				case 'v210':
+					console.log('Using v210 loader')
 					this.toRGBA = new ToRGBA(this.clContext, '709', '709', new v210Reader(width, height))
 					break
 				case 'rgba':
+					console.log('Using rgba8 loader')
 					this.toRGBA = new ToRGBA(this.clContext, '709', '709', new rgba8Reader(width, height))
 					break
 				case 'bgra':
+					console.log('Using bgra8 loader')
 					this.toRGBA = new ToRGBA(this.clContext, '709', '709', new bgra8Reader(width, height))
 					break
 				default:
 					if (vidStream.codecpar.format.includes('yuv')) {
+						console.log(`Non-native loader for ${vidStream.codecpar.format} - using yuv422p10`)
 						filterOutputFormat = 'yuv422p10le'
 						this.toRGBA = new ToRGBA(
 							this.clContext,
@@ -156,6 +176,7 @@ export class FFmpegProducer implements Producer {
 							new yuv422p10Reader(width, height)
 						)
 					} else if (vidStream.codecpar.format.includes('rgb')) {
+						console.log(`Non-native loader for ${vidStream.codecpar.format} - using rgba8`)
 						filterOutputFormat = 'rgba'
 						this.toRGBA = new ToRGBA(this.clContext, '709', '709', new rgba8Reader(width, height))
 					} else
@@ -194,8 +215,12 @@ export class FFmpegProducer implements Producer {
 
 		const demux: Generator<Packet | RedioEnd> = async (push, next) => {
 			if (this.demuxer && this.running) {
-				if (!(this.paused && this.lastPacket)) this.lastPacket = await this.demuxer.read()
-				push(this.lastPacket)
+				const packet = await this.demuxer.read()
+				if (packet) {
+					push(packet)
+				} else {
+					push(end)
+				}
 				next()
 			} else if (this.demuxer) {
 				push(end)
@@ -213,6 +238,12 @@ export class FFmpegProducer implements Producer {
 			} else {
 				return packet
 			}
+		}
+
+		const silence: Generator<Frame | RedioEnd> = async (push, next) => {
+			if (this.silentFrame) push(this.silentFrame)
+			// !!! workaround startup fault in generator !!!
+			setTimeout(() => next(), 10)
 		}
 
 		const audChannels: Valve<DecodedFrames | RedioEnd, AudioChannel[] | RedioEnd> = async (
@@ -283,7 +314,7 @@ export class FFmpegProducer implements Producer {
 				clSources.forEach((s) => s.release())
 				return clDest
 			} else {
-				if (isEnd(clSources)) this.toRGBA = null
+				this.toRGBA = null
 				return clSources
 			}
 		}
@@ -297,10 +328,8 @@ export class FFmpegProducer implements Producer {
 				frame.release()
 				return yadifDests.length > 1 ? yadifDests : nil
 			} else {
-				if (isEnd(frame)) {
-					this.yadif?.release()
-					this.yadif = null
-				}
+				this.yadif?.release()
+				this.yadif = null
 				return frame
 			}
 		}
@@ -309,10 +338,14 @@ export class FFmpegProducer implements Producer {
 		const ffFrames = redio(demux, { bufferSizeMax: 20 })
 			.valve(decode, { bufferSizeMax: 20, oneToMany: true })
 
-		this.audSource = ffFrames
-			.fork()
-			.valve(audChannels, { bufferSizeMax: 2 })
-			.valve(audFilter, { bufferSizeMax: 4, oneToMany: true })
+		if (audioStreams.length) {
+			this.audSource = ffFrames
+				.fork()
+				.valve(audChannels, { bufferSizeMax: 2 })
+				.valve(audFilter, { bufferSizeMax: 4, oneToMany: true })
+		} else {
+			this.audSource = redio(silence, { bufferSizeMax: 2 })
+		}
 
 		this.vidSource = ffFrames
 			.fork()
@@ -334,6 +367,7 @@ export class FFmpegProducer implements Producer {
 
 	setPaused(pause: boolean): void {
 		this.paused = pause
+		console.log('Paused:', this.paused)
 	}
 
 	release(): void {

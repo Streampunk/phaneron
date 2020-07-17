@@ -19,7 +19,7 @@
 */
 
 import { clContext as nodenCLContext, OpenCLBuffer } from 'nodencl'
-import { RedioPipe, RedioEnd, isValue, isEnd, Valve } from 'redioactive'
+import { RedioPipe, RedioEnd, isValue, Valve } from 'redioactive'
 import ImageProcess from './process/imageProcess'
 import Transform from './process/transform'
 import { Frame } from 'beamcoder'
@@ -106,10 +106,8 @@ export class Mixer {
 				frame.release()
 				return xfDest
 			} else {
-				if (isEnd(frame)) {
-					// this.black?.release()
-					this.transform = null
-				}
+				// this.black?.release()
+				this.transform = null
 				return frame
 			}
 		}
