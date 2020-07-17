@@ -38,7 +38,6 @@ export class MacadamProducer implements Producer {
 	private vidSource: RedioPipe<OpenCLBuffer | RedioEnd> | undefined
 	private toRGBA: ToRGBA | null = null
 	private yadif: Yadif | null = null
-	private readonly audioChannels = 2
 	private running = true
 	private paused = false
 
@@ -55,10 +54,13 @@ export class MacadamProducer implements Producer {
 		const channel = +this.params[1]
 		let width = 0
 		let height = 0
+		const sampleRate = 48000
+		const channels = 8
+		const layout = 'octagonal'
 		try {
 			this.capture = await Macadam.capture({
 				deviceIndex: channel - 1,
-				channels: this.audioChannels,
+				channels: channels,
 				sampleRate: Macadam.bmdAudioSampleRate48kHz,
 				sampleType: Macadam.bmdAudioSampleType32bitInteger,
 				displayMode: Macadam.bmdModeHD1080i50,
@@ -71,17 +73,17 @@ export class MacadamProducer implements Producer {
 					{
 						name: 'in0:a',
 						timeBase: chanProperties.audioTimebase,
-						sampleRate: 48000,
+						sampleRate: sampleRate,
 						sampleFormat: 's32',
-						channelLayout: 'stereo'
+						channelLayout: layout
 					}
 				],
 				outputParams: [
 					{
 						name: 'out0:a',
-						sampleRate: 48000,
+						sampleRate: sampleRate,
 						sampleFormat: 's32',
-						channelLayout: 'stereo'
+						channelLayout: layout
 					}
 				],
 				filterSpec: `[in0:a] asetnsamples=n=1024:p=1 [out0:a]`
@@ -121,9 +123,9 @@ export class MacadamProducer implements Producer {
 					nb_samples: captureFrame.audio.sampleFrameCount,
 					format: 's32',
 					pts: captureFrame.audio.packetTime,
-					sample_rate: 48000,
-					channels: this.audioChannels,
-					channel_layout: 'stereo',
+					sample_rate: sampleRate,
+					channels: channels,
+					channel_layout: layout,
 					data: [captureFrame.audio.data]
 				})
 				const ff = await this.audFilterer.filter([{ name: 'in0:a', frames: [ffFrame] }])

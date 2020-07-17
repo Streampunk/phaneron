@@ -121,7 +121,7 @@ export class FFmpegProducer implements Producer {
 							name: 'out0:a',
 							sampleRate: audStream.codecpar.sample_rate,
 							sampleFormat: audStream.codecpar.format,
-							channelLayout: 'stereo'
+							channelLayout: 'octagonal'
 						}
 					],
 					filterSpec: `${inStr} amerge=inputs=${audioStreams.length}, asetnsamples=n=1024:p=1 [out0:a]`
@@ -131,11 +131,11 @@ export class FFmpegProducer implements Producer {
 				this.silentFrame = frame({
 					nb_samples: 1024,
 					format: 's32',
-					pts: 10000,
+					pts: 0,
 					sample_rate: 48000,
-					channels: 2,
-					channel_layout: 'stereo',
-					data: [Buffer.alloc(1024 * 2 * 4)]
+					channels: 8,
+					channel_layout: 'octagonal',
+					data: [Buffer.alloc(1024 * 8 * 4)]
 				})
 			}
 
