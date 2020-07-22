@@ -36,27 +36,47 @@ function chanLayerFromString(chanLayStr: string): ChanLayer {
 	return { valid: valid, channel: channel, layer: layer }
 }
 
-interface CmdEntry {
+export interface CmdEntry {
 	cmd: string
 	fn: (chanLayer: ChanLayer, params: string[]) => Promise<boolean>
 }
 
+export interface CmdSet {
+	group: string
+	entries: CmdEntry[]
+}
+
+export interface CmdList {
+	list(): CmdSet
+}
+
 export class Commands {
-	private readonly map: CmdEntry[]
+	private readonly map: CmdSet[]
 
 	constructor() {
 		this.map = []
 	}
 
-	add(entry: CmdEntry): void {
-		this.map.push(entry)
+	add(entries: CmdSet): void {
+		this.map.push(entries)
 	}
+
 	async process(command: string[]): Promise<boolean> {
 		let result = false
-		const entry = this.map.find(({ cmd }) => cmd === command[0])
-		if (entry) {
-			const chanLayer = chanLayerFromString(command[1])
-			result = await entry.fn(chanLayer, command.slice(chanLayer ? 2 : 1))
+
+		let cmdIndex = 2
+		let group = this.map.find(({ group }) => group === command[0])
+		if (!group) {
+			group = this.map.find(({ group }) => group === '')
+			cmdIndex = 0
+		}
+
+		if (group) {
+			const entry = group.entries.find(({ cmd }) => cmd === command[cmdIndex])
+			if (entry) {
+				const chanLayer = chanLayerFromString(command[1])
+				result = await entry.fn(chanLayer, command.slice(cmdIndex == 2 ? 3 : 2))
+			}
 		}
 
 		return result

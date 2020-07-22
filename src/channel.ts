@@ -70,7 +70,7 @@ export class Channel {
 			return false
 		}
 
-		await this.mixer.init(srcAudio, srcVideo)
+		await this.mixer.init([srcAudio], [srcVideo])
 		const mixAudio = this.mixer.getMixAudio()
 		const mixVideo = this.mixer.getMixVideo()
 		if (!(mixVideo !== undefined && mixAudio !== undefined)) {
@@ -89,7 +89,7 @@ export class Channel {
 		return true
 	}
 
-	async play(chanLay: ChanLayer): Promise<boolean> {
+	play(chanLay: ChanLayer): boolean {
 		const layer = this.layers.get(chanLay.layer) as Layer // !!! TODO
 		layer.play()
 		return true
@@ -120,6 +120,33 @@ export class Channel {
 		else {
 			this.stop(chanLay)
 			this.layers.delete(chanLay.layer)
+		}
+		return true
+	}
+
+	anchor(chanLay: ChanLayer, params: string[]): boolean {
+		if (params.length) {
+			this.mixer.setAnchor(chanLay.layer, +params[0], +params[1])
+		} else {
+			this.mixer.showAnchor(chanLay.layer)
+		}
+		return true
+	}
+
+	rotation(chanLay: ChanLayer, params: string[]): boolean {
+		if (params.length) {
+			this.mixer.setRotation(chanLay.layer, +params[0])
+		} else {
+			this.mixer.showRotation(chanLay.layer)
+		}
+		return true
+	}
+
+	fill(chanLay: ChanLayer, params: string[]): boolean {
+		if (params.length) {
+			this.mixer.setFill(chanLay.layer, +params[0], +params[1], +params[2], +params[3])
+		} else {
+			this.mixer.showFill(chanLay.layer)
 		}
 		return true
 	}

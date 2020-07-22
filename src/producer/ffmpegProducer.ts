@@ -88,7 +88,7 @@ export class FFmpegProducer implements Producer {
 
 		try {
 			this.demuxer = await demuxer(url)
-			await this.demuxer.seek({ time: 40 })
+			// await this.demuxer.seek({ time: 40 })
 
 			this.demuxer.streams.forEach((s) => {
 				this.streams.push(s)
@@ -146,23 +146,23 @@ export class FFmpegProducer implements Producer {
 			let filterOutputFormat = vidStream.codecpar.format
 			switch (vidStream.codecpar.format) {
 				case 'yuv422p':
-					console.log('Using yuv422p8 loader')
+					console.log('Using native yuv422p8 loader')
 					this.toRGBA = new ToRGBA(this.clContext, '709', '709', new yuv422p8Reader(width, height))
 					break
 				case 'yuv422p10le':
-					console.log('Using yuv422p10 loader')
+					console.log('Using native yuv422p10 loader')
 					this.toRGBA = new ToRGBA(this.clContext, '709', '709', new yuv422p10Reader(width, height))
 					break
 				case 'v210':
-					console.log('Using v210 loader')
+					console.log('Using native v210 loader')
 					this.toRGBA = new ToRGBA(this.clContext, '709', '709', new v210Reader(width, height))
 					break
 				case 'rgba':
-					console.log('Using rgba8 loader')
+					console.log('Using native rgba8 loader')
 					this.toRGBA = new ToRGBA(this.clContext, '709', '709', new rgba8Reader(width, height))
 					break
 				case 'bgra':
-					console.log('Using bgra8 loader')
+					console.log('Using native bgra8 loader')
 					this.toRGBA = new ToRGBA(this.clContext, '709', '709', new bgra8Reader(width, height))
 					break
 				default:
@@ -240,11 +240,7 @@ export class FFmpegProducer implements Producer {
 			}
 		}
 
-		const silence: Generator<Frame | RedioEnd> = async (push, next) => {
-			if (this.silentFrame) push(this.silentFrame)
-			// !!! workaround startup fault in generator !!!
-			setTimeout(() => next(), 10)
-		}
+		const silence: Generator<Frame | RedioEnd> = async () => this.silentFrame
 
 		const audChannels: Valve<DecodedFrames | RedioEnd, AudioChannel[] | RedioEnd> = async (
 			decFrame

@@ -24,6 +24,18 @@ import ImageProcess from './process/imageProcess'
 import Transform from './process/transform'
 import { Frame } from 'beamcoder'
 
+interface AnchorParams {
+	x: number
+	y: number
+}
+
+interface FillParams {
+	xOffset: number
+	yOffset: number
+	xScale: number
+	yScale: number
+}
+
 export class Mixer {
 	private readonly clContext: nodenCLContext
 	private readonly width: number
@@ -32,6 +44,9 @@ export class Mixer {
 	// private black: OpenCLBuffer | null = null
 	private mixAudio: RedioPipe<Frame | RedioEnd> | undefined
 	private mixVideo: RedioPipe<OpenCLBuffer | RedioEnd> | undefined
+	private anchorParams: AnchorParams = { x: 0, y: 0 }
+	private rotation = 0
+	private fillParams: FillParams = { xOffset: 0, yOffset: 0, xScale: 1, yScale: 1 }
 
 	constructor(clContext: nodenCLContext, width: number, height: number) {
 		this.clContext = clContext
@@ -44,8 +59,8 @@ export class Mixer {
 	}
 
 	async init(
-		srcAudio: RedioPipe<Frame | RedioEnd>,
-		srcVideo: RedioPipe<OpenCLBuffer | RedioEnd>
+		srcAudio: RedioPipe<Frame | RedioEnd>[],
+		srcVideo: RedioPipe<OpenCLBuffer | RedioEnd>[]
 	): Promise<void> {
 		await this.transform?.init()
 		const numBytesRGBA = this.width * this.height * 4 * 4
@@ -91,12 +106,15 @@ export class Mixer {
 				await this.transform?.run(
 					{
 						input: frame,
-						scale: 1.0, //0.5,
-						offsetX: 0.0, //0.5,
-						offsetY: 0.0, //0.5,
 						flipH: false,
 						flipV: false,
-						rotate: 0.0,
+						anchorX: this.anchorParams.x - 0.5,
+						anchorY: this.anchorParams.y - 0.5,
+						scaleX: this.fillParams.xScale,
+						scaleY: this.fillParams.yScale,
+						rotate: -this.rotation / 360.0,
+						offsetX: -this.fillParams.xOffset,
+						offsetY: -this.fillParams.yOffset,
 						output: xfDest
 					},
 					this.clContext.queue.process
@@ -112,11 +130,44 @@ export class Mixer {
 			}
 		}
 
-		this.mixAudio = srcAudio
+		this.mixAudio = srcAudio[0]
 
 		// eslint-disable-next-line prettier/prettier
-		this.mixVideo = srcVideo
+		this.mixVideo = srcVideo[0]
 			.valve(mixVidValve, { bufferSizeMax: 1, oneToMany: false })
+	}
+
+	// eslint-disable-next-line @typescript-eslint/no-unused-vars
+	setAnchor(_layer: number, x: number, y: number): boolean {
+		this.anchorParams = { x: x, y: y }
+		return true
+	}
+
+	// eslint-disable-next-line @typescript-eslint/no-unused-vars
+	showAnchor(_layer: number): void {
+		console.dir(this.anchorParams, { depth: 2, colors: true })
+	}
+
+	// eslint-disable-next-line @typescript-eslint/no-unused-vars
+	setRotation(_layer: number, angle: number): boolean {
+		this.rotation = angle
+		return true
+	}
+
+	// eslint-disable-next-line @typescript-eslint/no-unused-vars
+	showRotation(_layer: number): void {
+		console.dir(this.rotation, { depth: 2, colors: true })
+	}
+
+	// eslint-disable-next-line @typescript-eslint/no-unused-vars
+	setFill(_layer: number, xPos: number, yPos: number, xScale: number, yScale: number): boolean {
+		this.fillParams = { xOffset: xPos, yOffset: yPos, xScale: xScale, yScale: yScale }
+		return true
+	}
+
+	// eslint-disable-next-line @typescript-eslint/no-unused-vars
+	showFill(_layer: number): void {
+		console.dir(this.fillParams, { depth: 2, colors: true })
 	}
 
 	getMixAudio(): RedioPipe<Frame | RedioEnd> | undefined {

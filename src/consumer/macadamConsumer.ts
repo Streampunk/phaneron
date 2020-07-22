@@ -56,7 +56,6 @@ export class MacadamConsumer implements Consumer {
 		this.frameNumber = 0
 		this.latency = 3
 		this.audioChannels = 8
-		this.frameSamples = 1920
 		this.chanProperties = chanProperties
 		// This consumer removes interlace
 		this.chanProperties.videoTimebase[1] /= 2

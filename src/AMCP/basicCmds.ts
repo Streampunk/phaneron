@@ -18,26 +18,30 @@
   14 Ormiscaig, Aultbea, Achnasheen, IV22 2JJ  U.K.
 */
 
-import { Commands } from './commands'
+import { CmdList, CmdSet } from './commands'
 import { ChanLayer } from '../chanLayer'
 import { Channel } from '../channel'
 
-export class Basic {
+export class BasicCmds implements CmdList {
 	private readonly channels: Array<Channel>
 
 	constructor(channels: Array<Channel>) {
 		this.channels = channels
 	}
 
-	/** Add the supported basic transport commands */
-	addCmds(commands: Commands): void {
-		commands.add({ cmd: 'LOADBG', fn: this.loadbg.bind(this) })
-		commands.add({ cmd: 'LOAD', fn: this.load.bind(this) })
-		commands.add({ cmd: 'PLAY', fn: this.play.bind(this) })
-		commands.add({ cmd: 'PAUSE', fn: this.pause.bind(this) })
-		commands.add({ cmd: 'RESUME', fn: this.resume.bind(this) })
-		commands.add({ cmd: 'STOP', fn: this.stop.bind(this) })
-		commands.add({ cmd: 'CLEAR', fn: this.clear.bind(this) })
+	list(): CmdSet {
+		return {
+			group: '',
+			entries: [
+				{ cmd: 'LOADBG', fn: this.loadbg.bind(this) },
+				{ cmd: 'LOAD', fn: this.load.bind(this) },
+				{ cmd: 'PLAY', fn: this.play.bind(this) },
+				{ cmd: 'PAUSE', fn: this.pause.bind(this) },
+				{ cmd: 'RESUME', fn: this.resume.bind(this) },
+				{ cmd: 'STOP', fn: this.stop.bind(this) },
+				{ cmd: 'CLEAR', fn: this.clear.bind(this) }
+			]
+		}
 	}
 
 	/**

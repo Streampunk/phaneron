@@ -22,7 +22,8 @@ import { clContext as nodenCLContext } from 'nodencl'
 import { start, processCommand } from './AMCP/server'
 import { Commands } from './AMCP/commands'
 import { Channel } from './channel'
-import { Basic } from './AMCP/basic'
+import { BasicCmds } from './AMCP/basicCmds'
+import { MixerCmds } from './AMCP/mixerCmds'
 import { ConsumerRegistry } from './consumer/consumer'
 import { ProducerRegistry } from './producer/producer'
 import readline from 'readline'
@@ -79,8 +80,10 @@ initialiseOpenCL().then(async (clContext) => {
 			async (c) => new Channel(clContext, c, consumerRegistry, producerRegistry)
 		)
 	)
-	const basic = new Basic(channels)
-	basic.addCmds(commands)
+
+	commands.add(new BasicCmds(channels).list())
+	commands.add(new MixerCmds(channels).list())
+
 	// setInterval(() => clContext.logBuffers(), 2000)
 })
 
