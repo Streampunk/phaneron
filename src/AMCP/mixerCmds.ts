@@ -34,20 +34,19 @@ export class MixerCmds implements CmdList {
 			group: 'MIXER',
 			entries: [
 				{ cmd: 'ANCHOR', fn: this.anchor.bind(this) },
+				{ cmd: 'FILL', fn: this.fill.bind(this) },
 				{ cmd: 'ROTATION', fn: this.rotation.bind(this) },
-				{ cmd: 'FILL', fn: this.fill.bind(this) }
+				{ cmd: 'VOLUME', fn: this.volume.bind(this) }
 			]
 		}
 	}
 
+	/**
+	 * Changes the anchor point of the specified layer, or returns the current values if no arguments are given.
+	 */
 	async anchor(chanLay: ChanLayer, params: string[]): Promise<boolean> {
 		if (!chanLay.valid) return Promise.resolve(false)
 		return this.channels[chanLay.channel - 1].anchor(chanLay, params)
-	}
-
-	async rotation(chanLay: ChanLayer, params: string[]): Promise<boolean> {
-		if (!chanLay.valid) return Promise.resolve(false)
-		return this.channels[chanLay.channel - 1].rotation(chanLay, params)
 	}
 
 	/**
@@ -64,5 +63,18 @@ export class MixerCmds implements CmdList {
 	async fill(chanLay: ChanLayer, params: string[]): Promise<boolean> {
 		if (!chanLay.valid) return Promise.resolve(false)
 		return this.channels[chanLay.channel - 1].fill(chanLay, params)
+	}
+
+	/**
+	 * Returns or modifies the angle of which a layer is rotated by (clockwise degrees) around the point specified by MIXER ANCHOR.
+	 */
+	async rotation(chanLay: ChanLayer, params: string[]): Promise<boolean> {
+		if (!chanLay.valid) return Promise.resolve(false)
+		return this.channels[chanLay.channel - 1].rotation(chanLay, params)
+	}
+
+	async volume(chanLay: ChanLayer, params: string[]): Promise<boolean> {
+		if (!chanLay.valid) return Promise.resolve(false)
+		return this.channels[chanLay.channel - 1].volume(chanLay, params)
 	}
 }

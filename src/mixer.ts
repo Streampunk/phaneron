@@ -19,10 +19,10 @@
 */
 
 import { clContext as nodenCLContext, OpenCLBuffer } from 'nodencl'
-import { RedioPipe, RedioEnd, isValue, Valve } from 'redioactive'
+import { RedioPipe, RedioEnd, isValue, Valve, nil } from 'redioactive'
 import ImageProcess from './process/imageProcess'
 import Transform from './process/transform'
-import { Frame } from 'beamcoder'
+import { Frame, Filterer, filterer } from 'beamcoder'
 
 interface AnchorParams {
 	x: number
@@ -44,9 +44,12 @@ export class Mixer {
 	// private black: OpenCLBuffer | null = null
 	private mixAudio: RedioPipe<Frame | RedioEnd> | undefined
 	private mixVideo: RedioPipe<OpenCLBuffer | RedioEnd> | undefined
-	private anchorParams: AnchorParams = { x: 0, y: 0 }
-	private rotation = 0
-	private fillParams: FillParams = { xOffset: 0, yOffset: 0, xScale: 1, yScale: 1 }
+	private audMixFilterer: Filterer | undefined
+
+	anchorParams: AnchorParams = { x: 0, y: 0 }
+	rotation = 0
+	fillParams: FillParams = { xOffset: 0, yOffset: 0, xScale: 1, yScale: 1 }
+	volume = 1.0
 
 	constructor(clContext: nodenCLContext, width: number, height: number) {
 		this.clContext = clContext
@@ -62,6 +65,40 @@ export class Mixer {
 		srcAudio: RedioPipe<Frame | RedioEnd>[],
 		srcVideo: RedioPipe<OpenCLBuffer | RedioEnd>[]
 	): Promise<void> {
+		const sampleRate = 48000
+		const layout = 'octagonal'
+		this.audMixFilterer = await filterer({
+			filterType: 'audio',
+			inputParams: [
+				{
+					name: 'in0:a',
+					timeBase: [1, sampleRate],
+					sampleRate: sampleRate,
+					sampleFormat: 's32',
+					channelLayout: layout
+				}
+			],
+			outputParams: [
+				{
+					name: 'out0:a',
+					sampleRate: sampleRate,
+					sampleFormat: 's32',
+					channelLayout: layout
+				}
+			],
+			filterSpec: `[in0:a] volume=1.0:eval=frame:precision=fixed [out0:a]`
+		})
+		console.log('\nMixer audio:\n', this.audMixFilterer.graph.dump())
+
+		const audMixFilter: Valve<Frame | RedioEnd, Frame | RedioEnd> = async (frame) => {
+			if (isValue(frame) && this.audMixFilterer) {
+				const ff = await this.audMixFilterer.filter([{ name: 'in0:a', frames: [frame] }])
+				return ff[0].frames.length > 0 ? ff[0].frames : nil
+			} else {
+				return frame
+			}
+		}
+
 		await this.transform?.init()
 		const numBytesRGBA = this.width * this.height * 4 * 4
 		// this.black = await this.clContext.createBuffer(
@@ -130,44 +167,35 @@ export class Mixer {
 			}
 		}
 
+		// eslint-disable-next-line prettier/prettier
 		this.mixAudio = srcAudio[0]
+			.valve(audMixFilter, { bufferSizeMax: 1, oneToMany: true })
 
 		// eslint-disable-next-line prettier/prettier
 		this.mixVideo = srcVideo[0]
 			.valve(mixVidValve, { bufferSizeMax: 1, oneToMany: false })
 	}
 
-	// eslint-disable-next-line @typescript-eslint/no-unused-vars
 	setAnchor(_layer: number, x: number, y: number): boolean {
 		this.anchorParams = { x: x, y: y }
 		return true
 	}
 
-	// eslint-disable-next-line @typescript-eslint/no-unused-vars
-	showAnchor(_layer: number): void {
-		console.dir(this.anchorParams, { depth: 2, colors: true })
-	}
-
-	// eslint-disable-next-line @typescript-eslint/no-unused-vars
 	setRotation(_layer: number, angle: number): boolean {
 		this.rotation = angle
 		return true
 	}
 
-	// eslint-disable-next-line @typescript-eslint/no-unused-vars
-	showRotation(_layer: number): void {
-		console.dir(this.rotation, { depth: 2, colors: true })
-	}
-
-	// eslint-disable-next-line @typescript-eslint/no-unused-vars
 	setFill(_layer: number, xPos: number, yPos: number, xScale: number, yScale: number): boolean {
 		this.fillParams = { xOffset: xPos, yOffset: yPos, xScale: xScale, yScale: yScale }
 		return true
 	}
 
-	// eslint-disable-next-line @typescript-eslint/no-unused-vars
-	showFill(_layer: number): void {
-		console.dir(this.fillParams, { depth: 2, colors: true })
+	setVolume(_layer: number, volume: number): boolean {
+		this.volume = volume
+		const volFilter = this.audMixFilterer?.graph.filters.find((f) => f.filter.name === 'volume')
+		if (volFilter && volFilter.priv) volFilter.priv = { volume: this.volume.toString() }
+		return true
 	}
 
 	getMixAudio(): RedioPipe<Frame | RedioEnd> | undefined {

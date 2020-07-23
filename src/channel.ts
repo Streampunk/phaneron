@@ -128,7 +128,7 @@ export class Channel {
 		if (params.length) {
 			this.mixer.setAnchor(chanLay.layer, +params[0], +params[1])
 		} else {
-			this.mixer.showAnchor(chanLay.layer)
+			console.dir(this.mixer.anchorParams, { colors: true })
 		}
 		return true
 	}
@@ -137,7 +137,7 @@ export class Channel {
 		if (params.length) {
 			this.mixer.setRotation(chanLay.layer, +params[0])
 		} else {
-			this.mixer.showRotation(chanLay.layer)
+			console.dir(this.mixer.rotation, { colors: true })
 		}
 		return true
 	}
@@ -146,7 +146,16 @@ export class Channel {
 		if (params.length) {
 			this.mixer.setFill(chanLay.layer, +params[0], +params[1], +params[2], +params[3])
 		} else {
-			this.mixer.showFill(chanLay.layer)
+			console.dir(this.mixer.fillParams, { colors: true })
+		}
+		return true
+	}
+
+	volume(chanLay: ChanLayer, params: string[]): boolean {
+		if (params.length) {
+			this.mixer.setVolume(chanLay.layer, +params[0])
+		} else {
+			console.dir(this.mixer.volume, { colors: true })
 		}
 		return true
 	}

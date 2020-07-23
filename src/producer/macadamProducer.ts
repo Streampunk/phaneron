@@ -88,7 +88,7 @@ export class MacadamProducer implements Producer {
 				],
 				filterSpec: `[in0:a] asetnsamples=n=1024:p=1 [out0:a]`
 			})
-			console.log(this.audFilterer.graph.dump())
+			console.log('\nMacadam producer audio:\n', this.audFilterer.graph.dump())
 
 			width = this.capture.width
 			height = this.capture.height

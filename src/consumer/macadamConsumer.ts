@@ -39,8 +39,6 @@ export class MacadamConsumer implements Consumer {
 	private fromRGBA: FromRGBA | null = null
 	private clDests: OpenCLBuffer[] = []
 	private vidField: number
-	private frameNumber: number
-	private readonly latency: number
 	private readonly audioChannels: number
 	private readonly frameSamples: number
 	private readonly chanProperties: ChanProperties
@@ -53,8 +51,6 @@ export class MacadamConsumer implements Consumer {
 		this.channel = channel
 		this.clContext = context
 		this.vidField = 0
-		this.frameNumber = 0
-		this.latency = 3
 		this.audioChannels = 8
 		this.chanProperties = chanProperties
 		// This consumer removes interlace
@@ -64,6 +60,16 @@ export class MacadamConsumer implements Consumer {
 		const vtb = this.chanProperties.videoTimebase
 		this.frameSamples = (vtb[0] * atb[1]) / (vtb[1] * atb[0])
 		this.remAudBuf = { buffer: Buffer.alloc(0), timestamp: 0 }
+
+		// Turn off single field output flag
+		//  - have to thump it twice to get it to change!!
+		for (let x = 0; x < 2; ++x)
+			Macadam.setDeviceConfig({
+				deviceIndex: this.channel - 1,
+				fieldFlickerRemoval: false
+			})
+		if (Macadam.getDeviceConfig(this.channel - 1).fieldFlickerRemoval)
+			console.log(`Macadam consumer ${this.channel} - failed to turn off single field output mode`)
 	}
 
 	async initialise(): Promise<boolean> {
@@ -91,12 +97,35 @@ export class MacadamConsumer implements Consumer {
 		return this.playback !== null
 	}
 
+	async waitHW(): Promise<void> {
+		let delay = 0
+		const hwTime = this.playback?.hardwareTime()
+		if (hwTime) {
+			const nominalDelayMs = (1000 * hwTime.ticksPerFrame) / hwTime.timeScale
+			const targetTimeInFrame = nominalDelayMs * 0.05
+			const curTimeInFrame = ((nominalDelayMs * hwTime.timeInFrame) / hwTime.ticksPerFrame) >>> 0
+			delay = nominalDelayMs + targetTimeInFrame - curTimeInFrame
+		}
+		return new Promise((resolve) =>
+			setTimeout(() => {
+				const hwTimeNow = this.playback?.hardwareTime()
+				if (hwTime && hwTimeNow) {
+					const hwDelay = hwTimeNow.hardwareTime - hwTime.hardwareTime - hwTimeNow.ticksPerFrame
+					if (hwDelay > hwTimeNow.ticksPerFrame * 0.9)
+						console.log(
+							`Macadam consumer ${this.channel} - frame may be delayed (${hwDelay} ticks)`
+						)
+				}
+				resolve()
+			}, delay)
+		)
+	}
+
 	connect(
 		mixAudio: RedioPipe<Frame | RedioEnd>,
 		mixVideo: RedioPipe<OpenCLBuffer | RedioEnd>
 	): void {
 		this.vidField = 0
-		this.frameNumber = 0
 
 		const audioFramer: Valve<Frame | RedioEnd, AudioBuffer | RedioEnd> = async (frame) => {
 			if (isValue(frame)) {
@@ -202,20 +231,13 @@ export class MacadamConsumer implements Consumer {
 				// const vidTimestamp = (vidBuf.timestamp * vtb[0]) / vtb[1]
 				// console.log('aud:', audTimestamp, ' vid:', vidTimestamp)
 
-				this.playback?.schedule({
-					video: vidBuf as OpenCLBuffer,
-					audio: audBuf.buffer,
-					time: 1000 * this.frameNumber
-				})
-				if (this.frameNumber === this.latency) this.playback?.start({ startTime: 0 })
-				if (this.frameNumber >= this.latency)
-					await this.playback?.played((this.frameNumber - this.latency) * 1000)
-				this.frameNumber++
+				await this.waitHW()
+				this.playback?.displayFrame(vidBuf, audBuf.buffer)
 				vidBuf.release()
 				return Promise.resolve()
 			} else {
 				if (isEnd(frame)) this.playback?.stop()
-				this.clContext.logBuffers()
+				// this.clContext.logBuffers()
 				return Promise.resolve()
 			}
 		}
@@ -224,7 +246,7 @@ export class MacadamConsumer implements Consumer {
 			.valve(vidProcess, { bufferSizeMax: 1 })
 			.valve(vidSaver, { bufferSizeMax: 1 })
 			.zip(mixAudio.valve(audioFramer, { bufferSizeMax: 1, oneToMany: true }), { bufferSizeMax: 1 })
-			.spout(macadamSpout, { bufferSizeMax: 2 })
+			.spout(macadamSpout, { bufferSizeMax: 1 })
 	}
 
 	release(): void {

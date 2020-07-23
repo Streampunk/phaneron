@@ -126,7 +126,7 @@ export class FFmpegProducer implements Producer {
 					],
 					filterSpec: `${inStr} amerge=inputs=${audioStreams.length}, asetnsamples=n=1024:p=1 [out0:a]`
 				})
-				console.log(this.audFilterer.graph.dump())
+				console.log('\nFFmpeg producer audio:\n', this.audFilterer.graph.dump())
 			} else {
 				this.silentFrame = frame({
 					nb_samples: 1024,
@@ -205,6 +205,7 @@ export class FFmpegProducer implements Producer {
 					chanProperties.videoTimebase[0]
 				}`
 			})
+			console.log('\nFFmpeg producer video:\n', this.vidFilterer.graph.dump())
 
 			this.yadif = new Yadif(this.clContext, width, height, 'send_field', 'tff', 'all')
 			await this.yadif.init()

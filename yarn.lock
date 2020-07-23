@@ -1126,10 +1126,10 @@ lru-cache@^4.0.0, lru-cache@^4.0.1:
     pseudomap "^1.0.2"
     yallist "^2.1.2"
 
-macadam@^2.0.13:
-  version "2.0.13"
-  resolved "https://registry.yarnpkg.com/macadam/-/macadam-2.0.13.tgz#5c193cb1b9754060deb53aceb95fac96c79031f7"
-  integrity sha512-EzZwkm4Q2eG+pJuS22/mLs3jZ6iRS0w3kUFXgVWm2LpKdfCe6nIbSN4kwCEHTUI0FC65vmB/VbBrN5hmIGk6cw==
+macadam@^2.0.14:
+  version "2.0.14"
+  resolved "https://registry.yarnpkg.com/macadam/-/macadam-2.0.14.tgz#79af83cdd391ff978338db0d0b39f367c0ab5610"
+  integrity sha512-abUhRmvPo4UraIBJ5bfVBEpDSrL4TVmp8K9JflvXJ/myGhk/jMh7rCeiXob+v+G5HwO240zIx/p4dblsKq65Aw==
   dependencies:
     bindings "^1.5.0"
     highland "^2.13.5"
