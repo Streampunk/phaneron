@@ -30,8 +30,7 @@ import {
 	Stream,
 	Packet,
 	Frame,
-	frame,
-	AudioInputParam
+	frame
 } from 'beamcoder'
 import redio, { RedioPipe, nil, end, isValue, RedioEnd, Generator, Valve } from 'redioactive'
 import { ChanProperties } from '../chanLayer'
@@ -43,11 +42,6 @@ import { Reader as rgba8Reader } from '../process/rgba8'
 import { Reader as bgra8Reader } from '../process/bgra8'
 import Yadif from '../process/yadif'
 
-interface DecodedFrames {
-	streamIndex: number
-	frame: Frame
-}
-
 interface AudioChannel {
 	name: string
 	frames: Frame[]
@@ -58,161 +52,168 @@ export class FFmpegProducer implements Producer {
 	private params: string[]
 	private clContext: nodenCLContext
 	private demuxer: Demuxer | null = null
-	private readonly streams: Stream[]
-	private readonly decoders: Decoder[]
-	private audFilterer: Filterer | null = null
-	private vidFilterer: Filterer | null = null
 	private audSource: RedioPipe<Frame | RedioEnd> | undefined
 	private vidSource: RedioPipe<OpenCLBuffer | RedioEnd> | undefined
-	private toRGBA: ToRGBA | null = null
-	private yadif: Yadif | null = null
 	private running = true
 	private paused = false
-	private silentFrame: Frame | null = null
 
 	constructor(id: string, params: string[], context: nodenCLContext) {
 		this.id = id
 		this.params = params
 		this.clContext = context
-		this.streams = []
-		this.decoders = []
 	}
 
 	async initialise(chanProperties: ChanProperties): Promise<void> {
 		const url = this.params[0]
-		let width = 0
-		let height = 0
-		const audioStreams: number[] = []
-		const videoStreams: number[] = []
-		const audioChannels: AudioChannel[] = []
-
 		try {
 			this.demuxer = await demuxer(url)
-			// await this.demuxer.seek({ time: 40 })
+		} catch (err) {
+			console.log(err)
+			throw new InvalidProducerError(err)
+		}
+		// await this.demuxer.seek({ time: 60 })
 
-			this.demuxer.streams.forEach((s) => {
-				this.streams.push(s)
-				if (s.codecpar.codec_type === 'audio') audioStreams.push(s.index)
-				if (s.codecpar.codec_type === 'video' && videoStreams.length === 0)
-					videoStreams.push(s.index)
-				this.decoders.push(decoder({ demuxer: this.demuxer as Demuxer, stream_index: s.index }))
-			})
+		const streams: Stream[] = []
+		const audioStreams: number[] = []
+		const videoStreams: number[] = []
+		const decoders: Decoder[] = []
+		this.demuxer.streams.forEach((s) => {
+			streams.push(s)
+			if (s.codecpar.codec_type === 'audio') audioStreams.push(s.index)
+			if (s.codecpar.codec_type === 'video' && videoStreams.length === 0) videoStreams.push(s.index)
+			decoders.push(decoder({ demuxer: this.demuxer as Demuxer, stream_index: s.index }))
+		})
 
-			const audStream = this.streams[audioStreams[0]]
-			const inParams: AudioInputParam[] = []
+		let silentFrame: Frame | null = null
+		let audFilterer: Filterer | null = null
+		const audStream = streams[audioStreams[0]]
+		if (audStream) {
 			let inStr = ''
-			audioStreams.forEach((_s, i) => {
-				inParams.push({
+			const inParams = audioStreams.map((_s, i) => {
+				inStr += `[in${i}:a]`
+				return {
 					name: `in${i}:a`,
 					timeBase: audStream.time_base,
 					sampleRate: audStream.codecpar.sample_rate,
 					sampleFormat: audStream.codecpar.format,
 					channelLayout: audStream.codecpar.channel_layout
-				})
-				inStr += `[in${i}:a]`
+				}
 			})
 
-			if (audStream) {
-				this.audFilterer = await filterer({
-					filterType: 'audio',
-					inputParams: inParams,
-					outputParams: [
-						{
-							name: 'out0:a',
-							sampleRate: audStream.codecpar.sample_rate,
-							sampleFormat: audStream.codecpar.format,
-							channelLayout: 'octagonal'
-						}
-					],
-					filterSpec: `${inStr} amerge=inputs=${audioStreams.length}, asetnsamples=n=1024:p=1 [out0:a]`
-				})
-				console.log('\nFFmpeg producer audio:\n', this.audFilterer.graph.dump())
-			} else {
-				this.silentFrame = frame({
-					nb_samples: 1024,
-					format: 's32',
-					pts: 0,
-					sample_rate: 48000,
-					channels: 8,
-					channel_layout: 'octagonal',
-					data: [Buffer.alloc(1024 * 8 * 4)]
-				})
-			}
+			audFilterer = await filterer({
+				filterType: 'audio',
+				inputParams: inParams,
+				outputParams: [
+					{
+						name: 'out0:a',
+						sampleRate: 48000,
+						sampleFormat: 's32',
+						channelLayout: 'octagonal'
+					}
+				],
+				filterSpec: `${inStr} amerge=inputs=${audioStreams.length}, asetnsamples=n=1024:p=1 [out0:a]`
+			})
+		} else {
+			silentFrame = frame({
+				nb_samples: 1024,
+				format: 's32',
+				pts: 0,
+				sample_rate: 48000,
+				channels: 8,
+				channel_layout: 'octagonal',
+				data: [Buffer.alloc(1024 * 8 * 4)]
+			})
 
-			const vidStream = this.streams[videoStreams[0]]
-			width = vidStream.codecpar.width
-			height = vidStream.codecpar.height
-
-			let filterOutputFormat = vidStream.codecpar.format
-			switch (vidStream.codecpar.format) {
-				case 'yuv422p':
-					console.log('Using native yuv422p8 loader')
-					this.toRGBA = new ToRGBA(this.clContext, '709', '709', new yuv422p8Reader(width, height))
-					break
-				case 'yuv422p10le':
-					console.log('Using native yuv422p10 loader')
-					this.toRGBA = new ToRGBA(this.clContext, '709', '709', new yuv422p10Reader(width, height))
-					break
-				case 'v210':
-					console.log('Using native v210 loader')
-					this.toRGBA = new ToRGBA(this.clContext, '709', '709', new v210Reader(width, height))
-					break
-				case 'rgba':
-					console.log('Using native rgba8 loader')
-					this.toRGBA = new ToRGBA(this.clContext, '709', '709', new rgba8Reader(width, height))
-					break
-				case 'bgra':
-					console.log('Using native bgra8 loader')
-					this.toRGBA = new ToRGBA(this.clContext, '709', '709', new bgra8Reader(width, height))
-					break
-				default:
-					if (vidStream.codecpar.format.includes('yuv')) {
-						console.log(`Non-native loader for ${vidStream.codecpar.format} - using yuv422p10`)
-						filterOutputFormat = 'yuv422p10le'
-						this.toRGBA = new ToRGBA(
-							this.clContext,
-							'709',
-							'709',
-							new yuv422p10Reader(width, height)
-						)
-					} else if (vidStream.codecpar.format.includes('rgb')) {
-						console.log(`Non-native loader for ${vidStream.codecpar.format} - using rgba8`)
-						filterOutputFormat = 'rgba'
-						this.toRGBA = new ToRGBA(this.clContext, '709', '709', new rgba8Reader(width, height))
-					} else
-						throw new Error(
-							`Unsupported video format '${vidStream.codecpar.format}' from FFmpeg decoder`
-						)
-			}
-			await this.toRGBA.init()
-			this.vidFilterer = await filterer({
-				filterType: 'video',
+			audFilterer = await filterer({
+				filterType: 'audio',
 				inputParams: [
 					{
-						timeBase: vidStream.time_base,
-						width: width,
-						height: height,
-						pixelFormat: vidStream.codecpar.format,
-						pixelAspect: vidStream.codecpar.sample_aspect_ratio
+						name: 'in0:a',
+						timeBase: [1, 48000],
+						sampleRate: 48000,
+						sampleFormat: 's32',
+						channelLayout: 'octagonal'
 					}
 				],
 				outputParams: [
 					{
-						pixelFormat: filterOutputFormat
+						name: 'out0:a',
+						sampleRate: 48000,
+						sampleFormat: 's32',
+						channelLayout: 'octagonal'
 					}
 				],
-				filterSpec: `fps=fps=${chanProperties.videoTimebase[1] / 2}/${
-					chanProperties.videoTimebase[0]
-				}`
+				filterSpec: '[in0:a] asetpts=N/SR/TB [out0:a]'
 			})
-			console.log('\nFFmpeg producer video:\n', this.vidFilterer.graph.dump())
-
-			this.yadif = new Yadif(this.clContext, width, height, 'send_field', 'tff', 'all')
-			await this.yadif.init()
-		} catch (err) {
-			console.log(err)
-			throw new InvalidProducerError(err)
 		}
+		// console.log('\nFFmpeg producer audio:\n', this.audFilterer.graph.dump())
+
+		const vidStream = streams[videoStreams[0]]
+		const width = vidStream.codecpar.width
+		const height = vidStream.codecpar.height
+
+		let toRGBA: ToRGBA | null = null
+		let filterOutputFormat = vidStream.codecpar.format
+		switch (vidStream.codecpar.format) {
+			case 'yuv422p':
+				console.log('Using native yuv422p8 loader')
+				toRGBA = new ToRGBA(this.clContext, '709', '709', new yuv422p8Reader(width, height))
+				break
+			case 'yuv422p10le':
+				console.log('Using native yuv422p10 loader')
+				toRGBA = new ToRGBA(this.clContext, '709', '709', new yuv422p10Reader(width, height))
+				break
+			case 'v210':
+				console.log('Using native v210 loader')
+				toRGBA = new ToRGBA(this.clContext, '709', '709', new v210Reader(width, height))
+				break
+			case 'rgba':
+				console.log('Using native rgba8 loader')
+				toRGBA = new ToRGBA(this.clContext, '709', '709', new rgba8Reader(width, height))
+				break
+			case 'bgra':
+				console.log('Using native bgra8 loader')
+				toRGBA = new ToRGBA(this.clContext, '709', '709', new bgra8Reader(width, height))
+				break
+			default:
+				if (vidStream.codecpar.format.includes('yuv')) {
+					console.log(`Non-native loader for ${vidStream.codecpar.format} - using yuv422p10`)
+					filterOutputFormat = 'yuv422p10le'
+					toRGBA = new ToRGBA(this.clContext, '709', '709', new yuv422p10Reader(width, height))
+				} else if (vidStream.codecpar.format.includes('rgb')) {
+					console.log(`Non-native loader for ${vidStream.codecpar.format} - using rgba8`)
+					filterOutputFormat = 'rgba'
+					toRGBA = new ToRGBA(this.clContext, '709', '709', new rgba8Reader(width, height))
+				} else
+					throw new Error(
+						`Unsupported video format '${vidStream.codecpar.format}' from FFmpeg decoder`
+					)
+		}
+		await toRGBA.init()
+		const chanTb = chanProperties.videoTimebase
+		const vidFilterer = await filterer({
+			filterType: 'video',
+			inputParams: [
+				{
+					timeBase: vidStream.time_base,
+					width: width,
+					height: height,
+					pixelFormat: vidStream.codecpar.format,
+					pixelAspect: vidStream.codecpar.sample_aspect_ratio
+				}
+			],
+			outputParams: [
+				{
+					pixelFormat: filterOutputFormat
+				}
+			],
+			filterSpec: `fps=fps=${chanTb[1] / 2}/${chanTb[0]}`
+		})
+		// console.log('\nFFmpeg producer video:\n', this.vidFilterer.graph.dump())
+
+		let yadif: Yadif | null = null
+		yadif = new Yadif(this.clContext, width, height, 'send_field', 'tff', 'all')
+		await yadif.init()
 
 		const demux: Generator<Packet | RedioEnd> = async (push, next) => {
 			if (this.demuxer && this.running) {
@@ -230,68 +231,100 @@ export class FFmpegProducer implements Producer {
 			}
 		}
 
-		const decode: Valve<Packet | RedioEnd, DecodedFrames | RedioEnd> = async (packet) => {
+		let lastAudTimestamp: number | undefined = undefined
+		let lastVidTimestamp: number | undefined = undefined
+		const curPackets: Packet[] = []
+
+		const demuxSequence: Valve<Packet | RedioEnd, Packet[] | RedioEnd> = async (packet) => {
 			if (isValue(packet)) {
-				const frm = await this.decoders[packet.stream_index].decode(packet)
-				const frames: DecodedFrames[] = []
-				frm.frames.forEach((f) => frames.push({ streamIndex: packet.stream_index, frame: f }))
-				return frames
+				if (audioStreams.includes(packet.stream_index)) {
+					if (packet.pts === lastAudTimestamp || !lastAudTimestamp) {
+						curPackets.push(packet)
+						lastAudTimestamp = packet.pts
+					}
+				} else if (videoStreams.includes(packet.stream_index)) {
+					if (packet.pts === lastVidTimestamp || !lastVidTimestamp) {
+						curPackets.push(packet)
+						lastVidTimestamp = packet.pts
+					}
+				}
+
+				if (curPackets.length === audioStreams.length + videoStreams.length) {
+					const result = curPackets.slice(0)
+					curPackets.length = 0
+					lastAudTimestamp = undefined
+					lastVidTimestamp = undefined
+					return result
+				} else {
+					return nil
+				}
 			} else {
 				return packet
 			}
 		}
 
-		const silence: Generator<Frame | RedioEnd> = async () => this.silentFrame
-
-		const audChannels: Valve<DecodedFrames | RedioEnd, AudioChannel[] | RedioEnd> = async (
-			decFrame
-		) => {
-			if (isValue(decFrame)) {
-				if (audioStreams.includes(decFrame.streamIndex)) {
-					audioChannels.push({ name: `in${audioChannels.length}:a`, frames: [decFrame.frame] })
-					if (audioChannels.length === audioStreams.length) {
-						const audioFrames = [...audioChannels]
-						audioChannels.length = 0
-						return audioFrames
-					} else {
-						return nil
-					}
-				} else {
-					return nil
-				}
+		const audPacketFilter: Valve<Packet[] | RedioEnd, Packet[] | RedioEnd> = async (packets) => {
+			if (isValue(packets)) {
+				return packets.filter((p) => audioStreams.includes(p.stream_index))
 			} else {
-				return decFrame
+				return packets
+			}
+		}
+
+		const audDecode: Valve<Packet[] | RedioEnd, AudioChannel[] | RedioEnd> = async (packets) => {
+			if (isValue(packets)) {
+				const frames = await Promise.all(packets.map((p) => decoders[p.stream_index].decode(p)))
+				return frames.map((f, i) => ({ name: `in${i}:a`, frames: f.frames }))
+			} else {
+				return packets
 			}
 		}
 
 		const audFilter: Valve<AudioChannel[] | RedioEnd, Frame | RedioEnd> = async (frames) => {
-			if (isValue(frames) && this.audFilterer) {
-				const ff = await this.audFilterer.filter(frames)
+			if (isValue(frames) && audFilterer) {
+				const ff = await audFilterer.filter(frames)
 				return ff[0].frames.length > 0 ? ff[0].frames : nil
 			} else {
 				return frames as RedioEnd
 			}
 		}
 
-		const vidFilter: Valve<DecodedFrames | RedioEnd, Frame | RedioEnd> = async (decFrame) => {
-			if (isValue(decFrame)) {
-				if (videoStreams.includes(decFrame.streamIndex) && this.vidFilterer) {
-					const ff = await this.vidFilterer.filter([decFrame.frame])
-					return ff[0].frames.length > 0 ? ff[0].frames : nil
-				} else {
-					return nil
-				}
+		const silence: Generator<AudioChannel[] | RedioEnd> = async () => [
+			{ name: 'in0:a', frames: [silentFrame] }
+		]
+
+		const vidPacketFilter: Valve<Packet[] | RedioEnd, Packet[] | RedioEnd> = async (packets) => {
+			if (isValue(packets)) {
+				return packets.filter((p) => videoStreams.includes(p.stream_index))
 			} else {
-				return decFrame
+				return packets
+			}
+		}
+
+		const vidDecode: Valve<Packet[] | RedioEnd, Frame[] | RedioEnd> = async (packets) => {
+			if (isValue(packets)) {
+				const frm = await decoders[packets[0].stream_index].decode(packets[0])
+				return frm.frames.length > 0 ? frm.frames : nil
+			} else {
+				return packets
+			}
+		}
+
+		const vidFilter: Valve<Frame[] | RedioEnd, Frame | RedioEnd> = async (decFrames) => {
+			if (isValue(decFrames)) {
+				const ff = await vidFilterer.filter(decFrames)
+				return ff[0].frames.length > 0 ? ff[0].frames : nil
+			} else {
+				return decFrames
 			}
 		}
 
 		const vidLoader: Valve<Frame | RedioEnd, OpenCLBuffer[] | RedioEnd> = async (frame) => {
 			if (isValue(frame)) {
-				const toRGBA = this.toRGBA as ToRGBA
-				const clSources = await toRGBA.createSources()
-				clSources.forEach((s) => (s.timestamp = frame.best_effort_timestamp))
-				await toRGBA.loadFrame(frame.data, clSources, this.clContext.queue.load)
+				const convert = toRGBA as ToRGBA
+				const clSources = await convert.createSources()
+				clSources.forEach((s) => (s.timestamp = frame.pts))
+				await convert.loadFrame(frame.data, clSources, this.clContext.queue.load)
 				await this.clContext.waitFinish(this.clContext.queue.load)
 				return clSources
 			} else {
@@ -303,52 +336,56 @@ export class FFmpegProducer implements Producer {
 			clSources
 		) => {
 			if (isValue(clSources)) {
-				const toRGBA = this.toRGBA as ToRGBA
-				const clDest = await toRGBA.createDest({ width: width, height: height })
+				const convert = toRGBA as ToRGBA
+				const clDest = await convert.createDest({ width: width, height: height })
 				clDest.timestamp = clSources[0].timestamp
-				await toRGBA.processFrame(clSources, clDest, this.clContext.queue.process)
+				await convert.processFrame(clSources, clDest, this.clContext.queue.process)
 				await this.clContext.waitFinish(this.clContext.queue.process)
 				clSources.forEach((s) => s.release())
 				return clDest
 			} else {
-				this.toRGBA = null
+				toRGBA = null
 				return clSources
 			}
 		}
 
 		const vidDeint: Valve<OpenCLBuffer | RedioEnd, OpenCLBuffer | RedioEnd> = async (frame) => {
 			if (isValue(frame)) {
-				const yadif = this.yadif as Yadif
 				const yadifDests: OpenCLBuffer[] = []
-				await yadif.processFrame(frame, yadifDests, this.clContext.queue.process)
+				await yadif?.processFrame(frame, yadifDests, this.clContext.queue.process)
 				await this.clContext.waitFinish(this.clContext.queue.process)
 				frame.release()
 				return yadifDests.length > 1 ? yadifDests : nil
 			} else {
-				this.yadif?.release()
-				this.yadif = null
+				yadif?.release()
+				yadif = null
 				return frame
 			}
 		}
 
 		// eslint-disable-next-line prettier/prettier
 		const ffFrames = redio(demux, { bufferSizeMax: 20 })
-			.valve(decode, { bufferSizeMax: 20, oneToMany: true })
+			.valve(demuxSequence, { bufferSizeMax: 20 })
 
 		if (audioStreams.length) {
 			this.audSource = ffFrames
 				.fork()
-				.valve(audChannels, { bufferSizeMax: 2 })
-				.valve(audFilter, { bufferSizeMax: 4, oneToMany: true })
+				.valve(audPacketFilter, { bufferSizeMax: 3 })
+				.valve(audDecode, { bufferSizeMax: 3 })
+				.valve(audFilter, { bufferSizeMax: 3, oneToMany: true })
 		} else {
-			this.audSource = redio(silence, { bufferSizeMax: 2 })
+			// eslint-disable-next-line prettier/prettier
+			this.audSource = redio(silence, { bufferSizeMax: 3 })
+				.valve(audFilter, { bufferSizeMax: 3,	oneToMany: true })
 		}
 
 		this.vidSource = ffFrames
 			.fork()
+			.valve(vidPacketFilter, { bufferSizeMax: 3 })
+			.valve(vidDecode, { bufferSizeMax: 3 })
 			.valve(vidFilter, { bufferSizeMax: 2, oneToMany: true })
 			.valve(vidLoader, { bufferSizeMax: 2 })
-			.valve(vidProcess, { bufferSizeMax: 1, oneToMany: false })
+			.valve(vidProcess, { bufferSizeMax: 1 })
 			.valve(vidDeint, { bufferSizeMax: 1, oneToMany: true })
 
 		console.log(`Created FFmpeg producer ${this.id} for path ${url}`)

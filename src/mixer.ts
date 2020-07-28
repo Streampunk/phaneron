@@ -88,7 +88,7 @@ export class Mixer {
 			],
 			filterSpec: `[in0:a] volume=1.0:eval=frame:precision=fixed [out0:a]`
 		})
-		console.log('\nMixer audio:\n', this.audMixFilterer.graph.dump())
+		// console.log('\nMixer audio:\n', this.audMixFilterer.graph.dump())
 
 		const audMixFilter: Valve<Frame | RedioEnd, Frame | RedioEnd> = async (frame) => {
 			if (isValue(frame) && this.audMixFilterer) {

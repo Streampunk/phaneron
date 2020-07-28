@@ -131,10 +131,12 @@ export class MacadamConsumer implements Consumer {
 			if (isValue(frame)) {
 				if (frame.channels !== this.audioChannels) console.log('Macadam channels mismatch')
 				const result: AudioBuffer[] = []
-				const curFrameBytes = frame.nb_samples * this.audioChannels * 4
-				const frameBytes = this.frameSamples * this.audioChannels * 4
+				const sampleBytes = this.audioChannels * 4
+				const curFrameBytes = frame.nb_samples * sampleBytes
+				const frameBytes = this.frameSamples * sampleBytes
 
 				if (this.remBufBytes > 0) {
+					// console.log('remBufBytes:', this.remBufBytes / sampleBytes)
 					let copyBytes = this.remBufBytes
 					if (copyBytes + this.audBufOff > frameBytes) copyBytes = frameBytes - this.audBufOff
 					this.curAudBufs.push(this.remAudBuf.buffer.slice(0, copyBytes))
@@ -150,7 +152,7 @@ export class MacadamConsumer implements Consumer {
 					this.remBufBytes -= copyBytes
 					if (this.remBufBytes > 0) {
 						this.remAudBuf.buffer = this.remAudBuf.buffer.slice(copyBytes)
-						this.remAudBuf.timestamp += copyBytes / (this.audioChannels * 4)
+						this.remAudBuf.timestamp += copyBytes / sampleBytes
 					}
 				}
 
@@ -159,7 +161,7 @@ export class MacadamConsumer implements Consumer {
 					copyBytes = frameBytes - this.audBufOff
 					this.remAudBuf = {
 						buffer: frame.data[0].slice(copyBytes),
-						timestamp: frame.pts + copyBytes / (this.audioChannels * 4)
+						timestamp: frame.pts + copyBytes / sampleBytes
 					}
 					this.remBufBytes = curFrameBytes + this.audBufOff - frameBytes
 				}
@@ -168,7 +170,7 @@ export class MacadamConsumer implements Consumer {
 				if (copyBytes + this.audBufOff === frameBytes) {
 					result.push({
 						buffer: Buffer.concat(this.curAudBufs),
-						timestamp: frame.pts - this.audBufOff / (this.audioChannels * 4)
+						timestamp: frame.pts - this.audBufOff / sampleBytes
 					})
 					this.audBufOff = 0
 					this.curAudBufs = []
@@ -221,15 +223,17 @@ export class MacadamConsumer implements Consumer {
 				const vidBuf = frame[0]
 				const audBuf = frame[1]
 				if (!(audBuf && isValue(audBuf) && vidBuf && isValue(vidBuf))) {
+					console.log('One-legged zipper:', audBuf, vidBuf)
 					if (vidBuf && isValue(vidBuf)) vidBuf.release()
 					return Promise.resolve()
 				}
 
-				// const atb = this.chanProperties.audioTimebase
-				// const audTimestamp = (audBuf.timestamp * atb[0]) / atb[1]
-				// const vtb = this.chanProperties.videoTimebase
-				// const vidTimestamp = (vidBuf.timestamp * vtb[0]) / vtb[1]
-				// console.log('aud:', audTimestamp, ' vid:', vidTimestamp)
+				const atb = this.chanProperties.audioTimebase
+				const ats = (audBuf.timestamp * atb[0]) / atb[1]
+				const vtb = this.chanProperties.videoTimebase
+				const vts = (vidBuf.timestamp * vtb[0]) / vtb[1]
+				if (Math.abs(ats - vts) > 0.1)
+					console.log('Audio and Video timestamp mismatch - aud:', ats, ' vid:', vts)
 
 				await this.waitHW()
 				this.playback?.displayFrame(vidBuf, audBuf.buffer)
