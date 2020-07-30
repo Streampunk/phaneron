@@ -87,4 +87,4 @@ initialiseOpenCL().then(async (clContext) => {
 	// setInterval(() => clContext.logBuffers(), 2000)
 })
 
-start(commands).then((fulfilled) => console.log('Command:', fulfilled), console.error)
+start(commands).then((fulfilled) => console.log(fulfilled), console.error)

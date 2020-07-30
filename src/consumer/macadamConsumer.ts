@@ -240,8 +240,9 @@ export class MacadamConsumer implements Consumer {
 				vidBuf.release()
 				return Promise.resolve()
 			} else {
-				if (isEnd(frame)) this.playback?.stop()
 				// this.clContext.logBuffers()
+				this.playback?.stop()
+				this.playback = null
 				return Promise.resolve()
 			}
 		}
@@ -252,29 +253,17 @@ export class MacadamConsumer implements Consumer {
 			.zip(mixAudio.valve(audioFramer, { bufferSizeMax: 1, oneToMany: true }), { bufferSizeMax: 1 })
 			.spout(macadamSpout, { bufferSizeMax: 1 })
 	}
-
-	release(): void {
-		// this.playback?.stop()
-		// this.playback = null
-	}
 }
 
 export class MacadamConsumerFactory implements ConsumerFactory<MacadamConsumer> {
 	private readonly clContext: nodenCLContext
-	private readonly consumers: Map<number, MacadamConsumer>
 
 	constructor(clContext: nodenCLContext) {
 		this.clContext = clContext
-		this.consumers = new Map<number, MacadamConsumer>()
 	}
 
 	createConsumer(channel: number, chanProperties: ChanProperties): MacadamConsumer {
-		const oldConsumer = this.consumers.get(channel)
-		if (oldConsumer) oldConsumer.release()
-		this.consumers.delete(channel)
-
 		const consumer = new MacadamConsumer(channel, this.clContext, chanProperties)
-		this.consumers.set(channel, consumer)
 		return consumer
 	}
 }

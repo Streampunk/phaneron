@@ -27,7 +27,6 @@ import { ChanProperties } from '../chanLayer'
 export interface Consumer {
 	initialise(): Promise<boolean>
 	connect(mixAudio: RedioPipe<Frame | RedioEnd>, mixVideo: RedioPipe<OpenCLBuffer | RedioEnd>): void
-	release(): void
 }
 
 export interface ConsumerFactory<T extends Consumer> {

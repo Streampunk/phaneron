@@ -19,7 +19,7 @@
 */
 
 import { clContext as nodenCLContext, OpenCLBuffer } from 'nodencl'
-import { ChanLayer, ChanProperties } from '../chanLayer'
+import { ChanLayer, LoadParams, ChanProperties } from '../chanLayer'
 import { FFmpegProducerFactory } from './ffmpegProducer'
 import { MacadamProducerFactory } from './macadamProducer'
 import { RedioPipe, RedioEnd } from 'redioactive'
@@ -34,7 +34,7 @@ export interface Producer {
 }
 
 export interface ProducerFactory<T extends Producer> {
-	createProducer(id: string, params: string[]): T
+	createProducer(id: string, params: LoadParams): T
 }
 
 export class InvalidProducerError extends Error {
@@ -57,7 +57,7 @@ export class ProducerRegistry {
 
 	async createSource(
 		chanLay: ChanLayer,
-		params: string[],
+		params: LoadParams,
 		chanProperties: ChanProperties
 	): Promise<Producer | null> {
 		const id = `${chanLay.channel}-${chanLay.layer}`

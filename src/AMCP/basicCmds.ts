@@ -19,7 +19,7 @@
 */
 
 import { CmdList, CmdSet } from './commands'
-import { ChanLayer } from '../chanLayer'
+import { ChanLayer, LoadParams } from '../chanLayer'
 import { Channel } from '../channel'
 
 export class BasicCmds implements CmdList {
@@ -63,12 +63,28 @@ export class BasicCmds implements CmdList {
 		if (!chanLay.valid) return Promise.resolve(false)
 
 		let curParam = 0
-		const clip = params[curParam++]
-		const loop = params.find((param) => param === 'LOOP') !== undefined
-		const autoPlay = params.find((param) => param === 'AUTO') !== undefined
-		console.log(`loadbg: clip '${clip}', loop ${loop}, auto play ${autoPlay}`)
+		const clip = params[0]
+		let channel = 0
+		if (clip === 'DECKLINK') channel = +params[curParam + 1]
 
-		const bgOK = this.channels[chanLay.channel - 1].loadSource(chanLay, params, false, autoPlay)
+		const loop = params.find((param) => param === 'LOOP') !== undefined
+
+		const autoPlay = params.find((param) => param === 'AUTO') !== undefined
+
+		let seek = 0
+		// eslint-disable-next-line prettier/prettier
+		if (params.find((param, i) => { curParam = i; return param === 'SEEK'	}) !== undefined)
+			seek = +params[curParam + 1]
+
+		const loadParams: LoadParams = {
+			url: clip,
+			channel: channel,
+			loop: loop,
+			autoPlay: autoPlay,
+			seek: seek
+		}
+
+		const bgOK = this.channels[chanLay.channel - 1].loadSource(chanLay, loadParams, false)
 
 		return bgOK
 	}
@@ -80,7 +96,7 @@ export class BasicCmds implements CmdList {
 	async load(chanLay: ChanLayer, params: string[]): Promise<boolean> {
 		if (!chanLay.valid) return Promise.resolve(false)
 
-		const bgOK = this.channels[chanLay.channel - 1].loadSource(chanLay, params, true)
+		const bgOK = this.channels[chanLay.channel - 1].loadSource(chanLay, { url: params[0] }, true)
 
 		return bgOK
 	}

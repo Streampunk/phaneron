@@ -19,19 +19,21 @@
 */
 
 import { clContext as nodenCLContext } from 'nodencl'
-import { ChanLayer, ChanProperties } from './chanLayer'
-import { ProducerRegistry } from './producer/producer'
+import { ChanLayer, LoadParams, ChanProperties } from './chanLayer'
+import { ProducerRegistry, Producer } from './producer/producer'
 import { Layer } from './layer'
 import { ConsumerRegistry, Consumer } from './consumer/consumer'
 import { Mixer } from './mixer'
 
 export class Channel {
+	private readonly clContext: nodenCLContext
 	private readonly channel: number
 	private readonly consumerRegistry: ConsumerRegistry
 	private readonly producerRegistry: ProducerRegistry
 	private readonly chanProperties: ChanProperties
+	private producer: Producer | null = null
 	private consumer: Consumer | null = null
-	private readonly mixer: Mixer
+	private mixer: Mixer | null = null
 	private layers: Map<number, Layer>
 
 	constructor(
@@ -40,36 +42,33 @@ export class Channel {
 		consumerRegistry: ConsumerRegistry,
 		producerRegistry: ProducerRegistry
 	) {
+		this.clContext = clContext
 		this.channel = channel
 		this.consumerRegistry = consumerRegistry
 		this.producerRegistry = producerRegistry
 		this.chanProperties = { audioTimebase: [1, 48000], videoTimebase: [1, 50] }
-		this.mixer = new Mixer(clContext, 1920, 1080)
 		this.layers = new Map<number, Layer>()
 	}
 
-	async loadSource(
-		chanLay: ChanLayer,
-		params: string[],
-		preview = false,
-		autoPlay = false
-	): Promise<boolean> {
-		const producer = await this.producerRegistry.createSource(chanLay, params, this.chanProperties)
-		if (producer === null) {
+	async loadSource(chanLay: ChanLayer, params: LoadParams, preview = false): Promise<boolean> {
+		if (this.producer) this.producer.release()
+		this.producer = await this.producerRegistry.createSource(chanLay, params, this.chanProperties)
+		if (this.producer === null) {
 			console.log(`Failed to create source for params ${params}`)
 			return false
 		}
 
 		const layer = new Layer()
-		layer.load(producer, preview, autoPlay)
+		layer.load(this.producer, preview, params.autoPlay as boolean)
 		this.layers.set(chanLay.layer, layer)
-		const srcAudio = producer.getSourceAudio()
-		const srcVideo = producer.getSourceVideo()
+		const srcAudio = this.producer.getSourceAudio()
+		const srcVideo = this.producer.getSourceVideo()
 		if (!(srcVideo !== undefined && srcAudio !== undefined)) {
 			console.log(`Failed to create sources for params ${params}`)
 			return false
 		}
 
+		this.mixer = new Mixer(this.clContext, 1920, 1080)
 		await this.mixer.init([srcAudio], [srcVideo])
 		const mixAudio = this.mixer.getMixAudio()
 		const mixVideo = this.mixer.getMixVideo()
@@ -108,54 +107,53 @@ export class Channel {
 	}
 
 	stop(chanLay: ChanLayer): boolean {
-		this.consumer?.release()
 		const layer = this.layers.get(chanLay.layer) as Layer // !!! TODO
 		layer.stop()
 		return true
 	}
 
 	clear(chanLay: ChanLayer): boolean {
-		this.consumer?.release()
 		if (chanLay.layer === 0) this.layers.clear()
 		else {
 			this.stop(chanLay)
 			this.layers.delete(chanLay.layer)
+			this.consumer = null
 		}
 		return true
 	}
 
 	anchor(chanLay: ChanLayer, params: string[]): boolean {
 		if (params.length) {
-			this.mixer.setAnchor(chanLay.layer, +params[0], +params[1])
+			this.mixer?.setAnchor(chanLay.layer, +params[0], +params[1])
 		} else {
-			console.dir(this.mixer.anchorParams, { colors: true })
+			console.dir(this.mixer?.anchorParams, { colors: true })
 		}
 		return true
 	}
 
 	rotation(chanLay: ChanLayer, params: string[]): boolean {
 		if (params.length) {
-			this.mixer.setRotation(chanLay.layer, +params[0])
+			this.mixer?.setRotation(chanLay.layer, +params[0])
 		} else {
-			console.dir(this.mixer.rotation, { colors: true })
+			console.dir(this.mixer?.rotation, { colors: true })
 		}
 		return true
 	}
 
 	fill(chanLay: ChanLayer, params: string[]): boolean {
 		if (params.length) {
-			this.mixer.setFill(chanLay.layer, +params[0], +params[1], +params[2], +params[3])
+			this.mixer?.setFill(chanLay.layer, +params[0], +params[1], +params[2], +params[3])
 		} else {
-			console.dir(this.mixer.fillParams, { colors: true })
+			console.dir(this.mixer?.fillParams, { colors: true })
 		}
 		return true
 	}
 
 	volume(chanLay: ChanLayer, params: string[]): boolean {
 		if (params.length) {
-			this.mixer.setVolume(chanLay.layer, +params[0])
+			this.mixer?.setVolume(chanLay.layer, +params[0])
 		} else {
-			console.dir(this.mixer.volume, { colors: true })
+			console.dir(this.mixer?.volume, { colors: true })
 		}
 		return true
 	}

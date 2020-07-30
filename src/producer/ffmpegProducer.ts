@@ -33,7 +33,7 @@ import {
 	frame
 } from 'beamcoder'
 import redio, { RedioPipe, nil, end, isValue, RedioEnd, Generator, Valve } from 'redioactive'
-import { ChanProperties } from '../chanLayer'
+import { LoadParams, ChanProperties } from '../chanLayer'
 import { ToRGBA } from '../process/io'
 import { Reader as yuv422p10Reader } from '../process/yuv422p10'
 import { Reader as yuv422p8Reader } from '../process/yuv422p8'
@@ -49,7 +49,7 @@ interface AudioChannel {
 
 export class FFmpegProducer implements Producer {
 	private readonly id: string
-	private params: string[]
+	private loadParams: LoadParams
 	private clContext: nodenCLContext
 	private demuxer: Demuxer | null = null
 	private audSource: RedioPipe<Frame | RedioEnd> | undefined
@@ -57,21 +57,20 @@ export class FFmpegProducer implements Producer {
 	private running = true
 	private paused = false
 
-	constructor(id: string, params: string[], context: nodenCLContext) {
+	constructor(id: string, loadParams: LoadParams, context: nodenCLContext) {
 		this.id = id
-		this.params = params
+		this.loadParams = loadParams
 		this.clContext = context
 	}
 
 	async initialise(chanProperties: ChanProperties): Promise<void> {
-		const url = this.params[0]
 		try {
-			this.demuxer = await demuxer(url)
+			this.demuxer = await demuxer(this.loadParams.url)
 		} catch (err) {
 			console.log(err)
 			throw new InvalidProducerError(err)
 		}
-		// await this.demuxer.seek({ time: 60 })
+		if (this.loadParams.seek) await this.demuxer.seek({ time: this.loadParams.seek })
 
 		const streams: Stream[] = []
 		const audioStreams: number[] = []
@@ -146,7 +145,7 @@ export class FFmpegProducer implements Producer {
 				filterSpec: '[in0:a] asetpts=N/SR/TB [out0:a]'
 			})
 		}
-		// console.log('\nFFmpeg producer audio:\n', this.audFilterer.graph.dump())
+		// console.log('\nFFmpeg producer audio:\n', audFilterer.graph.dump())
 
 		const vidStream = streams[videoStreams[0]]
 		const width = vidStream.codecpar.width
@@ -209,7 +208,7 @@ export class FFmpegProducer implements Producer {
 			],
 			filterSpec: `fps=fps=${chanTb[1] / 2}/${chanTb[0]}`
 		})
-		// console.log('\nFFmpeg producer video:\n', this.vidFilterer.graph.dump())
+		// console.log('\nFFmpeg producer video:\n', vidFilterer.graph.dump())
 
 		let yadif: Yadif | null = null
 		yadif = new Yadif(this.clContext, width, height, 'send_field', 'tff', 'all')
@@ -388,7 +387,7 @@ export class FFmpegProducer implements Producer {
 			.valve(vidProcess, { bufferSizeMax: 1 })
 			.valve(vidDeint, { bufferSizeMax: 1, oneToMany: true })
 
-		console.log(`Created FFmpeg producer ${this.id} for path ${url}`)
+		console.log(`Created FFmpeg producer ${this.id} for path ${this.loadParams.url}`)
 	}
 
 	getSourceAudio(): RedioPipe<Frame | RedioEnd> | undefined {
@@ -416,7 +415,7 @@ export class FFmpegProducerFactory implements ProducerFactory<FFmpegProducer> {
 		this.clContext = clContext
 	}
 
-	createProducer(id: string, params: string[]): FFmpegProducer {
-		return new FFmpegProducer(id, params, this.clContext)
+	createProducer(id: string, loadParams: LoadParams): FFmpegProducer {
+		return new FFmpegProducer(id, loadParams, this.clContext)
 	}
 }

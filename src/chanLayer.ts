@@ -24,6 +24,14 @@ export interface ChanLayer {
 	layer: number
 }
 
+export interface LoadParams {
+	url: string
+	channel?: number
+	loop?: boolean
+	autoPlay?: boolean
+	seek?: number
+}
+
 export interface ChanProperties {
 	audioTimebase: number[]
 	videoTimebase: number[]

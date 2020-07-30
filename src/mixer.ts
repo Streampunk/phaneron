@@ -44,7 +44,7 @@ export class Mixer {
 	// private black: OpenCLBuffer | null = null
 	private mixAudio: RedioPipe<Frame | RedioEnd> | undefined
 	private mixVideo: RedioPipe<OpenCLBuffer | RedioEnd> | undefined
-	private audMixFilterer: Filterer | undefined
+	private audMixFilterer: Filterer | null = null
 
 	anchorParams: AnchorParams = { x: 0, y: 0 }
 	rotation = 0
@@ -95,6 +95,7 @@ export class Mixer {
 				const ff = await this.audMixFilterer.filter([{ name: 'in0:a', frames: [frame] }])
 				return ff[0].frames.length > 0 ? ff[0].frames : nil
 			} else {
+				this.audMixFilterer = null
 				return frame
 			}
 		}

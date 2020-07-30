@@ -21,7 +21,7 @@
 import { ProducerFactory, Producer, InvalidProducerError } from './producer'
 import { clContext as nodenCLContext, OpenCLBuffer } from 'nodencl'
 import redio, { RedioPipe, nil, end, isValue, RedioEnd, isEnd, Generator, Valve } from 'redioactive'
-import { ChanProperties } from '../chanLayer'
+import { LoadParams, ChanProperties } from '../chanLayer'
 import * as Macadam from 'macadam'
 import { ToRGBA } from '../process/io'
 import { Reader as v210Reader } from '../process/v210'
@@ -30,7 +30,7 @@ import { Frame, frame, Filterer, filterer } from 'beamcoder'
 
 export class MacadamProducer implements Producer {
 	private readonly id: string
-	private params: string[]
+	private params: LoadParams
 	private clContext: nodenCLContext
 	private capture: Macadam.CaptureChannel | null = null
 	private audFilterer: Filterer | null = null
@@ -41,17 +41,16 @@ export class MacadamProducer implements Producer {
 	private running = true
 	private paused = false
 
-	constructor(id: string, params: string[], context: nodenCLContext) {
+	constructor(id: string, params: LoadParams, context: nodenCLContext) {
 		this.id = id
 		this.params = params
 		this.clContext = context
 	}
 
 	async initialise(chanProperties: ChanProperties): Promise<void> {
-		if (this.params[0] != 'DECKLINK')
+		if (this.params.url != 'DECKLINK')
 			throw new InvalidProducerError('Macadam producer supports decklink devices')
 
-		const channel = +this.params[1]
 		let width = 0
 		let height = 0
 		const sampleRate = 48000
@@ -59,7 +58,7 @@ export class MacadamProducer implements Producer {
 		const layout = 'octagonal'
 		try {
 			this.capture = await Macadam.capture({
-				deviceIndex: channel - 1,
+				deviceIndex: (this.params.channel as number) - 1,
 				channels: channels,
 				sampleRate: Macadam.bmdAudioSampleRate48kHz,
 				sampleType: Macadam.bmdAudioSampleType32bitInteger,
@@ -81,14 +80,14 @@ export class MacadamProducer implements Producer {
 				outputParams: [
 					{
 						name: 'out0:a',
-						sampleRate: sampleRate,
+						sampleRate: 48000,
 						sampleFormat: 's32',
-						channelLayout: layout
+						channelLayout: 'octagonal'
 					}
 				],
 				filterSpec: `[in0:a] asetnsamples=n=1024:p=1 [out0:a]`
 			})
-			console.log('\nMacadam producer audio:\n', this.audFilterer.graph.dump())
+			// console.log('\nMacadam producer audio:\n', this.audFilterer.graph.dump())
 
 			width = this.capture.width
 			height = this.capture.height
@@ -187,17 +186,17 @@ export class MacadamProducer implements Producer {
 
 		const macadamFrames = redio(frameSource, { bufferSizeMax: 2 })
 
+		this.audSource = macadamFrames
+			.fork({ bufferSizeMax: 1 })
+			.valve(audFilter, { bufferSizeMax: 2, oneToMany: true })
+
 		this.vidSource = macadamFrames
 			.fork({ bufferSizeMax: 1 })
 			.valve(vidLoader, { bufferSizeMax: 1 })
 			.valve(vidProcess, { bufferSizeMax: 1 })
 			.valve(vidDeint, { bufferSizeMax: 1, oneToMany: true })
 
-		this.audSource = macadamFrames
-			.fork({ bufferSizeMax: 1 })
-			.valve(audFilter, { bufferSizeMax: 2, oneToMany: true })
-
-		console.log(`Created Macadam producer ${this.id} for channel ${channel}`)
+		console.log(`Created Macadam producer ${this.id} for channel ${this.params.channel}`)
 	}
 
 	getSourceAudio(): RedioPipe<Frame | RedioEnd> | undefined {
@@ -225,7 +224,7 @@ export class MacadamProducerFactory implements ProducerFactory<MacadamProducer> 
 		this.clContext = clContext
 	}
 
-	createProducer(id: string, params: string[]): MacadamProducer {
+	createProducer(id: string, params: LoadParams): MacadamProducer {
 		return new MacadamProducer(id, params, this.clContext)
 	}
 }
