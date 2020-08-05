@@ -76,15 +76,22 @@ export class FFmpegProducer implements Producer {
 		const audioStreams: number[] = []
 		const videoStreams: number[] = []
 		const decoders: Decoder[] = []
+		const numAudChannels = 8
+		const numVidChannels = 1
 		this.demuxer.streams.forEach((s) => {
 			streams.push(s)
-			if (s.codecpar.codec_type === 'audio') audioStreams.push(s.index)
-			if (s.codecpar.codec_type === 'video' && videoStreams.length === 0) videoStreams.push(s.index)
-			decoders.push(decoder({ demuxer: this.demuxer as Demuxer, stream_index: s.index }))
+			if (s.codecpar.codec_type === 'audio' && audioStreams.length < numAudChannels) {
+				audioStreams.push(s.index)
+				decoders.push(decoder({ demuxer: this.demuxer as Demuxer, stream_index: s.index }))
+			} else if (s.codecpar.codec_type === 'video' && videoStreams.length < numVidChannels) {
+				videoStreams.push(s.index)
+				decoders.push(decoder({ demuxer: this.demuxer as Demuxer, stream_index: s.index }))
+			}
 		})
 
 		let silentFrame: Frame | null = null
 		let audFilterer: Filterer | null = null
+		const audLayout = `${numAudChannels}c`
 		const audStream = streams[audioStreams[0]]
 		if (audStream) {
 			let inStr = ''
@@ -107,7 +114,7 @@ export class FFmpegProducer implements Producer {
 						name: 'out0:a',
 						sampleRate: 48000,
 						sampleFormat: 's32',
-						channelLayout: 'octagonal'
+						channelLayout: audLayout
 					}
 				],
 				filterSpec: `${inStr} amerge=inputs=${audioStreams.length}, asetnsamples=n=1024:p=1 [out0:a]`
@@ -118,9 +125,9 @@ export class FFmpegProducer implements Producer {
 				format: 's32',
 				pts: 0,
 				sample_rate: 48000,
-				channels: 8,
-				channel_layout: 'octagonal',
-				data: [Buffer.alloc(1024 * 8 * 4)]
+				channels: numAudChannels,
+				channel_layout: audLayout,
+				data: [Buffer.alloc(1024 * numAudChannels * 4)]
 			})
 
 			audFilterer = await filterer({
@@ -131,7 +138,7 @@ export class FFmpegProducer implements Producer {
 						timeBase: [1, 48000],
 						sampleRate: 48000,
 						sampleFormat: 's32',
-						channelLayout: 'octagonal'
+						channelLayout: audLayout
 					}
 				],
 				outputParams: [
@@ -139,7 +146,7 @@ export class FFmpegProducer implements Producer {
 						name: 'out0:a',
 						sampleRate: 48000,
 						sampleFormat: 's32',
-						channelLayout: 'octagonal'
+						channelLayout: audLayout
 					}
 				],
 				filterSpec: '[in0:a] asetpts=N/SR/TB [out0:a]'
@@ -214,52 +221,47 @@ export class FFmpegProducer implements Producer {
 		yadif = new Yadif(this.clContext, width, height, 'send_field', 'tff', 'all')
 		await yadif.init()
 
-		const demux: Generator<Packet | RedioEnd> = async (push, next) => {
+		const demux: Generator<Packet[] | RedioEnd> = async () => {
+			let result: Packet[] | RedioEnd = end
+			let doneSet = false
+
+			let lastAudTimestamp: number | undefined = undefined
+			let lastVidTimestamp: number | undefined = undefined
+			const packets: Packet[] = []
+			let doBreak = false
+
 			if (this.demuxer && this.running) {
-				const packet = await this.demuxer.read()
-				if (packet) {
-					push(packet)
-				} else {
-					push(end)
-				}
-				next()
-			} else if (this.demuxer) {
-				push(end)
-				next()
-				this.demuxer = null
-			}
-		}
+				do {
+					const packet = await this.demuxer.read()
+					if (packet) {
+						if (audioStreams.includes(packet.stream_index)) {
+							if (!lastAudTimestamp) lastAudTimestamp = packet.pts
+							else if (packet.pts !== lastAudTimestamp) doBreak = true
+							packets.push(packet)
+						} else if (videoStreams.includes(packet.stream_index)) {
+							if (!lastVidTimestamp) lastVidTimestamp = packet.pts
+							else if (packet.pts !== lastVidTimestamp) doBreak = true
+							packets.push(packet)
+						}
 
-		let lastAudTimestamp: number | undefined = undefined
-		let lastVidTimestamp: number | undefined = undefined
-		const curPackets: Packet[] = []
-
-		const demuxSequence: Valve<Packet | RedioEnd, Packet[] | RedioEnd> = async (packet) => {
-			if (isValue(packet)) {
-				if (audioStreams.includes(packet.stream_index)) {
-					if (packet.pts === lastAudTimestamp || !lastAudTimestamp) {
-						curPackets.push(packet)
-						lastAudTimestamp = packet.pts
+						if (doBreak || packets.length === audioStreams.length + videoStreams.length) {
+							if (doBreak)
+								console.log(
+									`Timestamp mismatch - sending ${packets.length} packets, ${
+										audioStreams.length + videoStreams.length
+									} expected`
+								)
+							doneSet = true
+							result = packets
+						}
+					} else {
+						doneSet = true
+						result = end
 					}
-				} else if (videoStreams.includes(packet.stream_index)) {
-					if (packet.pts === lastVidTimestamp || !lastVidTimestamp) {
-						curPackets.push(packet)
-						lastVidTimestamp = packet.pts
-					}
-				}
+				} while (!doneSet)
+			} else this.demuxer = null
 
-				if (curPackets.length === audioStreams.length + videoStreams.length) {
-					const result = curPackets.slice(0)
-					curPackets.length = 0
-					lastAudTimestamp = undefined
-					lastVidTimestamp = undefined
-					return result
-				} else {
-					return nil
-				}
-			} else {
-				return packet
-			}
+			return result
 		}
 
 		const audPacketFilter: Valve<Packet[] | RedioEnd, Packet[] | RedioEnd> = async (packets) => {
@@ -362,30 +364,28 @@ export class FFmpegProducer implements Producer {
 			}
 		}
 
-		// eslint-disable-next-line prettier/prettier
-		const ffFrames = redio(demux, { bufferSizeMax: 20 })
-			.valve(demuxSequence, { bufferSizeMax: 20 })
+		const ffPackets = redio(demux, { bufferSizeMax: 3 })
 
 		if (audioStreams.length) {
-			this.audSource = ffFrames
+			this.audSource = ffPackets
 				.fork()
-				.valve(audPacketFilter, { bufferSizeMax: 3 })
-				.valve(audDecode, { bufferSizeMax: 3 })
-				.valve(audFilter, { bufferSizeMax: 3, oneToMany: true })
+				.valve(audPacketFilter)
+				.valve(audDecode)
+				.valve(audFilter, { oneToMany: true })
 		} else {
 			// eslint-disable-next-line prettier/prettier
 			this.audSource = redio(silence, { bufferSizeMax: 3 })
-				.valve(audFilter, { bufferSizeMax: 3,	oneToMany: true })
+				.valve(audFilter, { oneToMany: true })
 		}
 
-		this.vidSource = ffFrames
+		this.vidSource = ffPackets
 			.fork()
-			.valve(vidPacketFilter, { bufferSizeMax: 3 })
-			.valve(vidDecode, { bufferSizeMax: 3 })
-			.valve(vidFilter, { bufferSizeMax: 2, oneToMany: true })
-			.valve(vidLoader, { bufferSizeMax: 2 })
-			.valve(vidProcess, { bufferSizeMax: 1 })
-			.valve(vidDeint, { bufferSizeMax: 1, oneToMany: true })
+			.valve(vidPacketFilter)
+			.valve(vidDecode)
+			.valve(vidFilter, { oneToMany: true })
+			.valve(vidLoader)
+			.valve(vidProcess)
+			.valve(vidDeint, { oneToMany: true })
 
 		console.log(`Created FFmpeg producer ${this.id} for path ${this.loadParams.url}`)
 	}

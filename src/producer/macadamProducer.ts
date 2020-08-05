@@ -54,12 +54,12 @@ export class MacadamProducer implements Producer {
 		let width = 0
 		let height = 0
 		const sampleRate = 48000
-		const channels = 8
-		const layout = 'octagonal'
+		const numAudChannels = 8
+		const audLayout = `${numAudChannels}c`
 		try {
 			this.capture = await Macadam.capture({
 				deviceIndex: (this.params.channel as number) - 1,
-				channels: channels,
+				channels: numAudChannels,
 				sampleRate: Macadam.bmdAudioSampleRate48kHz,
 				sampleType: Macadam.bmdAudioSampleType32bitInteger,
 				displayMode: Macadam.bmdModeHD1080i50,
@@ -74,7 +74,7 @@ export class MacadamProducer implements Producer {
 						timeBase: chanProperties.audioTimebase,
 						sampleRate: sampleRate,
 						sampleFormat: 's32',
-						channelLayout: layout
+						channelLayout: audLayout
 					}
 				],
 				outputParams: [
@@ -82,7 +82,7 @@ export class MacadamProducer implements Producer {
 						name: 'out0:a',
 						sampleRate: 48000,
 						sampleFormat: 's32',
-						channelLayout: 'octagonal'
+						channelLayout: audLayout
 					}
 				],
 				filterSpec: `[in0:a] asetnsamples=n=1024:p=1 [out0:a]`
@@ -123,8 +123,8 @@ export class MacadamProducer implements Producer {
 					format: 's32',
 					pts: captureFrame.audio.packetTime,
 					sample_rate: sampleRate,
-					channels: channels,
-					channel_layout: layout,
+					channels: numAudChannels,
+					channel_layout: audLayout,
 					data: [captureFrame.audio.data]
 				})
 				const ff = await this.audFilterer.filter([{ name: 'in0:a', frames: [ffFrame] }])

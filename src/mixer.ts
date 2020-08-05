@@ -66,7 +66,8 @@ export class Mixer {
 		srcVideo: RedioPipe<OpenCLBuffer | RedioEnd>[]
 	): Promise<void> {
 		const sampleRate = 48000
-		const layout = 'octagonal'
+		const numAudChannels = 8
+		const audLayout = `${numAudChannels}c`
 		this.audMixFilterer = await filterer({
 			filterType: 'audio',
 			inputParams: [
@@ -75,7 +76,7 @@ export class Mixer {
 					timeBase: [1, sampleRate],
 					sampleRate: sampleRate,
 					sampleFormat: 's32',
-					channelLayout: layout
+					channelLayout: audLayout
 				}
 			],
 			outputParams: [
@@ -83,7 +84,7 @@ export class Mixer {
 					name: 'out0:a',
 					sampleRate: sampleRate,
 					sampleFormat: 's32',
-					channelLayout: layout
+					channelLayout: audLayout
 				}
 			],
 			filterSpec: `[in0:a] volume=1.0:eval=frame:precision=fixed [out0:a]`
@@ -137,7 +138,7 @@ export class Mixer {
 						width: this.width,
 						height: this.height
 					},
-					'switch'
+					'transform'
 				)
 				xfDest.timestamp = frame.timestamp
 

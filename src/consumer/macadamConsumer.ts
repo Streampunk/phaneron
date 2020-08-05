@@ -24,7 +24,7 @@ import { RedioPipe, RedioEnd, nil, isValue, isEnd, Valve, Spout } from 'redioact
 import * as Macadam from 'macadam'
 import { FromRGBA } from '../process/io'
 import { Writer } from '../process/v210'
-import { Frame } from 'beamcoder'
+import { Frame, Filterer, filterer } from 'beamcoder'
 import { ChanProperties } from '../chanLayer'
 
 interface AudioBuffer {
@@ -40,12 +40,8 @@ export class MacadamConsumer implements Consumer {
 	private clDests: OpenCLBuffer[] = []
 	private vidField: number
 	private readonly audioChannels: number
-	private readonly frameSamples: number
 	private readonly chanProperties: ChanProperties
-	private curAudBufs: Buffer[] = []
-	private remAudBuf: AudioBuffer
-	private audBufOff = 0
-	private remBufBytes = 0
+	private audFilterer: Filterer | null = null
 
 	constructor(channel: number, context: nodenCLContext, chanProperties: ChanProperties) {
 		this.channel = channel
@@ -55,11 +51,6 @@ export class MacadamConsumer implements Consumer {
 		this.chanProperties = chanProperties
 		// This consumer removes interlace
 		this.chanProperties.videoTimebase[1] /= 2
-
-		const atb = this.chanProperties.audioTimebase
-		const vtb = this.chanProperties.videoTimebase
-		this.frameSamples = (vtb[0] * atb[1]) / (vtb[1] * atb[0])
-		this.remAudBuf = { buffer: Buffer.alloc(0), timestamp: 0 }
 
 		// Turn off single field output flag
 		//  - have to thump it twice to get it to change!!
@@ -81,6 +72,31 @@ export class MacadamConsumer implements Consumer {
 			displayMode: Macadam.bmdModeHD1080i50,
 			pixelFormat: Macadam.bmdFormat10BitYUV
 		})
+
+		const sampleRate = this.chanProperties.audioTimebase[1]
+		const audLayout = `${this.audioChannels}c`
+		this.audFilterer = await filterer({
+			filterType: 'audio',
+			inputParams: [
+				{
+					name: 'in0:a',
+					timeBase: this.chanProperties.audioTimebase,
+					sampleRate: sampleRate,
+					sampleFormat: 's32',
+					channelLayout: audLayout
+				}
+			],
+			outputParams: [
+				{
+					name: 'out0:a',
+					sampleRate: sampleRate,
+					sampleFormat: 's32',
+					channelLayout: audLayout
+				}
+			],
+			filterSpec: `[in0:a] asetnsamples=n=1920:p=1 [out0:a]`
+		})
+		// console.log('\nMacadam consumer audio:\n', this.audFilterer.graph.dump())
 
 		this.fromRGBA = new FromRGBA(
 			this.clContext,
@@ -127,58 +143,17 @@ export class MacadamConsumer implements Consumer {
 	): void {
 		this.vidField = 0
 
-		const audioFramer: Valve<Frame | RedioEnd, AudioBuffer | RedioEnd> = async (frame) => {
-			if (isValue(frame)) {
-				if (frame.channels !== this.audioChannels) console.log('Macadam channels mismatch')
-				const result: AudioBuffer[] = []
-				const sampleBytes = this.audioChannels * 4
-				const curFrameBytes = frame.nb_samples * sampleBytes
-				const frameBytes = this.frameSamples * sampleBytes
-
-				if (this.remBufBytes > 0) {
-					// console.log('remBufBytes:', this.remBufBytes / sampleBytes)
-					let copyBytes = this.remBufBytes
-					if (copyBytes + this.audBufOff > frameBytes) copyBytes = frameBytes - this.audBufOff
-					this.curAudBufs.push(this.remAudBuf.buffer.slice(0, copyBytes))
-					if (copyBytes + this.audBufOff === frameBytes) {
-						result.push({
-							buffer: Buffer.concat(this.curAudBufs),
-							timestamp: this.remAudBuf.timestamp
-						})
-						this.audBufOff = 0
-						this.curAudBufs = []
-					} else this.audBufOff += copyBytes
-
-					this.remBufBytes -= copyBytes
-					if (this.remBufBytes > 0) {
-						this.remAudBuf.buffer = this.remAudBuf.buffer.slice(copyBytes)
-						this.remAudBuf.timestamp += copyBytes / sampleBytes
-					}
-				}
-
-				let copyBytes = curFrameBytes
-				if (copyBytes + this.audBufOff > frameBytes) {
-					copyBytes = frameBytes - this.audBufOff
-					this.remAudBuf = {
-						buffer: frame.data[0].slice(copyBytes),
-						timestamp: frame.pts + copyBytes / sampleBytes
-					}
-					this.remBufBytes = curFrameBytes + this.audBufOff - frameBytes
-				}
-				this.curAudBufs.push(frame.data[0].slice(0, copyBytes))
-
-				if (copyBytes + this.audBufOff === frameBytes) {
-					result.push({
-						buffer: Buffer.concat(this.curAudBufs),
-						timestamp: frame.pts - this.audBufOff / sampleBytes
-					})
-					this.audBufOff = 0
-					this.curAudBufs = []
-				} else this.audBufOff += copyBytes
-
+		const audFilter: Valve<Frame | RedioEnd, AudioBuffer | RedioEnd> = async (frame) => {
+			if (isValue(frame) && this.audFilterer) {
+				const ff = await this.audFilterer.filter([{ name: 'in0:a', frames: [frame] }])
+				const result: AudioBuffer[] = ff[0].frames.map((f) => ({
+					buffer: f.data[0],
+					timestamp: f.pts
+				}))
 				return result.length > 0 ? result : nil
 			} else {
-				return frame
+				this.audFilterer = null
+				return nil
 			}
 		}
 
@@ -250,7 +225,7 @@ export class MacadamConsumer implements Consumer {
 		mixVideo
 			.valve(vidProcess, { bufferSizeMax: 1 })
 			.valve(vidSaver, { bufferSizeMax: 1 })
-			.zip(mixAudio.valve(audioFramer, { bufferSizeMax: 1, oneToMany: true }), { bufferSizeMax: 1 })
+			.zip(mixAudio.valve(audFilter, { bufferSizeMax: 1, oneToMany: true }), { bufferSizeMax: 1 })
 			.spout(macadamSpout, { bufferSizeMax: 1 })
 	}
 }
