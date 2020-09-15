@@ -74,18 +74,21 @@ export class ToRGBA {
 		input: Buffer | Array<Buffer>,
 		sources: Array<OpenCLBuffer>,
 		clQueue?: number | undefined
-	): Promise<Array<void>> {
+	): Promise<void> {
 		const inputs = Array.isArray(input) ? input : [input]
-		return Promise.all(
-			sources.map(async (src, i) => {
-				await src.hostAccess(
-					'writeonly',
-					clQueue ? clQueue : 0,
-					inputs[i].slice(0, this.numBytes[i])
-				)
-				return src.hostAccess('none', clQueue ? clQueue : 0)
-			})
-		)
+		if (sources.length !== inputs.length)
+			throw new Error(`Expected buffer array of ${sources.length} sources, found ${inputs.length}`)
+
+		for (let i = 0; i < inputs.length; ++i) {
+			await sources[i].hostAccess(
+				'writeonly',
+				clQueue ? clQueue : 0,
+				inputs[i].slice(0, this.numBytes[i])
+			)
+			await sources[i].hostAccess('none', clQueue ? clQueue : 0)
+		}
+
+		return Promise.resolve()
 	}
 
 	async processFrame(
@@ -187,8 +190,10 @@ export class FromRGBA {
 	async saveFrame(
 		output: OpenCLBuffer | Array<OpenCLBuffer>,
 		clQueue?: number | undefined
-	): Promise<Array<void>> {
+	): Promise<void> {
 		const outputs = Array.isArray(output) ? output : [output]
-		return Promise.all(outputs.map((op) => op.hostAccess('readonly', clQueue ? clQueue : 0)))
+		for (let o = 0; o < outputs.length; ++o)
+			await outputs[o].hostAccess('readonly', clQueue ? clQueue : 0)
+		return Promise.resolve()
 	}
 }

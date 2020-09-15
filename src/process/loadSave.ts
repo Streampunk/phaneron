@@ -62,7 +62,9 @@ export class Loader extends Packer {
 		this.gammaLut = await this.clContext.createBuffer(
 			this.gammaArray.byteLength,
 			'readonly',
-			'coarse'
+			'coarse',
+			undefined,
+			'gammaLut'
 		)
 		await this.gammaLut.hostAccess('writeonly')
 		Buffer.from(this.gammaArray.buffer).copy(this.gammaLut)
@@ -71,7 +73,9 @@ export class Loader extends Packer {
 			this.colMatrix = await this.clContext.createBuffer(
 				this.colMatrixArray.byteLength,
 				'readonly',
-				'none'
+				'none',
+				undefined,
+				'colMatrix'
 			)
 			await this.colMatrix.hostAccess('writeonly')
 			Buffer.from(this.colMatrixArray.buffer).copy(this.colMatrix)
@@ -80,7 +84,9 @@ export class Loader extends Packer {
 		this.gamutMatrix = await this.clContext.createBuffer(
 			this.gamutMatrixArray.byteLength,
 			'readonly',
-			'none'
+			'none',
+			undefined,
+			'gamutMatrix'
 		)
 		await this.gamutMatrix.hostAccess('writeonly')
 		Buffer.from(this.gamutMatrixArray.buffer).copy(this.gamutMatrix)
@@ -126,7 +132,9 @@ export class Saver extends Packer {
 		this.gammaLut = await this.clContext.createBuffer(
 			this.gammaArray.byteLength,
 			'readonly',
-			'coarse'
+			'coarse',
+			undefined,
+			'gammaLut'
 		)
 		await this.gammaLut.hostAccess('writeonly')
 
@@ -135,7 +143,9 @@ export class Saver extends Packer {
 			this.colMatrix = await this.clContext.createBuffer(
 				this.colMatrixArray.byteLength,
 				'readonly',
-				'none'
+				'none',
+				undefined,
+				'colMatrix'
 			)
 			await this.colMatrix.hostAccess('writeonly')
 			Buffer.from(this.colMatrixArray.buffer).copy(this.colMatrix)

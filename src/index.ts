@@ -51,7 +51,7 @@ const rl = readline.createInterface({
 })
 
 rl.on('line', async (input) => {
-	if (input === 'q') {
+	if (input === 'q' || input === 'Q') {
 		process.kill(process.pid, 'SIGTERM')
 	}
 
@@ -71,20 +71,21 @@ rl.on('SIGINT', () => {
 console.log('\nWelcome to Phaneron\n')
 
 const commands: Commands = new Commands()
-initialiseOpenCL().then(async (clContext) => {
-	const consumerRegistry = new ConsumerRegistry(clContext)
-	const producerRegistry = new ProducerRegistry(clContext)
-	const channels = await Promise.all(
-		Array.from(
-			[1, 2, 3, 4],
-			async (c) => new Channel(clContext, c, consumerRegistry, producerRegistry)
+initialiseOpenCL()
+	.then(async (clContext) => {
+		const consumerRegistry = new ConsumerRegistry(clContext)
+		const producerRegistry = new ProducerRegistry(clContext)
+		const channels = await Promise.all(
+			Array.from(
+				[1, 2, 3, 4],
+				async (c) => new Channel(clContext, c, consumerRegistry, producerRegistry)
+			)
 		)
-	)
 
-	commands.add(new BasicCmds(channels).list())
-	commands.add(new MixerCmds(channels).list())
+		commands.add(new BasicCmds(channels).list())
+		commands.add(new MixerCmds(channels).list())
 
-	// setInterval(() => clContext.logBuffers(), 2000)
-})
-
-start(commands).then((fulfilled) => console.log(fulfilled), console.error)
+		// setInterval(() => clContext.logBuffers(), 2000)
+	})
+	.then(() => start(commands))
+	.then((fulfilled) => console.log(fulfilled), console.error)

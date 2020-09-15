@@ -75,23 +75,29 @@ export class FFmpegProducer implements Producer {
 		const streams: Stream[] = []
 		const audioStreams: number[] = []
 		const videoStreams: number[] = []
-		const decoders: Decoder[] = []
+		const decoders: Map<number, Decoder> = new Map()
 		const numAudChannels = 8
 		const numVidChannels = 1
 		this.demuxer.streams.forEach((s) => {
-			streams.push(s)
 			if (s.codecpar.codec_type === 'audio' && audioStreams.length < numAudChannels) {
+				streams.push(s)
+				s.discard = 'default'
 				audioStreams.push(s.index)
-				decoders.push(decoder({ demuxer: this.demuxer as Demuxer, stream_index: s.index }))
+				decoders.set(s.index, decoder({ demuxer: this.demuxer as Demuxer, stream_index: s.index }))
 			} else if (s.codecpar.codec_type === 'video' && videoStreams.length < numVidChannels) {
+				streams.push(s)
+				s.discard = 'default'
 				videoStreams.push(s.index)
-				decoders.push(decoder({ demuxer: this.demuxer as Demuxer, stream_index: s.index }))
+				decoders.set(s.index, decoder({ demuxer: this.demuxer as Demuxer, stream_index: s.index }))
+			} else {
+				s.discard = 'all'
 			}
 		})
 
 		let silentFrame: Frame | null = null
 		let audFilterer: Filterer | null = null
 		const audLayout = `${numAudChannels}c`
+		const audChanNames = ['FL', 'FR', 'FC', 'SL', 'SR', 'LFE', 'BL', 'BR']
 		const audStream = streams[audioStreams[0]]
 		if (audStream) {
 			let inStr = ''
@@ -102,7 +108,8 @@ export class FFmpegProducer implements Producer {
 					timeBase: audStream.time_base,
 					sampleRate: audStream.codecpar.sample_rate,
 					sampleFormat: audStream.codecpar.format,
-					channelLayout: audStream.codecpar.channel_layout
+					channelLayout:
+						audStream.codecpar.channels === 1 ? audChanNames[i] : audStream.codecpar.channel_layout
 				}
 			})
 
@@ -274,7 +281,9 @@ export class FFmpegProducer implements Producer {
 
 		const audDecode: Valve<Packet[] | RedioEnd, AudioChannel[] | RedioEnd> = async (packets) => {
 			if (isValue(packets)) {
-				const frames = await Promise.all(packets.map((p) => decoders[p.stream_index].decode(p)))
+				const frames = await Promise.all(
+					packets.map((p) => (decoders.get(p.stream_index) as Decoder).decode(p))
+				)
 				return frames.map((f, i) => ({ name: `in${i}:a`, frames: f.frames }))
 			} else {
 				return packets
@@ -302,18 +311,18 @@ export class FFmpegProducer implements Producer {
 			}
 		}
 
-		const vidDecode: Valve<Packet[] | RedioEnd, Frame[] | RedioEnd> = async (packets) => {
+		const vidDecode: Valve<Packet[] | RedioEnd, Frame | RedioEnd> = async (packets) => {
 			if (isValue(packets)) {
-				const frm = await decoders[packets[0].stream_index].decode(packets[0])
+				const frm = await (decoders.get(packets[0].stream_index) as Decoder).decode(packets[0])
 				return frm.frames.length > 0 ? frm.frames : nil
 			} else {
 				return packets
 			}
 		}
 
-		const vidFilter: Valve<Frame[] | RedioEnd, Frame | RedioEnd> = async (decFrames) => {
+		const vidFilter: Valve<Frame | RedioEnd, Frame | RedioEnd> = async (decFrames) => {
 			if (isValue(decFrames)) {
-				const ff = await vidFilterer.filter(decFrames)
+				const ff = await vidFilterer.filter([decFrames])
 				return ff[0].frames.length > 0 ? ff[0].frames : nil
 			} else {
 				return decFrames
@@ -364,7 +373,7 @@ export class FFmpegProducer implements Producer {
 			}
 		}
 
-		const ffPackets = redio(demux, { bufferSizeMax: 3 })
+		const ffPackets = redio(demux, { bufferSizeMax: 10 })
 
 		if (audioStreams.length) {
 			this.audSource = ffPackets
@@ -374,16 +383,16 @@ export class FFmpegProducer implements Producer {
 				.valve(audFilter, { oneToMany: true })
 		} else {
 			// eslint-disable-next-line prettier/prettier
-			this.audSource = redio(silence, { bufferSizeMax: 3 })
+			this.audSource = redio(silence, { bufferSizeMax: 10 })
 				.valve(audFilter, { oneToMany: true })
 		}
 
 		this.vidSource = ffPackets
 			.fork()
 			.valve(vidPacketFilter)
-			.valve(vidDecode)
+			.valve(vidDecode, { oneToMany: true })
 			.valve(vidFilter, { oneToMany: true })
-			.valve(vidLoader)
+			.valve(vidLoader, { bufferSizeMax: 3 })
 			.valve(vidProcess)
 			.valve(vidDeint, { oneToMany: true })
 

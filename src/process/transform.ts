@@ -64,6 +64,7 @@ export default class Transform extends ProcessImpl {
 	transformMatrix: Array<Float32Array>
 	transformArray: Float32Array
 	matrixBuffer: OpenCLBuffer | null = null
+	curParams: KernelParams | null = null
 
 	constructor(clContext: nodenCLContext, width: number, height: number) {
 		super('transform', width, height, transformKernel, 'transform')
@@ -92,65 +93,86 @@ export default class Transform extends ProcessImpl {
 		this.matrixBuffer = await this.clContext.createBuffer(
 			this.transformArray.byteLength,
 			'readonly',
-			'coarse'
+			'coarse',
+			undefined,
+			'transformMatrix'
 		)
 		return this.updateMatrix(this.clContext.queue.load)
 	}
 
-	async getKernelParams(params: KernelParams, clQueue: number): Promise<KernelParams> {
-		const aspect = this.width / this.height
-		const flipX = (params.flipH as boolean) || false ? -1.0 : 1.0
-		const flipY = (params.flipV as boolean) || false ? -1.0 : 1.0
-		const anchorX = (params.anchorX as number) || 0.0
-		const anchorY = (params.anchorY as number) || 0.0
-		const scaleX = ((params.scaleX as number) || 1.0) * flipX
-		const scaleY = ((params.scaleY as number) || 1.0) * flipY
-		const offsetX = (params.offsetX as number) || 0.0
-		const offsetY = (params.offsetY as number) || 0.0
-		const rotate = ((params.rotate as number) || 0.0) * 2 * Math.PI
-
-		const anchorInMatrix = [...new Array(3)].map(() => new Float32Array(3))
-		anchorInMatrix[0] = Float32Array.from([1.0, 0.0, anchorX])
-		anchorInMatrix[1] = Float32Array.from([0.0, 1.0, anchorY])
-		anchorInMatrix[2] = Float32Array.from([0.0, 0.0, 1.0])
-
-		const scaleMatrix = [...new Array(3)].map(() => new Float32Array(3))
-		scaleMatrix[0] = Float32Array.from([1.0 / (scaleX * aspect), 0.0, 0.0])
-		scaleMatrix[1] = Float32Array.from([0.0, 1.0 / scaleY, 0.0])
-		scaleMatrix[2] = Float32Array.from([0.0, 0.0, 1.0])
-
-		const rotateMatrix = [...new Array(3)].map(() => new Float32Array(3))
-		rotateMatrix[0] = Float32Array.from([Math.cos(rotate), -Math.sin(rotate), 0.0])
-		rotateMatrix[1] = Float32Array.from([Math.sin(rotate), Math.cos(rotate), 0.0])
-		rotateMatrix[2] = Float32Array.from([0.0, 0.0, 1.0])
-
-		const translateMatrix = [...new Array(3)].map(() => new Float32Array(3))
-		translateMatrix[0] = Float32Array.from([1.0, 0.0, offsetX * aspect])
-		translateMatrix[1] = Float32Array.from([0.0, 1.0, offsetY])
-		translateMatrix[2] = Float32Array.from([0.0, 0.0, 1.0])
-
-		const anchorOutMatrix = [...new Array(3)].map(() => new Float32Array(3))
-		anchorOutMatrix[0] = Float32Array.from([1.0, 0.0, -anchorX * aspect])
-		anchorOutMatrix[1] = Float32Array.from([0.0, 1.0, -anchorY])
-		anchorOutMatrix[2] = Float32Array.from([0.0, 0.0, 1.0])
-
-		const projectMatrix = [...new Array(3)].map(() => new Float32Array(3))
-		projectMatrix[0] = Float32Array.from([aspect, 0.0, 0.0])
-		projectMatrix[1] = Float32Array.from([0.0, 1.0, 0.0])
-		projectMatrix[2] = Float32Array.from([0.0, 0.0, 1.0])
-
-		this.transformMatrix = matrixMultiply(
-			matrixMultiply(
-				matrixMultiply(
-					matrixMultiply(matrixMultiply(anchorInMatrix, scaleMatrix), rotateMatrix),
-					translateMatrix
-				),
-				anchorOutMatrix
-			),
-			projectMatrix
+	private checkParamsChange(params: KernelParams): boolean {
+		return (
+			this.curParams !== null &&
+			params.flipH === this.curParams.flipH &&
+			params.flipV === this.curParams.flipV &&
+			params.anchorX === this.curParams.anchorX &&
+			params.anchorY === this.curParams.anchorY &&
+			params.scaleX === this.curParams.scaleX &&
+			params.scaleY === this.curParams.scaleY &&
+			params.offsetX === this.curParams.offsetX &&
+			params.offsetY === this.curParams.offsetY &&
+			params.rotate === this.curParams.rotate
 		)
+	}
 
-		await this.updateMatrix(clQueue)
+	async getKernelParams(params: KernelParams, clQueue: number): Promise<KernelParams> {
+		if (!this.checkParamsChange(params)) {
+			const aspect = this.width / this.height
+			const flipX = (params.flipH as boolean) || false ? -1.0 : 1.0
+			const flipY = (params.flipV as boolean) || false ? -1.0 : 1.0
+			const anchorX = (params.anchorX as number) || 0.0
+			const anchorY = (params.anchorY as number) || 0.0
+			const scaleX = ((params.scaleX as number) || 1.0) * flipX
+			const scaleY = ((params.scaleY as number) || 1.0) * flipY
+			const offsetX = (params.offsetX as number) || 0.0
+			const offsetY = (params.offsetY as number) || 0.0
+			const rotate = ((params.rotate as number) || 0.0) * 2 * Math.PI
+
+			const anchorInMatrix = [...new Array(3)].map(() => new Float32Array(3))
+			anchorInMatrix[0] = Float32Array.from([1.0, 0.0, anchorX])
+			anchorInMatrix[1] = Float32Array.from([0.0, 1.0, anchorY])
+			anchorInMatrix[2] = Float32Array.from([0.0, 0.0, 1.0])
+
+			const scaleMatrix = [...new Array(3)].map(() => new Float32Array(3))
+			scaleMatrix[0] = Float32Array.from([1.0 / (scaleX * aspect), 0.0, 0.0])
+			scaleMatrix[1] = Float32Array.from([0.0, 1.0 / scaleY, 0.0])
+			scaleMatrix[2] = Float32Array.from([0.0, 0.0, 1.0])
+
+			const rotateMatrix = [...new Array(3)].map(() => new Float32Array(3))
+			rotateMatrix[0] = Float32Array.from([Math.cos(rotate), -Math.sin(rotate), 0.0])
+			rotateMatrix[1] = Float32Array.from([Math.sin(rotate), Math.cos(rotate), 0.0])
+			rotateMatrix[2] = Float32Array.from([0.0, 0.0, 1.0])
+
+			const translateMatrix = [...new Array(3)].map(() => new Float32Array(3))
+			translateMatrix[0] = Float32Array.from([1.0, 0.0, offsetX * aspect])
+			translateMatrix[1] = Float32Array.from([0.0, 1.0, offsetY])
+			translateMatrix[2] = Float32Array.from([0.0, 0.0, 1.0])
+
+			const anchorOutMatrix = [...new Array(3)].map(() => new Float32Array(3))
+			anchorOutMatrix[0] = Float32Array.from([1.0, 0.0, -anchorX * aspect])
+			anchorOutMatrix[1] = Float32Array.from([0.0, 1.0, -anchorY])
+			anchorOutMatrix[2] = Float32Array.from([0.0, 0.0, 1.0])
+
+			const projectMatrix = [...new Array(3)].map(() => new Float32Array(3))
+			projectMatrix[0] = Float32Array.from([aspect, 0.0, 0.0])
+			projectMatrix[1] = Float32Array.from([0.0, 1.0, 0.0])
+			projectMatrix[2] = Float32Array.from([0.0, 0.0, 1.0])
+
+			this.transformMatrix = matrixMultiply(
+				matrixMultiply(
+					matrixMultiply(
+						matrixMultiply(matrixMultiply(anchorInMatrix, scaleMatrix), rotateMatrix),
+						translateMatrix
+					),
+					anchorOutMatrix
+				),
+				projectMatrix
+			)
+
+			await this.updateMatrix(clQueue)
+		}
+		this.curParams = params
+
 		return Promise.resolve({
 			input: params.input,
 			transformMatrix: this.matrixBuffer,

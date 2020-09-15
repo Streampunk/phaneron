@@ -101,17 +101,14 @@ export class MacadamProducer implements Producer {
 			throw new InvalidProducerError(err)
 		}
 
-		const frameSource: Generator<Macadam.CaptureFrame | RedioEnd> = async (push, next) => {
-			if (this.capture && this.running) {
-				const frame = await this.capture.frame()
-				push(frame)
-				next()
-			} else if (this.capture) {
-				push(end)
-				next()
+		const frameSource: Generator<Macadam.CaptureFrame | RedioEnd> = async () => {
+			let result: Promise<Macadam.CaptureFrame | RedioEnd> = Promise.resolve(end)
+			if (this.capture && this.running) result = this.capture.frame()
+			else if (this.capture) {
 				this.capture.stop()
 				this.capture = null
 			}
+			return result
 		}
 
 		const audFilter: Valve<Macadam.CaptureFrame | RedioEnd, Frame | RedioEnd> = async (

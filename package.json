@@ -1,6 +1,6 @@
 {
   "name": "phaneron",
-  "version": "0.0.3-develop",
+  "version": "0.0.4-develop",
   "description": "Clustered, accelerated and cloud-fit video server, pre-assembled and in kit form.",
   "main": "dist/index.js",
   "repository": "https://github.com/Streampunk/phaneron.git",
@@ -14,21 +14,21 @@
     "lint:fix": "yarn lint --fix"
   },
   "dependencies": {
-    "beamcoder": "^0.5.3",
+    "beamcoder": "^0.5.8",
     "macadam": "^2.0.14",
     "nodencl": "^1.3.1",
-    "redioactive": "^0.0.7"
+    "redioactive": "^0.0.8"
   },
   "devDependencies": {
-    "@types/node": "^12.12.35",
-    "@typescript-eslint/eslint-plugin": "^3.6.1",
-    "@typescript-eslint/parser": "^3.6.1",
-    "eslint": "^7.4.0",
+    "@types/node": "^12.12.58",
+    "@typescript-eslint/eslint-plugin": "^4.1.1",
+    "@typescript-eslint/parser": "^4.1.1",
+    "eslint": "^7.9.0",
     "eslint-config-prettier": "^6.11.0",
     "eslint-plugin-prettier": "^3.1.4",
-    "prettier": "^2.0.5",
-    "trash-cli": "^3.0.0",
-    "ts-node": "^8.10.2",
-    "typescript": "^3.9.6"
+    "prettier": "^2.1.1",
+    "trash-cli": "^3.1.0",
+    "ts-node": "^9.0.0",
+    "typescript": "^4.0.2"
   }
 }

@@ -93,7 +93,13 @@ export default class Resize extends ProcessImpl {
 	}
 
 	async init(): Promise<void> {
-		this.flipVals = await this.clContext.createBuffer(this.flipArrBytes, 'readonly', 'coarse')
+		this.flipVals = await this.clContext.createBuffer(
+			this.flipArrBytes,
+			'readonly',
+			'coarse',
+			undefined,
+			'flipVals'
+		)
 		return this.updateFlip(false, false, this.clContext.queue.load)
 	}
 

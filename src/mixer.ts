@@ -87,7 +87,7 @@ export class Mixer {
 					channelLayout: audLayout
 				}
 			],
-			filterSpec: `[in0:a] volume=1.0:eval=frame:precision=fixed [out0:a]`
+			filterSpec: `[in0:a] volume=1.0:eval=frame:precision=float [out0:a]`
 		})
 		// console.log('\nMixer audio:\n', this.audMixFilterer.graph.dump())
 
@@ -171,11 +171,11 @@ export class Mixer {
 
 		// eslint-disable-next-line prettier/prettier
 		this.mixAudio = srcAudio[0]
-			.valve(audMixFilter, { bufferSizeMax: 1, oneToMany: true })
+			.valve(audMixFilter, { oneToMany: true })
 
 		// eslint-disable-next-line prettier/prettier
 		this.mixVideo = srcVideo[0]
-			.valve(mixVidValve, { bufferSizeMax: 1, oneToMany: false })
+			.valve(mixVidValve)
 	}
 
 	setAnchor(_layer: number, x: number, y: number): boolean {

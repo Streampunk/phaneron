@@ -211,7 +211,7 @@ export class MacadamConsumer implements Consumer {
 					console.log('Audio and Video timestamp mismatch - aud:', ats, ' vid:', vts)
 
 				await this.waitHW()
-				this.playback?.displayFrame(vidBuf, audBuf.buffer)
+				await this.playback?.displayFrame(vidBuf, audBuf.buffer)
 				vidBuf.release()
 				return Promise.resolve()
 			} else {
@@ -223,10 +223,30 @@ export class MacadamConsumer implements Consumer {
 		}
 
 		mixVideo
-			.valve(vidProcess, { bufferSizeMax: 1 })
-			.valve(vidSaver, { bufferSizeMax: 1 })
-			.zip(mixAudio.valve(audFilter, { bufferSizeMax: 1, oneToMany: true }), { bufferSizeMax: 1 })
-			.spout(macadamSpout, { bufferSizeMax: 1 })
+			.valve(vidProcess)
+			.valve(vidSaver)
+			.zip(mixAudio.valve(audFilter, { oneToMany: true }))
+			.spout(macadamSpout)
+
+		// const interval = 40
+		// let prev: number | undefined = undefined
+		// outFrm.each(
+		// 	async (frame) => {
+		// 		return new Promise((resolve) => {
+		// 			if (prev === undefined) prev = new Date().getTime() - interval
+		// 			const cur = new Date().getTime()
+		// 			prev += interval
+		// 			setTimeout(() => {
+		// 				if (frame && isValue(frame)) {
+		// 					if (frame.timestamp % (1000 / interval) === 0) console.log('tick', frame.timestamp)
+		// 					frame.release()
+		// 				}
+		// 				resolve()
+		// 			}, Math.max(interval - (cur - prev), 0))
+		// 		})
+		// 	},
+		// 	{ bufferSizeMax: 10 }
+		// )
 	}
 }
 
