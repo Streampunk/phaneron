@@ -72,22 +72,24 @@ export class FFmpegProducer implements Producer {
 		}
 		if (this.loadParams.seek) await this.demuxer.seek({ time: this.loadParams.seek })
 
-		const streams: Stream[] = []
-		const audioStreams: number[] = []
-		const videoStreams: number[] = []
+		// const streams: Stream[] = []
+		const audioStreams: Stream[] = []
+		const videoStreams: Stream[] = []
+		const audioIndexes: number[] = []
+		const videoIndexes: number[] = []
 		const decoders: Map<number, Decoder> = new Map()
 		const numAudChannels = 8
 		const numVidChannels = 1
 		this.demuxer.streams.forEach((s) => {
 			if (s.codecpar.codec_type === 'audio' && audioStreams.length < numAudChannels) {
-				streams.push(s)
 				s.discard = 'default'
-				audioStreams.push(s.index)
+				audioStreams.push(s)
+				audioIndexes.push(s.index)
 				decoders.set(s.index, decoder({ demuxer: this.demuxer as Demuxer, stream_index: s.index }))
 			} else if (s.codecpar.codec_type === 'video' && videoStreams.length < numVidChannels) {
-				streams.push(s)
 				s.discard = 'default'
-				videoStreams.push(s.index)
+				videoStreams.push(s)
+				videoIndexes.push(s.index)
 				decoders.set(s.index, decoder({ demuxer: this.demuxer as Demuxer, stream_index: s.index }))
 			} else {
 				s.discard = 'all'
@@ -97,8 +99,10 @@ export class FFmpegProducer implements Producer {
 		let silentFrame: Frame | null = null
 		let audFilterer: Filterer | null = null
 		const audLayout = `${numAudChannels}c`
+		// If the file has multiple audio streams each marked as mono then set the channel layout to give them a default position
+		const allMono = audioStreams.every((s) => s.codecpar.channel_layout === 'mono')
 		const audChanNames = ['FL', 'FR', 'FC', 'SL', 'SR', 'LFE', 'BL', 'BR']
-		const audStream = streams[audioStreams[0]]
+		const audStream = audioStreams[0]
 		if (audStream) {
 			let inStr = ''
 			const inParams = audioStreams.map((_s, i) => {
@@ -108,8 +112,7 @@ export class FFmpegProducer implements Producer {
 					timeBase: audStream.time_base,
 					sampleRate: audStream.codecpar.sample_rate,
 					sampleFormat: audStream.codecpar.format,
-					channelLayout:
-						audStream.codecpar.channels === 1 ? audChanNames[i] : audStream.codecpar.channel_layout
+					channelLayout: allMono ? audChanNames[i] : audStream.codecpar.channel_layout
 				}
 			})
 
@@ -161,7 +164,7 @@ export class FFmpegProducer implements Producer {
 		}
 		// console.log('\nFFmpeg producer audio:\n', audFilterer.graph.dump())
 
-		const vidStream = streams[videoStreams[0]]
+		const vidStream = videoStreams[0]
 		const width = vidStream.codecpar.width
 		const height = vidStream.codecpar.height
 
@@ -241,11 +244,11 @@ export class FFmpegProducer implements Producer {
 				do {
 					const packet = await this.demuxer.read()
 					if (packet) {
-						if (audioStreams.includes(packet.stream_index)) {
+						if (audioIndexes.includes(packet.stream_index)) {
 							if (!lastAudTimestamp) lastAudTimestamp = packet.pts
 							else if (packet.pts !== lastAudTimestamp) doBreak = true
 							packets.push(packet)
-						} else if (videoStreams.includes(packet.stream_index)) {
+						} else if (videoIndexes.includes(packet.stream_index)) {
 							if (!lastVidTimestamp) lastVidTimestamp = packet.pts
 							else if (packet.pts !== lastVidTimestamp) doBreak = true
 							packets.push(packet)
@@ -273,7 +276,7 @@ export class FFmpegProducer implements Producer {
 
 		const audPacketFilter: Valve<Packet[] | RedioEnd, Packet[] | RedioEnd> = async (packets) => {
 			if (isValue(packets)) {
-				return packets.filter((p) => audioStreams.includes(p.stream_index))
+				return packets.filter((p) => audioIndexes.includes(p.stream_index))
 			} else {
 				return packets
 			}
@@ -305,7 +308,7 @@ export class FFmpegProducer implements Producer {
 
 		const vidPacketFilter: Valve<Packet[] | RedioEnd, Packet[] | RedioEnd> = async (packets) => {
 			if (isValue(packets)) {
-				return packets.filter((p) => videoStreams.includes(p.stream_index))
+				return packets.filter((p) => videoIndexes.includes(p.stream_index))
 			} else {
 				return packets
 			}

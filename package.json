@@ -11,7 +11,8 @@
     "build": "trash dist && yarn build:main",
     "build:main": "tsc -p tsconfig.json",
     "lint": "eslint . --ext .ts",
-    "lint:fix": "yarn lint --fix"
+		"lint:fix": "yarn lint --fix",
+		"start": "ts-node src/index.ts"
   },
   "dependencies": {
     "beamcoder": "^0.5.8",
