@@ -40,7 +40,8 @@ export class MacadamConsumer implements Consumer {
 	private clDests: OpenCLBuffer[] = []
 	private vidField: number
 	private readonly audioChannels: number
-	private readonly chanProperties: ChanProperties
+	private readonly audioTimebase: number[]
+	private readonly videoTimebase: number[]
 	private audFilterer: Filterer | null = null
 
 	constructor(channel: number, context: nodenCLContext, chanProperties: ChanProperties) {
@@ -48,9 +49,10 @@ export class MacadamConsumer implements Consumer {
 		this.clContext = context
 		this.vidField = 0
 		this.audioChannels = 8
-		this.chanProperties = chanProperties
+		this.audioTimebase = chanProperties.audioTimebase.slice(0)
+		this.videoTimebase = chanProperties.videoTimebase.slice(0)
 		// This consumer removes interlace
-		this.chanProperties.videoTimebase[1] /= 2
+		this.videoTimebase[1] /= 2
 
 		// Turn off single field output flag
 		//  - have to thump it twice to get it to change!!
@@ -73,14 +75,14 @@ export class MacadamConsumer implements Consumer {
 			pixelFormat: Macadam.bmdFormat10BitYUV
 		})
 
-		const sampleRate = this.chanProperties.audioTimebase[1]
+		const sampleRate = this.audioTimebase[1]
 		const audLayout = `${this.audioChannels}c`
 		this.audFilterer = await filterer({
 			filterType: 'audio',
 			inputParams: [
 				{
 					name: 'in0:a',
-					timeBase: this.chanProperties.audioTimebase,
+					timeBase: this.audioTimebase,
 					sampleRate: sampleRate,
 					sampleFormat: 's32',
 					channelLayout: audLayout
@@ -203,9 +205,9 @@ export class MacadamConsumer implements Consumer {
 					return Promise.resolve()
 				}
 
-				const atb = this.chanProperties.audioTimebase
+				const atb = this.audioTimebase
 				const ats = (audBuf.timestamp * atb[0]) / atb[1]
-				const vtb = this.chanProperties.videoTimebase
+				const vtb = this.videoTimebase
 				const vts = (vidBuf.timestamp * vtb[0]) / vtb[1]
 				if (Math.abs(ats - vts) > 0.1)
 					console.log('Audio and Video timestamp mismatch - aud:', ats, ' vid:', vts)
