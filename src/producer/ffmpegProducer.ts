@@ -48,17 +48,15 @@ interface AudioChannel {
 }
 
 export class FFmpegProducer implements Producer {
-	private readonly id: string
-	private loadParams: LoadParams
-	private clContext: nodenCLContext
+	private readonly loadParams: LoadParams
+	private readonly clContext: nodenCLContext
 	private demuxer: Demuxer | null = null
 	private audSource: RedioPipe<Frame | RedioEnd> | undefined
 	private vidSource: RedioPipe<OpenCLBuffer | RedioEnd> | undefined
 	private running = true
 	private paused = false
 
-	constructor(id: string, loadParams: LoadParams, context: nodenCLContext) {
-		this.id = id
+	constructor(loadParams: LoadParams, context: nodenCLContext) {
 		this.loadParams = loadParams
 		this.clContext = context
 	}
@@ -399,7 +397,7 @@ export class FFmpegProducer implements Producer {
 			.valve(vidProcess)
 			.valve(vidDeint, { oneToMany: true })
 
-		console.log(`Created FFmpeg producer ${this.id} for path ${this.loadParams.url}`)
+		console.log(`Created FFmpeg producer for path ${this.loadParams.url}`)
 	}
 
 	getSourceAudio(): RedioPipe<Frame | RedioEnd> | undefined {
@@ -427,7 +425,7 @@ export class FFmpegProducerFactory implements ProducerFactory<FFmpegProducer> {
 		this.clContext = clContext
 	}
 
-	createProducer(id: string, loadParams: LoadParams): FFmpegProducer {
-		return new FFmpegProducer(id, loadParams, this.clContext)
+	createProducer(loadParams: LoadParams): FFmpegProducer {
+		return new FFmpegProducer(loadParams, this.clContext)
 	}
 }

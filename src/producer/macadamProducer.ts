@@ -29,7 +29,6 @@ import Yadif from '../process/yadif'
 import { Frame, frame, Filterer, filterer } from 'beamcoder'
 
 export class MacadamProducer implements Producer {
-	private readonly id: string
 	private params: LoadParams
 	private clContext: nodenCLContext
 	private capture: Macadam.CaptureChannel | null = null
@@ -41,8 +40,7 @@ export class MacadamProducer implements Producer {
 	private running = true
 	private paused = false
 
-	constructor(id: string, params: LoadParams, context: nodenCLContext) {
-		this.id = id
+	constructor(params: LoadParams, context: nodenCLContext) {
 		this.params = params
 		this.clContext = context
 	}
@@ -193,7 +191,7 @@ export class MacadamProducer implements Producer {
 			.valve(vidProcess, { bufferSizeMax: 1 })
 			.valve(vidDeint, { bufferSizeMax: 1, oneToMany: true })
 
-		console.log(`Created Macadam producer ${this.id} for channel ${this.params.channel}`)
+		console.log(`Created Macadam producer for channel ${this.params.channel}`)
 	}
 
 	getSourceAudio(): RedioPipe<Frame | RedioEnd> | undefined {
@@ -206,7 +204,7 @@ export class MacadamProducer implements Producer {
 
 	setPaused(pause: boolean): void {
 		this.paused = pause
-		console.log(this.id, ': setPaused', this.paused)
+		console.log('setPaused', this.paused)
 	}
 
 	release(): void {
@@ -221,7 +219,7 @@ export class MacadamProducerFactory implements ProducerFactory<MacadamProducer> 
 		this.clContext = clContext
 	}
 
-	createProducer(id: string, params: LoadParams): MacadamProducer {
-		return new MacadamProducer(id, params, this.clContext)
+	createProducer(params: LoadParams): MacadamProducer {
+		return new MacadamProducer(params, this.clContext)
 	}
 }

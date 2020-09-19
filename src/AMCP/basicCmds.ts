@@ -84,7 +84,7 @@ export class BasicCmds implements CmdList {
 			seek: seek
 		}
 
-		const bgOK = this.channels[chanLay.channel - 1].loadSource(chanLay, loadParams, false)
+		const bgOK = this.channels[chanLay.channel - 1].loadSource(chanLay.layer, loadParams, false)
 
 		return bgOK
 	}
@@ -96,7 +96,11 @@ export class BasicCmds implements CmdList {
 	async load(chanLay: ChanLayer, params: string[]): Promise<boolean> {
 		if (!chanLay.valid) return Promise.resolve(false)
 
-		const bgOK = this.channels[chanLay.channel - 1].loadSource(chanLay, { url: params[0] }, true)
+		const bgOK = this.channels[chanLay.channel - 1].loadSource(
+			chanLay.layer,
+			{ url: params[0] },
+			true
+		)
 
 		return bgOK
 	}
@@ -111,7 +115,7 @@ export class BasicCmds implements CmdList {
 
 		if (params.length !== 0) await this.loadbg(chanLay, params)
 
-		const fgOK = this.channels[chanLay.channel - 1].play(chanLay)
+		const fgOK = this.channels[chanLay.channel - 1].play(chanLay.layer)
 
 		return fgOK
 	}
@@ -123,7 +127,7 @@ export class BasicCmds implements CmdList {
 	// eslint-disable-next-line @typescript-eslint/no-unused-vars
 	async pause(chanLay: ChanLayer, _params: string[]): Promise<boolean> {
 		if (!chanLay.valid) return Promise.resolve(false)
-		this.channels[chanLay.channel - 1].pause(chanLay)
+		this.channels[chanLay.channel - 1].pause(chanLay.layer)
 		return Promise.resolve(true)
 	}
 
@@ -131,7 +135,7 @@ export class BasicCmds implements CmdList {
 	// eslint-disable-next-line @typescript-eslint/no-unused-vars
 	async resume(chanLay: ChanLayer, _params: string[]): Promise<boolean> {
 		if (!chanLay.valid) return Promise.resolve(false)
-		this.channels[chanLay.channel - 1].resume(chanLay)
+		this.channels[chanLay.channel - 1].resume(chanLay.layer)
 		return Promise.resolve(true)
 	}
 
@@ -139,7 +143,7 @@ export class BasicCmds implements CmdList {
 	// eslint-disable-next-line @typescript-eslint/no-unused-vars
 	async stop(chanLay: ChanLayer, _params: string[]): Promise<boolean> {
 		if (!chanLay.valid) return Promise.resolve(false)
-		this.channels[chanLay.channel - 1].stop(chanLay)
+		this.channels[chanLay.channel - 1].stop(chanLay.layer)
 		return Promise.resolve(true)
 	}
 
@@ -150,7 +154,7 @@ export class BasicCmds implements CmdList {
 	// eslint-disable-next-line @typescript-eslint/no-unused-vars
 	async clear(chanLay: ChanLayer, _params: string[]): Promise<boolean> {
 		if (!chanLay.valid) return Promise.resolve(false)
-		this.channels[chanLay.channel - 1].clear(chanLay)
+		this.channels[chanLay.channel - 1].clear(chanLay.layer)
 		return Promise.resolve(true)
 	}
 }

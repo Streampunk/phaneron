@@ -26,6 +26,7 @@ import { BasicCmds } from './AMCP/basicCmds'
 import { MixerCmds } from './AMCP/mixerCmds'
 import { ConsumerRegistry } from './consumer/consumer'
 import { ProducerRegistry } from './producer/producer'
+import { Config } from './config'
 import readline from 'readline'
 
 const initialiseOpenCL = async (): Promise<nodenCLContext> => {
@@ -73,14 +74,12 @@ console.log('\nWelcome to Phaneron\n')
 const commands: Commands = new Commands()
 initialiseOpenCL()
 	.then(async (clContext) => {
-		const consumerRegistry = new ConsumerRegistry(clContext)
-		const producerRegistry = new ProducerRegistry(clContext)
-		const channels = await Promise.all(
-			Array.from(
-				[1, 2, 3, 4],
-				async (c) => new Channel(clContext, c, consumerRegistry, producerRegistry)
-			)
-		)
+		const consReg = new ConsumerRegistry(clContext)
+		const prodReg = new ProducerRegistry(clContext)
+
+		const config = new Config()
+		const channels = config.consumers.map((conf) => new Channel(clContext, conf, consReg, prodReg))
+		await Promise.all(channels.map((chan) => chan.initialise()))
 
 		commands.add(new BasicCmds(channels).list())
 		commands.add(new MixerCmds(channels).list())
@@ -90,3 +89,4 @@ initialiseOpenCL()
 	.then(() => start(commands))
 	.then(console.log, console.error)
 	.then(() => rl.prompt())
+	.catch(console.error)

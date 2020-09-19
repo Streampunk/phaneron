@@ -20,21 +20,27 @@
 
 import { clContext as nodenCLContext, OpenCLBuffer } from 'nodencl'
 import { ConsumerFactory, Consumer } from './consumer'
-import { RedioPipe, RedioEnd, nil, isValue, isEnd, Valve, Spout } from 'redioactive'
+import { RedioPipe, RedioEnd, nil, end, isValue, Valve, Spout } from 'redioactive'
 import * as Macadam from 'macadam'
 import { FromRGBA } from '../process/io'
 import { Writer } from '../process/v210'
 import { Frame, Filterer, filterer } from 'beamcoder'
-import { ChanProperties } from '../chanLayer'
+import { ConsumerConfig } from '../config'
 
 interface AudioBuffer {
 	buffer: Buffer
 	timestamp: number
 }
 
+const bmdSampleRates = new Map([[48000, Macadam.bmdAudioSampleRate48kHz]])
+const bmdDisplayMode = new Map([
+	['1080i5000', Macadam.bmdModeHD1080i50],
+	['1080p5000', Macadam.bmdModeHD1080p50]
+])
+
 export class MacadamConsumer implements Consumer {
-	private readonly channel: number
-	private clContext: nodenCLContext
+	private readonly clContext: nodenCLContext
+	private readonly config: ConsumerConfig
 	private playback: Macadam.PlaybackChannel | null = null
 	private fromRGBA: FromRGBA | null = null
 	private clDests: OpenCLBuffer[] = []
@@ -44,39 +50,50 @@ export class MacadamConsumer implements Consumer {
 	private readonly videoTimebase: number[]
 	private audFilterer: Filterer | null = null
 
-	constructor(channel: number, context: nodenCLContext, chanProperties: ChanProperties) {
-		this.channel = channel
+	constructor(context: nodenCLContext, config: ConsumerConfig) {
 		this.clContext = context
+		this.config = config
 		this.vidField = 0
 		this.audioChannels = 8
-		this.audioTimebase = chanProperties.audioTimebase.slice(0)
-		this.videoTimebase = chanProperties.videoTimebase.slice(0)
-		// This consumer removes interlace
-		this.videoTimebase[1] /= 2
+		this.audioTimebase = [1, this.config.format.audioSampleRate]
+		this.videoTimebase = [
+			this.config.format.duration,
+			this.config.format.timescale / this.config.format.fields
+		]
 
 		// Turn off single field output flag
 		//  - have to thump it twice to get it to change!!
+		const macadamIndex = this.config.device.deviceIndex - 1
 		for (let x = 0; x < 2; ++x)
 			Macadam.setDeviceConfig({
-				deviceIndex: this.channel - 1,
+				deviceIndex: macadamIndex,
 				fieldFlickerRemoval: false
 			})
-		if (Macadam.getDeviceConfig(this.channel - 1).fieldFlickerRemoval)
-			console.log(`Macadam consumer ${this.channel} - failed to turn off single field output mode`)
+		if (Macadam.getDeviceConfig(macadamIndex).fieldFlickerRemoval)
+			console.log(
+				`Macadam consumer ${this.config.device.deviceIndex} - failed to turn off single field output mode`
+			)
 	}
 
-	async initialise(): Promise<boolean> {
+	async initialise(): Promise<void> {
 		this.playback = await Macadam.playback({
-			deviceIndex: this.channel - 1,
+			deviceIndex: this.config.device.deviceIndex - 1,
 			channels: this.audioChannels,
-			sampleRate: Macadam.bmdAudioSampleRate48kHz,
+			sampleRate: bmdSampleRates.get(this.config.format.audioSampleRate),
 			sampleType: Macadam.bmdAudioSampleType32bitInteger,
-			displayMode: Macadam.bmdModeHD1080i50,
+			displayMode: bmdDisplayMode.get(this.config.format.name),
 			pixelFormat: Macadam.bmdFormat10BitYUV
 		})
 
 		const sampleRate = this.audioTimebase[1]
 		const audLayout = `${this.audioChannels}c`
+		// !!! Needs more work to handle 59.94 frame rates !!!
+		const samplesPerFrame =
+			(this.config.format.audioSampleRate *
+				this.config.format.duration *
+				this.config.format.fields) /
+			this.config.format.timescale
+
 		this.audFilterer = await filterer({
 			filterType: 'audio',
 			inputParams: [
@@ -96,23 +113,19 @@ export class MacadamConsumer implements Consumer {
 					channelLayout: audLayout
 				}
 			],
-			filterSpec: `[in0:a] asetnsamples=n=1920:p=1 [out0:a]`
+			filterSpec: `[in0:a] asetnsamples=n=${samplesPerFrame}:p=1 [out0:a]`
 		})
 		// console.log('\nMacadam consumer audio:\n', this.audFilterer.graph.dump())
 
 		this.fromRGBA = new FromRGBA(
 			this.clContext,
 			'709',
-			new Writer(
-				this.playback.width,
-				this.playback.height,
-				this.playback.fieldDominance != 'progressiveFrame'
-			)
+			new Writer(this.playback.width, this.playback.height, this.config.format.fields === 2)
 		)
 		await this.fromRGBA.init()
 
-		console.log(`Created Macadam consumer for Blackmagic id: ${this.channel - 1}`)
-		return this.playback !== null
+		console.log(`Created Macadam consumer for Blackmagic id: ${this.config.device.deviceIndex}`)
+		return Promise.resolve()
 	}
 
 	async waitHW(): Promise<void> {
@@ -131,7 +144,7 @@ export class MacadamConsumer implements Consumer {
 					const hwDelay = hwTimeNow.hardwareTime - hwTime.hardwareTime - hwTimeNow.ticksPerFrame
 					if (hwDelay > hwTimeNow.ticksPerFrame * 0.9)
 						console.log(
-							`Macadam consumer ${this.channel} - frame may be delayed (${hwDelay} ticks)`
+							`Macadam consumer ${this.config.device.deviceIndex} - frame may be delayed (${hwDelay} ticks)`
 						)
 				}
 				resolve()
@@ -154,8 +167,7 @@ export class MacadamConsumer implements Consumer {
 				}))
 				return result.length > 0 ? result : nil
 			} else {
-				this.audFilterer = null
-				return nil
+				return end
 			}
 		}
 
@@ -164,14 +176,17 @@ export class MacadamConsumer implements Consumer {
 				const fromRGBA = this.fromRGBA as FromRGBA
 				if (this.vidField === 0) {
 					this.clDests = await fromRGBA.createDests()
-					this.clDests.forEach((d) => (d.timestamp = (frame.timestamp / 2) << 0))
+					this.clDests.forEach(
+						(d) => (d.timestamp = (frame.timestamp / this.config.format.fields) << 0)
+					)
 				}
 				const queue = this.clContext.queue.process
 				const interlace = 0x1 | (this.vidField << 1)
 				await fromRGBA.processFrame(frame, this.clDests, queue, interlace)
 				await this.clContext.waitFinish(queue)
 				frame.release()
-				this.vidField = 1 - this.vidField
+				if (this.config.format.fields === 2) this.vidField = 1 - this.vidField
+				else this.vidField = 0
 				return this.vidField === 1 ? nil : this.clDests[0]
 			} else {
 				return frame
@@ -185,10 +200,6 @@ export class MacadamConsumer implements Consumer {
 				await this.clContext.waitFinish(this.clContext.queue.unload)
 				return frame
 			} else {
-				if (isEnd(frame)) {
-					this.clDests.forEach((d) => d.release())
-					this.fromRGBA = null
-				}
 				return frame
 			}
 		}
@@ -218,8 +229,6 @@ export class MacadamConsumer implements Consumer {
 				return Promise.resolve()
 			} else {
 				// this.clContext.logBuffers()
-				this.playback?.stop()
-				this.playback = null
 				return Promise.resolve()
 			}
 		}
@@ -259,8 +268,8 @@ export class MacadamConsumerFactory implements ConsumerFactory<MacadamConsumer> 
 		this.clContext = clContext
 	}
 
-	createConsumer(channel: number, chanProperties: ChanProperties): MacadamConsumer {
-		const consumer = new MacadamConsumer(channel, this.clContext, chanProperties)
+	createConsumer(config: ConsumerConfig): MacadamConsumer {
+		const consumer = new MacadamConsumer(this.clContext, config)
 		return consumer
 	}
 }

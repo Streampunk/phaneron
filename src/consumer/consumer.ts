@@ -22,56 +22,28 @@ import { clContext as nodenCLContext, OpenCLBuffer } from 'nodencl'
 import { MacadamConsumerFactory } from './macadamConsumer'
 import { RedioPipe, RedioEnd } from 'redioactive'
 import { Frame } from 'beamcoder'
-import { ChanProperties } from '../chanLayer'
+import { ConsumerConfig } from '../config'
 
 export interface Consumer {
-	initialise(): Promise<boolean>
+	initialise(): Promise<void>
 	connect(mixAudio: RedioPipe<Frame | RedioEnd>, mixVideo: RedioPipe<OpenCLBuffer | RedioEnd>): void
 }
 
 export interface ConsumerFactory<T extends Consumer> {
-	createConsumer(channel: number, chanProperties: ChanProperties): T
+	createConsumer(config: ConsumerConfig): T
 }
 
-export class InvalidConsumerError extends Error {
-	constructor(message?: string) {
-		super(message)
-		// see: typescriptlang.org/docs/handbook/release-notes/typescript-2-2.html
-		Object.setPrototypeOf(this, new.target.prototype) // restore prototype chain
-		this.name = InvalidConsumerError.name // stack traces display correctly now
-	}
-}
 export class ConsumerRegistry {
-	private readonly consumerFactories: ConsumerFactory<Consumer>[]
+	private readonly consumerFactories: Map<string, ConsumerFactory<Consumer>>
 
 	constructor(clContext: nodenCLContext) {
-		this.consumerFactories = []
-		this.consumerFactories.push(new MacadamConsumerFactory(clContext))
+		this.consumerFactories = new Map()
+		this.consumerFactories.set('decklink', new MacadamConsumerFactory(clContext))
 	}
 
-	async createSpout(
-		channel: number,
-		mixAudio: RedioPipe<Frame | RedioEnd>,
-		mixVideo: RedioPipe<OpenCLBuffer | RedioEnd>,
-		chanProperties: ChanProperties
-	): Promise<Consumer | null> {
-		let consumerOK = false
-		for (const f of this.consumerFactories) {
-			try {
-				const consumer = f.createConsumer(channel, chanProperties) as Consumer
-				consumerOK = await consumer.initialise()
-				if (consumerOK) {
-					consumer.connect(mixAudio, mixVideo)
-					return consumer
-				}
-			} catch (err) {
-				if (!(err instanceof InvalidConsumerError)) {
-					throw err
-				}
-			}
-		}
-
-		console.log(`Failed to find consumer for channel: '${channel}'`)
-		return null
+	createConsumer(config: ConsumerConfig): Consumer {
+		const factory = this.consumerFactories.get(config.device.name)
+		if (!factory) throw new Error(`Failed to create consumer for device '${config.device.name}'`)
+		return factory.createConsumer(config)
 	}
 }

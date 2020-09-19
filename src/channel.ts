@@ -19,40 +19,73 @@
 */
 
 import { clContext as nodenCLContext } from 'nodencl'
-import { ChanLayer, LoadParams, ChanProperties } from './chanLayer'
+import { LoadParams, ChanProperties } from './chanLayer'
 import { ProducerRegistry, Producer } from './producer/producer'
+import { ConsumerConfig } from './config'
 import { Layer } from './layer'
 import { ConsumerRegistry, Consumer } from './consumer/consumer'
 import { Mixer } from './mixer'
 
+class Combiner {
+	private layers: Map<number, Layer>
+
+	constructor() {
+		this.layers = new Map<number, Layer>()
+	}
+
+	setLayer(layerNum: number, layer: Layer): void {
+		this.layers.set(layerNum, layer)
+	}
+
+	delLayer(layerNum: number): boolean {
+		return this.layers.delete(layerNum)
+	}
+
+	getLayer(layerNum: number): Layer | undefined {
+		return this.layers.get(layerNum)
+	}
+
+	clearLayers(): void {
+		this.layers.clear()
+	}
+}
+
 export class Channel {
 	private readonly clContext: nodenCLContext
-	private readonly channel: number
+	private readonly consumerConfig: ConsumerConfig
 	private readonly consumerRegistry: ConsumerRegistry
 	private readonly producerRegistry: ProducerRegistry
 	private readonly chanProperties: ChanProperties
+	private readonly combiner: Combiner
 	private producer: Producer | null = null
-	private consumer: Consumer | null = null
+	private consumer: Consumer
 	private mixer: Mixer | null = null
-	private layers: Map<number, Layer>
 
 	constructor(
 		clContext: nodenCLContext,
-		channel: number,
+		consumerConfig: ConsumerConfig,
 		consumerRegistry: ConsumerRegistry,
 		producerRegistry: ProducerRegistry
 	) {
 		this.clContext = clContext
-		this.channel = channel
+		this.consumerConfig = consumerConfig
 		this.consumerRegistry = consumerRegistry
 		this.producerRegistry = producerRegistry
-		this.chanProperties = { audioTimebase: [1, 48000], videoTimebase: [1, 50] }
-		this.layers = new Map<number, Layer>()
+		this.chanProperties = {
+			audioTimebase: [1, this.consumerConfig.format.audioSampleRate],
+			videoTimebase: [this.consumerConfig.format.duration, this.consumerConfig.format.timescale]
+		}
+		this.combiner = new Combiner()
+		this.consumer = this.consumerRegistry.createConsumer(this.consumerConfig)
 	}
 
-	async loadSource(chanLay: ChanLayer, params: LoadParams, preview = false): Promise<boolean> {
+	async initialise(): Promise<void> {
+		return this.consumer.initialise()
+	}
+
+	async loadSource(layerNum: number, params: LoadParams, preview = false): Promise<boolean> {
 		if (this.producer) this.producer.release()
-		this.producer = await this.producerRegistry.createSource(chanLay, params, this.chanProperties)
+		this.producer = await this.producerRegistry.createSource(params, this.chanProperties)
 		if (this.producer === null) {
 			console.log(`Failed to create source for params ${params}`)
 			return false
@@ -60,7 +93,7 @@ export class Channel {
 
 		const layer = new Layer()
 		layer.load(this.producer, preview, params.autoPlay as boolean)
-		this.layers.set(chanLay.layer, layer)
+		this.combiner.setLayer(layerNum, layer)
 		const srcAudio = this.producer.getSourceAudio()
 		const srcVideo = this.producer.getSourceVideo()
 		if (!(srcVideo !== undefined && srcAudio !== undefined)) {
@@ -68,7 +101,11 @@ export class Channel {
 			return false
 		}
 
-		this.mixer = new Mixer(this.clContext, 1920, 1080)
+		this.mixer = new Mixer(
+			this.clContext,
+			this.consumerConfig.format.width,
+			this.consumerConfig.format.height
+		)
 		await this.mixer.init([srcAudio], [srcVideo])
 		const mixAudio = this.mixer.getMixAudio()
 		const mixVideo = this.mixer.getMixVideo()
@@ -77,81 +114,75 @@ export class Channel {
 			return false
 		}
 
-		this.consumer = await this.consumerRegistry.createSpout(
-			this.channel,
-			mixAudio,
-			mixVideo,
-			this.chanProperties
-		)
-		if (!this.consumer) console.log(`Failed to create spout for channel ${this.channel}`)
+		this.consumer.connect(mixAudio, mixVideo)
 
 		return true
 	}
 
-	play(chanLay: ChanLayer): boolean {
-		const layer = this.layers.get(chanLay.layer) as Layer // !!! TODO
-		layer.play()
-		return true
+	play(layerNum: number): boolean {
+		const layer = this.combiner.getLayer(layerNum)
+		if (layer) layer.play()
+		return layer !== undefined
 	}
 
-	pause(chanLay: ChanLayer): boolean {
-		const layer = this.layers.get(chanLay.layer) as Layer // !!! TODO
-		layer.pause()
-		return true
+	pause(layerNum: number): boolean {
+		const layer = this.combiner.getLayer(layerNum)
+		if (layer) layer.pause()
+		return layer !== undefined
 	}
 
-	resume(chanLay: ChanLayer): boolean {
-		const layer = this.layers.get(chanLay.layer) as Layer // !!! TODO
-		layer.resume()
-		return true
+	resume(layerNum: number): boolean {
+		const layer = this.combiner.getLayer(layerNum)
+		if (layer) layer.resume()
+		return layer !== undefined
 	}
 
-	stop(chanLay: ChanLayer): boolean {
-		const layer = this.layers.get(chanLay.layer) as Layer // !!! TODO
-		layer.stop()
-		return true
+	stop(layerNum: number): boolean {
+		const layer = this.combiner.getLayer(layerNum)
+		if (layer) layer.stop()
+		return layer !== undefined
 	}
 
-	clear(chanLay: ChanLayer): boolean {
-		if (chanLay.layer === 0) this.layers.clear()
+	clear(layerNum: number): boolean {
+		let result = true
+		if (layerNum === 0) this.combiner.clearLayers()
 		else {
-			this.stop(chanLay)
-			this.layers.delete(chanLay.layer)
-			this.consumer = null
+			this.stop(layerNum)
+			result = this.combiner.delLayer(layerNum)
 		}
-		return true
+		return result
 	}
 
-	anchor(chanLay: ChanLayer, params: string[]): boolean {
+	anchor(layerNum: number, params: string[]): boolean {
 		if (params.length) {
-			this.mixer?.setAnchor(chanLay.layer, +params[0], +params[1])
+			this.mixer?.setAnchor(layerNum, +params[0], +params[1])
 		} else {
 			console.dir(this.mixer?.anchorParams, { colors: true })
 		}
 		return true
 	}
 
-	rotation(chanLay: ChanLayer, params: string[]): boolean {
+	rotation(layerNum: number, params: string[]): boolean {
 		if (params.length) {
-			this.mixer?.setRotation(chanLay.layer, +params[0])
+			this.mixer?.setRotation(layerNum, +params[0])
 		} else {
 			console.dir(this.mixer?.rotation, { colors: true })
 		}
 		return true
 	}
 
-	fill(chanLay: ChanLayer, params: string[]): boolean {
+	fill(layerNum: number, params: string[]): boolean {
 		if (params.length) {
-			this.mixer?.setFill(chanLay.layer, +params[0], +params[1], +params[2], +params[3])
+			this.mixer?.setFill(layerNum, +params[0], +params[1], +params[2], +params[3])
 		} else {
 			console.dir(this.mixer?.fillParams, { colors: true })
 		}
 		return true
 	}
 
-	volume(chanLay: ChanLayer, params: string[]): boolean {
+	volume(layerNum: number, params: string[]): boolean {
 		if (params.length) {
-			this.mixer?.setVolume(chanLay.layer, +params[0])
+			this.mixer?.setVolume(layerNum, +params[0])
 		} else {
 			console.dir(this.mixer?.volume, { colors: true })
 		}

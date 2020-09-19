@@ -46,7 +46,7 @@ export class MixerCmds implements CmdList {
 	 */
 	async anchor(chanLay: ChanLayer, params: string[]): Promise<boolean> {
 		if (!chanLay.valid) return Promise.resolve(false)
-		return this.channels[chanLay.channel - 1].anchor(chanLay, params)
+		return this.channels[chanLay.channel - 1].anchor(chanLay.layer, params)
 	}
 
 	/**
@@ -62,7 +62,7 @@ export class MixerCmds implements CmdList {
 	 */
 	async fill(chanLay: ChanLayer, params: string[]): Promise<boolean> {
 		if (!chanLay.valid) return Promise.resolve(false)
-		return this.channels[chanLay.channel - 1].fill(chanLay, params)
+		return this.channels[chanLay.channel - 1].fill(chanLay.layer, params)
 	}
 
 	/**
@@ -70,11 +70,11 @@ export class MixerCmds implements CmdList {
 	 */
 	async rotation(chanLay: ChanLayer, params: string[]): Promise<boolean> {
 		if (!chanLay.valid) return Promise.resolve(false)
-		return this.channels[chanLay.channel - 1].rotation(chanLay, params)
+		return this.channels[chanLay.channel - 1].rotation(chanLay.layer, params)
 	}
 
 	async volume(chanLay: ChanLayer, params: string[]): Promise<boolean> {
 		if (!chanLay.valid) return Promise.resolve(false)
-		return this.channels[chanLay.channel - 1].volume(chanLay, params)
+		return this.channels[chanLay.channel - 1].volume(chanLay.layer, params)
 	}
 }
