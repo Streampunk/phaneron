@@ -19,7 +19,7 @@
 */
 
 import { clContext as nodenCLContext } from 'nodencl'
-import { LoadParams, ChanProperties } from './chanLayer'
+import { LoadParams } from './chanLayer'
 import { ProducerRegistry, Producer } from './producer/producer'
 import { ConsumerConfig } from './config'
 import { Layer } from './layer'
@@ -55,7 +55,6 @@ export class Channel {
 	private readonly consumerConfig: ConsumerConfig
 	private readonly consumerRegistry: ConsumerRegistry
 	private readonly producerRegistry: ProducerRegistry
-	private readonly chanProperties: ChanProperties
 	private readonly combiner: Combiner
 	private producer: Producer | null = null
 	private consumer: Consumer
@@ -71,10 +70,10 @@ export class Channel {
 		this.consumerConfig = consumerConfig
 		this.consumerRegistry = consumerRegistry
 		this.producerRegistry = producerRegistry
-		this.chanProperties = {
-			audioTimebase: [1, this.consumerConfig.format.audioSampleRate],
-			videoTimebase: [this.consumerConfig.format.duration, this.consumerConfig.format.timescale]
-		}
+		// this.chanProperties = {
+		// 	audioTimebase: [1, this.consumerConfig.format.audioSampleRate],
+		// 	videoTimebase: [this.consumerConfig.format.duration, this.consumerConfig.format.timescale]
+		// }
 		this.combiner = new Combiner()
 		this.consumer = this.consumerRegistry.createConsumer(this.consumerConfig)
 	}
@@ -85,7 +84,7 @@ export class Channel {
 
 	async loadSource(layerNum: number, params: LoadParams, preview = false): Promise<boolean> {
 		if (this.producer) this.producer.release()
-		this.producer = await this.producerRegistry.createSource(params, this.chanProperties)
+		this.producer = await this.producerRegistry.createSource(params, this.consumerConfig.format)
 		if (this.producer === null) {
 			console.log(`Failed to create source for params ${params}`)
 			return false

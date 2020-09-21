@@ -21,7 +21,8 @@
 import { ProducerFactory, Producer, InvalidProducerError } from './producer'
 import { clContext as nodenCLContext, OpenCLBuffer } from 'nodencl'
 import redio, { RedioPipe, nil, end, isValue, RedioEnd, isEnd, Generator, Valve } from 'redioactive'
-import { LoadParams, ChanProperties } from '../chanLayer'
+import { LoadParams } from '../chanLayer'
+import { VideoFormat } from '../config'
 import * as Macadam from 'macadam'
 import { ToRGBA } from '../process/io'
 import { Reader as v210Reader } from '../process/v210'
@@ -45,7 +46,7 @@ export class MacadamProducer implements Producer {
 		this.clContext = context
 	}
 
-	async initialise(chanProperties: ChanProperties): Promise<void> {
+	async initialise(consumerFormat: VideoFormat): Promise<void> {
 		if (this.params.url != 'DECKLINK')
 			throw new InvalidProducerError('Macadam producer supports decklink devices')
 
@@ -69,7 +70,7 @@ export class MacadamProducer implements Producer {
 				inputParams: [
 					{
 						name: 'in0:a',
-						timeBase: chanProperties.audioTimebase,
+						timeBase: [1, sampleRate],
 						sampleRate: sampleRate,
 						sampleFormat: 's32',
 						channelLayout: audLayout
@@ -78,7 +79,7 @@ export class MacadamProducer implements Producer {
 				outputParams: [
 					{
 						name: 'out0:a',
-						sampleRate: 48000,
+						sampleRate: consumerFormat.audioSampleRate,
 						sampleFormat: 's32',
 						channelLayout: audLayout
 					}

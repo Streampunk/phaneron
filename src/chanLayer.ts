@@ -31,8 +31,3 @@ export interface LoadParams {
 	autoPlay?: boolean
 	seek?: number
 }
-
-export interface ChanProperties {
-	audioTimebase: number[]
-	videoTimebase: number[]
-}

@@ -18,7 +18,7 @@
   14 Ormiscaig, Aultbea, Achnasheen, IV22 2JJ  U.K.
 */
 
-type VideoFormat = {
+export type VideoFormat = {
 	name: string
 	fields: number
 	width: number

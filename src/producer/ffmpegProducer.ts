@@ -33,7 +33,8 @@ import {
 	frame
 } from 'beamcoder'
 import redio, { RedioPipe, nil, end, isValue, RedioEnd, Generator, Valve } from 'redioactive'
-import { LoadParams, ChanProperties } from '../chanLayer'
+import { LoadParams } from '../chanLayer'
+import { VideoFormat } from '../config'
 import { ToRGBA } from '../process/io'
 import { Reader as yuv422p10Reader } from '../process/yuv422p10'
 import { Reader as yuv422p8Reader } from '../process/yuv422p8'
@@ -61,7 +62,7 @@ export class FFmpegProducer implements Producer {
 		this.clContext = context
 	}
 
-	async initialise(chanProperties: ChanProperties): Promise<void> {
+	async initialise(consumerFormat: VideoFormat): Promise<void> {
 		try {
 			this.demuxer = await demuxer(this.loadParams.url)
 		} catch (err) {
@@ -204,7 +205,7 @@ export class FFmpegProducer implements Producer {
 					)
 		}
 		await toRGBA.init()
-		const chanTb = chanProperties.videoTimebase
+		const chanTb = [consumerFormat.duration, consumerFormat.timescale]
 		const vidFilterer = await filterer({
 			filterType: 'video',
 			inputParams: [

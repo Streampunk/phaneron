@@ -19,14 +19,15 @@
 */
 
 import { clContext as nodenCLContext, OpenCLBuffer } from 'nodencl'
-import { LoadParams, ChanProperties } from '../chanLayer'
+import { LoadParams } from '../chanLayer'
+import { VideoFormat } from '../config'
 import { FFmpegProducerFactory } from './ffmpegProducer'
 import { MacadamProducerFactory } from './macadamProducer'
 import { RedioPipe, RedioEnd } from 'redioactive'
 import { Frame } from 'beamcoder'
 
 export interface Producer {
-	initialise(chanProperties: ChanProperties): void
+	initialise(consumerFormat: VideoFormat): void
 	getSourceAudio(): RedioPipe<Frame | RedioEnd> | undefined
 	getSourceVideo(): RedioPipe<OpenCLBuffer | RedioEnd> | undefined
 	setPaused(pause: boolean): void
@@ -55,12 +56,12 @@ export class ProducerRegistry {
 		this.producerFactories.push(new FFmpegProducerFactory(clContext))
 	}
 
-	async createSource(params: LoadParams, chanProperties: ChanProperties): Promise<Producer | null> {
+	async createSource(params: LoadParams, consumerFormat: VideoFormat): Promise<Producer | null> {
 		let producerErr = ''
 		for (const f of this.producerFactories) {
 			try {
 				const producer = f.createProducer(params)
-				await producer.initialise(chanProperties)
+				await producer.initialise(consumerFormat)
 				return producer
 			} catch (err) {
 				producerErr = err.message
