@@ -22,7 +22,7 @@ import { ProducerFactory, Producer, InvalidProducerError } from './producer'
 import { clContext as nodenCLContext, OpenCLBuffer } from 'nodencl'
 import redio, { RedioPipe, nil, end, isValue, RedioEnd, isEnd, Generator, Valve } from 'redioactive'
 import { LoadParams } from '../chanLayer'
-import { VideoFormat } from '../config'
+import { VideoFormat, VideoFormats } from '../config'
 import * as Macadam from 'macadam'
 import { ToRGBA } from '../process/io'
 import { Reader as v210Reader } from '../process/v210'
@@ -34,6 +34,7 @@ export class MacadamProducer implements Producer {
 	private clContext: nodenCLContext
 	private capture: Macadam.CaptureChannel | null = null
 	private audFilterer: Filterer | null = null
+	private format: VideoFormat
 	private audSource: RedioPipe<Frame | RedioEnd> | undefined
 	private vidSource: RedioPipe<OpenCLBuffer | RedioEnd> | undefined
 	private toRGBA: ToRGBA | null = null
@@ -44,6 +45,7 @@ export class MacadamProducer implements Producer {
 	constructor(params: LoadParams, context: nodenCLContext) {
 		this.params = params
 		this.clContext = context
+		this.format = new VideoFormats().get('1080p5000') // default
 	}
 
 	async initialise(consumerFormat: VideoFormat): Promise<void> {
@@ -52,8 +54,8 @@ export class MacadamProducer implements Producer {
 
 		let width = 0
 		let height = 0
-		const sampleRate = 48000
-		const numAudChannels = 8
+		const sampleRate = consumerFormat.audioSampleRate
+		const numAudChannels = consumerFormat.audioChannels
 		const audLayout = `${numAudChannels}c`
 		try {
 			this.capture = await Macadam.capture({
@@ -80,7 +82,7 @@ export class MacadamProducer implements Producer {
 					{
 						name: 'out0:a',
 						sampleRate: consumerFormat.audioSampleRate,
-						sampleFormat: 's32',
+						sampleFormat: 'flt',
 						channelLayout: audLayout
 					}
 				],
@@ -180,6 +182,19 @@ export class MacadamProducer implements Producer {
 			}
 		}
 
+		this.format = {
+			name: 'macadam',
+			fields: 1,
+			width: width,
+			height: height,
+			squareWidth: width,
+			squareHeight: height,
+			timescale: 50,
+			duration: 1,
+			audioSampleRate: 48000,
+			audioChannels: 8
+		}
+
 		const macadamFrames = redio(frameSource, { bufferSizeMax: 2 })
 
 		this.audSource = macadamFrames
@@ -193,6 +208,10 @@ export class MacadamProducer implements Producer {
 			.valve(vidDeint, { bufferSizeMax: 1, oneToMany: true })
 
 		console.log(`Created Macadam producer for channel ${this.params.channel}`)
+	}
+
+	getFormat(): VideoFormat {
+		return this.format
 	}
 
 	getSourceAudio(): RedioPipe<Frame | RedioEnd> | undefined {

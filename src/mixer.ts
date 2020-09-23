@@ -20,6 +20,7 @@
 
 import { clContext as nodenCLContext, OpenCLBuffer } from 'nodencl'
 import { RedioPipe, RedioEnd, isValue, Valve, nil } from 'redioactive'
+import { VideoFormat } from './config'
 import ImageProcess from './process/imageProcess'
 import Transform from './process/transform'
 import { Frame, Filterer, filterer } from 'beamcoder'
@@ -38,8 +39,8 @@ interface FillParams {
 
 export class Mixer {
 	private readonly clContext: nodenCLContext
-	private readonly width: number
-	private readonly height: number
+	private readonly srcFormat: VideoFormat
+	private readonly consumerFormat: VideoFormat
 	private transform: ImageProcess | null
 	// private black: OpenCLBuffer | null = null
 	private mixAudio: RedioPipe<Frame | RedioEnd> | undefined
@@ -51,22 +52,22 @@ export class Mixer {
 	fillParams: FillParams = { xOffset: 0, yOffset: 0, xScale: 1, yScale: 1 }
 	volume = 1.0
 
-	constructor(clContext: nodenCLContext, width: number, height: number) {
+	constructor(clContext: nodenCLContext, srcFormat: VideoFormat, consumerFormat: VideoFormat) {
 		this.clContext = clContext
-		this.width = width
-		this.height = height
+		this.srcFormat = srcFormat
+		this.consumerFormat = consumerFormat
 		this.transform = new ImageProcess(
 			this.clContext,
-			new Transform(this.clContext, this.width, this.height)
+			new Transform(this.clContext, this.srcFormat.width, this.srcFormat.height)
 		)
 	}
 
 	async init(
-		srcAudio: RedioPipe<Frame | RedioEnd>[],
-		srcVideo: RedioPipe<OpenCLBuffer | RedioEnd>[]
+		srcAudio: RedioPipe<Frame | RedioEnd>,
+		srcVideo: RedioPipe<OpenCLBuffer | RedioEnd>
 	): Promise<void> {
-		const sampleRate = 48000
-		const numAudChannels = 8
+		const sampleRate = this.srcFormat.audioSampleRate
+		const numAudChannels = this.srcFormat.audioChannels
 		const audLayout = `${numAudChannels}c`
 		this.audMixFilterer = await filterer({
 			filterType: 'audio',
@@ -75,7 +76,7 @@ export class Mixer {
 					name: 'in0:a',
 					timeBase: [1, sampleRate],
 					sampleRate: sampleRate,
-					sampleFormat: 's32',
+					sampleFormat: 'flt',
 					channelLayout: audLayout
 				}
 			],
@@ -83,7 +84,7 @@ export class Mixer {
 				{
 					name: 'out0:a',
 					sampleRate: sampleRate,
-					sampleFormat: 's32',
+					sampleFormat: 'flt',
 					channelLayout: audLayout
 				}
 			],
@@ -102,7 +103,10 @@ export class Mixer {
 		}
 
 		await this.transform?.init()
-		const numBytesRGBA = this.width * this.height * 4 * 4
+		const numBytesRGBA = this.consumerFormat.width * this.consumerFormat.height * 4 * 4
+		const srcXscale = this.consumerFormat.squareWidth / this.srcFormat.squareWidth
+		const srcYscale = this.consumerFormat.squareHeight / this.srcFormat.squareHeight
+
 		// this.black = await this.clContext.createBuffer(
 		// 	numBytesRGBA,
 		// 	'readwrite',
@@ -135,8 +139,8 @@ export class Mixer {
 					'readwrite',
 					'coarse',
 					{
-						width: this.width,
-						height: this.height
+						width: this.consumerFormat.width,
+						height: this.consumerFormat.height
 					},
 					'transform'
 				)
@@ -149,8 +153,8 @@ export class Mixer {
 						flipV: false,
 						anchorX: this.anchorParams.x - 0.5,
 						anchorY: this.anchorParams.y - 0.5,
-						scaleX: this.fillParams.xScale,
-						scaleY: this.fillParams.yScale,
+						scaleX: srcXscale * this.fillParams.xScale,
+						scaleY: srcYscale * this.fillParams.yScale,
 						rotate: -this.rotation / 360.0,
 						offsetX: -this.fillParams.xOffset,
 						offsetY: -this.fillParams.yOffset,
@@ -170,11 +174,11 @@ export class Mixer {
 		}
 
 		// eslint-disable-next-line prettier/prettier
-		this.mixAudio = srcAudio[0]
+		this.mixAudio = srcAudio
 			.valve(audMixFilter, { oneToMany: true })
 
 		// eslint-disable-next-line prettier/prettier
-		this.mixVideo = srcVideo[0]
+		this.mixVideo = srcVideo
 			.valve(mixVidValve)
 	}
 
@@ -200,10 +204,10 @@ export class Mixer {
 		return true
 	}
 
-	getMixAudio(): RedioPipe<Frame | RedioEnd> | undefined {
+	getAudioPipe(): RedioPipe<Frame | RedioEnd> | undefined {
 		return this.mixAudio
 	}
-	getMixVideo(): RedioPipe<OpenCLBuffer | RedioEnd> | undefined {
+	getVideoPipe(): RedioPipe<OpenCLBuffer | RedioEnd> | undefined {
 		return this.mixVideo
 	}
 }

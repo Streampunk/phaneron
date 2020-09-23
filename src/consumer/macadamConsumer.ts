@@ -101,7 +101,7 @@ export class MacadamConsumer implements Consumer {
 					name: 'in0:a',
 					timeBase: this.audioTimebase,
 					sampleRate: sampleRate,
-					sampleFormat: 's32',
+					sampleFormat: 'flt',
 					channelLayout: audLayout
 				}
 			],

@@ -28,9 +28,10 @@ export type VideoFormat = {
 	timescale: number
 	duration: number
 	audioSampleRate: number
+	audioChannels: number
 }
 
-class VideoFormats {
+export class VideoFormats {
 	private formats: Map<string, VideoFormat>
 
 	constructor() {
@@ -44,7 +45,8 @@ class VideoFormats {
 			squareHeight: 1080,
 			timescale: 50,
 			duration: 1,
-			audioSampleRate: 48000
+			audioSampleRate: 48000,
+			audioChannels: 8
 		})
 		this.formats.set('1080p5000', {
 			name: '1080p5000',
@@ -55,7 +57,8 @@ class VideoFormats {
 			squareHeight: 1080,
 			timescale: 50,
 			duration: 1,
-			audioSampleRate: 48000
+			audioSampleRate: 48000,
+			audioChannels: 8
 		})
 	}
 
@@ -81,7 +84,7 @@ interface DecklinkConfig extends DeviceConfig {
 	bufferDepth: number
 }
 
-const decklinkDefaults: DecklinkConfig = {
+export const decklinkDefaults: DecklinkConfig = {
 	name: 'decklink',
 	deviceIndex: 1,
 	keyDeviceIndex: 0,
@@ -95,55 +98,4 @@ const decklinkDefaults: DecklinkConfig = {
 export interface ConsumerConfig {
 	format: VideoFormat
 	device: DeviceConfig
-}
-
-export class Config {
-	private readonly videoFormats: VideoFormats
-	readonly consumers: ConsumerConfig[]
-
-	constructor() {
-		this.videoFormats = new VideoFormats()
-		this.consumers = [
-			{
-				format: this.videoFormats.get('1080i5000'),
-				device: Object.assign(
-					{ ...decklinkDefaults },
-					{
-						deviceIndex: 1,
-						embeddedAudio: true
-					}
-				)
-			},
-			{
-				format: this.videoFormats.get('1080i5000'),
-				device: Object.assign(
-					{ ...decklinkDefaults },
-					{
-						deviceIndex: 2,
-						embeddedAudio: true
-					}
-				)
-			},
-			{
-				format: this.videoFormats.get('1080i5000'),
-				device: Object.assign(
-					{ ...decklinkDefaults },
-					{
-						deviceIndex: 3,
-						embeddedAudio: true
-					}
-				)
-			},
-			{
-				format: this.videoFormats.get('1080i5000'),
-				device: Object.assign(
-					{ ...decklinkDefaults },
-					{
-						deviceIndex: 4,
-						embeddedAudio: true
-					}
-				)
-			}
-		]
-	}
 }

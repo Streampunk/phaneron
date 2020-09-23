@@ -25,30 +25,7 @@ import { ConsumerConfig } from './config'
 import { Layer } from './layer'
 import { ConsumerRegistry, Consumer } from './consumer/consumer'
 import { Mixer } from './mixer'
-
-class Combiner {
-	private layers: Map<number, Layer>
-
-	constructor() {
-		this.layers = new Map<number, Layer>()
-	}
-
-	setLayer(layerNum: number, layer: Layer): void {
-		this.layers.set(layerNum, layer)
-	}
-
-	delLayer(layerNum: number): boolean {
-		return this.layers.delete(layerNum)
-	}
-
-	getLayer(layerNum: number): Layer | undefined {
-		return this.layers.get(layerNum)
-	}
-
-	clearLayers(): void {
-		this.layers.clear()
-	}
-}
+import { Combiner } from './combiner'
 
 export class Channel {
 	private readonly clContext: nodenCLContext
@@ -70,15 +47,12 @@ export class Channel {
 		this.consumerConfig = consumerConfig
 		this.consumerRegistry = consumerRegistry
 		this.producerRegistry = producerRegistry
-		// this.chanProperties = {
-		// 	audioTimebase: [1, this.consumerConfig.format.audioSampleRate],
-		// 	videoTimebase: [this.consumerConfig.format.duration, this.consumerConfig.format.timescale]
-		// }
-		this.combiner = new Combiner()
+		this.combiner = new Combiner(this.clContext, this.consumerConfig.format)
 		this.consumer = this.consumerRegistry.createConsumer(this.consumerConfig)
 	}
 
 	async initialise(): Promise<void> {
+		await this.combiner.initialise()
 		return this.consumer.initialise()
 	}
 
@@ -90,30 +64,18 @@ export class Channel {
 			return false
 		}
 
-		const layer = new Layer()
-		layer.load(this.producer, preview, params.autoPlay as boolean)
+		const layer = new Layer(this.clContext, this.consumerConfig.format)
+		await layer.load(this.producer, preview, params.autoPlay as boolean)
 		this.combiner.setLayer(layerNum, layer)
-		const srcAudio = this.producer.getSourceAudio()
-		const srcVideo = this.producer.getSourceVideo()
-		if (!(srcVideo !== undefined && srcAudio !== undefined)) {
-			console.log(`Failed to create sources for params ${params}`)
+
+		// Connection from combiner to consumer should happen in initialise - more to do...
+		const combinerAudio = this.combiner.getAudioPipe()
+		const combinerVideo = this.combiner.getVideoPipe()
+		if (!(combinerAudio !== undefined && combinerVideo !== undefined)) {
+			console.log(`Failed to create combiner for params ${params}`)
 			return false
 		}
-
-		this.mixer = new Mixer(
-			this.clContext,
-			this.consumerConfig.format.width,
-			this.consumerConfig.format.height
-		)
-		await this.mixer.init([srcAudio], [srcVideo])
-		const mixAudio = this.mixer.getMixAudio()
-		const mixVideo = this.mixer.getMixVideo()
-		if (!(mixVideo !== undefined && mixAudio !== undefined)) {
-			console.log(`Failed to create mixer for params ${params}`)
-			return false
-		}
-
-		this.consumer.connect(mixAudio, mixVideo)
+		this.consumer.connect(combinerAudio, combinerVideo)
 
 		return true
 	}

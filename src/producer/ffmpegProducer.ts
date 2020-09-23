@@ -34,7 +34,7 @@ import {
 } from 'beamcoder'
 import redio, { RedioPipe, nil, end, isValue, RedioEnd, Generator, Valve } from 'redioactive'
 import { LoadParams } from '../chanLayer'
-import { VideoFormat } from '../config'
+import { VideoFormat, VideoFormats } from '../config'
 import { ToRGBA } from '../process/io'
 import { Reader as yuv422p10Reader } from '../process/yuv422p10'
 import { Reader as yuv422p8Reader } from '../process/yuv422p8'
@@ -52,6 +52,7 @@ export class FFmpegProducer implements Producer {
 	private readonly loadParams: LoadParams
 	private readonly clContext: nodenCLContext
 	private demuxer: Demuxer | null = null
+	private format: VideoFormat
 	private audSource: RedioPipe<Frame | RedioEnd> | undefined
 	private vidSource: RedioPipe<OpenCLBuffer | RedioEnd> | undefined
 	private running = true
@@ -60,6 +61,7 @@ export class FFmpegProducer implements Producer {
 	constructor(loadParams: LoadParams, context: nodenCLContext) {
 		this.loadParams = loadParams
 		this.clContext = context
+		this.format = new VideoFormats().get('1080p5000') // default
 	}
 
 	async initialise(consumerFormat: VideoFormat): Promise<void> {
@@ -122,7 +124,7 @@ export class FFmpegProducer implements Producer {
 					{
 						name: 'out0:a',
 						sampleRate: 48000,
-						sampleFormat: 's32',
+						sampleFormat: 'flt',
 						channelLayout: audLayout
 					}
 				],
@@ -154,7 +156,7 @@ export class FFmpegProducer implements Producer {
 					{
 						name: 'out0:a',
 						sampleRate: 48000,
-						sampleFormat: 's32',
+						sampleFormat: 'flt',
 						channelLayout: audLayout
 					}
 				],
@@ -375,6 +377,19 @@ export class FFmpegProducer implements Producer {
 			}
 		}
 
+		this.format = {
+			name: 'ffmpeg',
+			fields: 1,
+			width: width,
+			height: height,
+			squareWidth: width,
+			squareHeight: height,
+			timescale: 50,
+			duration: 1,
+			audioSampleRate: 48000,
+			audioChannels: numAudChannels
+		}
+
 		const ffPackets = redio(demux, { bufferSizeMax: 10 })
 
 		if (audioStreams.length) {
@@ -399,6 +414,10 @@ export class FFmpegProducer implements Producer {
 			.valve(vidDeint, { oneToMany: true })
 
 		console.log(`Created FFmpeg producer for path ${this.loadParams.url}`)
+	}
+
+	getFormat(): VideoFormat {
+		return this.format
 	}
 
 	getSourceAudio(): RedioPipe<Frame | RedioEnd> | undefined {

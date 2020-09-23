@@ -28,6 +28,7 @@ import { Frame } from 'beamcoder'
 
 export interface Producer {
 	initialise(consumerFormat: VideoFormat): void
+	getFormat(): VideoFormat
 	getSourceAudio(): RedioPipe<Frame | RedioEnd> | undefined
 	getSourceVideo(): RedioPipe<OpenCLBuffer | RedioEnd> | undefined
 	setPaused(pause: boolean): void

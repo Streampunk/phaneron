@@ -26,8 +26,59 @@ import { BasicCmds } from './AMCP/basicCmds'
 import { MixerCmds } from './AMCP/mixerCmds'
 import { ConsumerRegistry } from './consumer/consumer'
 import { ProducerRegistry } from './producer/producer'
-import { Config } from './config'
+import { ConsumerConfig, decklinkDefaults, VideoFormats } from './config'
 import readline from 'readline'
+
+class Config {
+	private readonly videoFormats: VideoFormats
+	readonly consumers: ConsumerConfig[]
+
+	constructor() {
+		this.videoFormats = new VideoFormats()
+		this.consumers = [
+			{
+				format: this.videoFormats.get('1080i5000'),
+				device: Object.assign(
+					{ ...decklinkDefaults },
+					{
+						deviceIndex: 1,
+						embeddedAudio: true
+					}
+				)
+			},
+			{
+				format: this.videoFormats.get('1080i5000'),
+				device: Object.assign(
+					{ ...decklinkDefaults },
+					{
+						deviceIndex: 2,
+						embeddedAudio: true
+					}
+				)
+			},
+			{
+				format: this.videoFormats.get('1080i5000'),
+				device: Object.assign(
+					{ ...decklinkDefaults },
+					{
+						deviceIndex: 3,
+						embeddedAudio: true
+					}
+				)
+			},
+			{
+				format: this.videoFormats.get('1080i5000'),
+				device: Object.assign(
+					{ ...decklinkDefaults },
+					{
+						deviceIndex: 4,
+						embeddedAudio: true
+					}
+				)
+			}
+		]
+	}
+}
 
 const initialiseOpenCL = async (): Promise<nodenCLContext> => {
 	const platformIndex = 0
