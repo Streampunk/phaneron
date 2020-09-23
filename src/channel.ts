@@ -20,7 +20,7 @@
 
 import { clContext as nodenCLContext } from 'nodencl'
 import { LoadParams } from './chanLayer'
-import { ProducerRegistry, Producer } from './producer/producer'
+import { ProducerRegistry } from './producer/producer'
 import { ConsumerConfig } from './config'
 import { Layer } from './layer'
 import { ConsumerRegistry, Consumer } from './consumer/consumer'
@@ -33,7 +33,6 @@ export class Channel {
 	private readonly consumerRegistry: ConsumerRegistry
 	private readonly producerRegistry: ProducerRegistry
 	private readonly combiner: Combiner
-	private producer: Producer | null = null
 	private consumer: Consumer
 	private mixer: Mixer | null = null
 
@@ -57,22 +56,23 @@ export class Channel {
 	}
 
 	async loadSource(layerNum: number, params: LoadParams, preview = false): Promise<boolean> {
-		if (this.producer) this.producer.release()
-		this.producer = await this.producerRegistry.createSource(params, this.consumerConfig.format)
-		if (this.producer === null) {
+		this.clear(layerNum)
+
+		const producer = await this.producerRegistry.createSource(params, this.consumerConfig.format)
+		if (producer === null) {
 			console.log(`Failed to create source for params ${params}`)
 			return false
 		}
 
 		const layer = new Layer(this.clContext, this.consumerConfig.format)
-		await layer.load(this.producer, preview, params.autoPlay as boolean)
+		await layer.load(producer, preview, params.autoPlay as boolean)
 		this.combiner.setLayer(layerNum, layer)
 
 		// Connection from combiner to consumer should happen in initialise - more to do...
 		const combinerAudio = this.combiner.getAudioPipe()
 		const combinerVideo = this.combiner.getVideoPipe()
 		if (!(combinerAudio !== undefined && combinerVideo !== undefined)) {
-			console.log(`Failed to create combiner for params ${params}`)
+			console.log('Failed to get combiner connection pipes')
 			return false
 		}
 		this.consumer.connect(combinerAudio, combinerVideo)
