@@ -97,7 +97,8 @@ export default class Transform extends ProcessImpl {
 			undefined,
 			'transformMatrix'
 		)
-		return this.updateMatrix(this.clContext.queue.load)
+		await this.updateMatrix(this.clContext.queue.load)
+		return this.clContext.waitFinish(this.clContext.queue.load)
 	}
 
 	private checkParamsChange(params: KernelParams): boolean {
@@ -115,7 +116,7 @@ export default class Transform extends ProcessImpl {
 		)
 	}
 
-	async getKernelParams(params: KernelParams, clQueue: number): Promise<KernelParams> {
+	async getKernelParams(params: KernelParams): Promise<KernelParams> {
 		if (!this.checkParamsChange(params)) {
 			const aspect = this.width / this.height
 			const flipX = (params.flipH as boolean) || false ? -1.0 : 1.0
@@ -169,7 +170,8 @@ export default class Transform extends ProcessImpl {
 				projectMatrix
 			)
 
-			await this.updateMatrix(clQueue)
+			await this.updateMatrix(this.clContext.queue.load)
+			await this.clContext.waitFinish(this.clContext.queue.load)
 		}
 		this.curParams = params
 

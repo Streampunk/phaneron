@@ -24,6 +24,7 @@ import { RedioPipe, RedioEnd, isValue, Valve, nil } from 'redioactive'
 import { OpenCLBuffer } from 'nodencl'
 import { filterer, Filterer, Frame } from 'beamcoder'
 import { VideoFormat } from './config'
+import { ClJobs } from './clJobQueue'
 import ImageProcess from './process/imageProcess'
 import Combine from './process/combine'
 
@@ -38,13 +39,14 @@ export class Combiner {
 	private combineAudValve: Valve<Frame | RedioEnd, Frame | RedioEnd> | undefined
 	private combineVidValve: Valve<OpenCLBuffer | RedioEnd, OpenCLBuffer | RedioEnd> | undefined
 
-	constructor(clContext: nodenCLContext, consumerFormat: VideoFormat) {
+	constructor(clContext: nodenCLContext, consumerFormat: VideoFormat, clJobs: ClJobs) {
 		this.clContext = clContext
 		this.consumerFormat = consumerFormat
 		this.layers = new Map<number, Layer>()
 		this.combiner = new ImageProcess(
 			this.clContext,
-			new Combine(this.consumerFormat.width, this.consumerFormat.height, 1)
+			new Combine(this.consumerFormat.width, this.consumerFormat.height, 1),
+			clJobs
 		)
 	}
 
@@ -117,11 +119,9 @@ export class Combiner {
 						ovIn: [frame],
 						output: combineDest
 					},
-					this.clContext.queue.process
+					frame.timestamp,
+					() => frame.release()
 				)
-
-				await this.clContext.waitFinish(this.clContext.queue.process)
-				frame.release()
 				return combineDest
 			} else {
 				return frame

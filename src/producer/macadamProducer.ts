@@ -21,17 +21,19 @@
 import { ProducerFactory, Producer, InvalidProducerError } from './producer'
 import { clContext as nodenCLContext, OpenCLBuffer } from 'nodencl'
 import redio, { RedioPipe, nil, end, isValue, RedioEnd, isEnd, Generator, Valve } from 'redioactive'
+import { Frame, frame, Filterer, filterer } from 'beamcoder'
+import { ClJobs } from '../clJobQueue'
 import { LoadParams } from '../chanLayer'
 import { VideoFormat, VideoFormats } from '../config'
 import * as Macadam from 'macadam'
 import { ToRGBA } from '../process/io'
 import { Reader as v210Reader } from '../process/v210'
 import Yadif from '../process/yadif'
-import { Frame, frame, Filterer, filterer } from 'beamcoder'
 
 export class MacadamProducer implements Producer {
-	private params: LoadParams
-	private clContext: nodenCLContext
+	private readonly params: LoadParams
+	private readonly clContext: nodenCLContext
+	private readonly clJobs: ClJobs
 	private capture: Macadam.CaptureChannel | null = null
 	private audFilterer: Filterer | null = null
 	private format: VideoFormat
@@ -42,9 +44,10 @@ export class MacadamProducer implements Producer {
 	private running = true
 	private paused = false
 
-	constructor(params: LoadParams, context: nodenCLContext) {
+	constructor(params: LoadParams, context: nodenCLContext, clJobs: ClJobs) {
 		this.params = params
 		this.clContext = context
+		this.clJobs = clJobs
 		this.format = new VideoFormats().get('1080p5000') // default
 	}
 
@@ -93,10 +96,26 @@ export class MacadamProducer implements Producer {
 			width = this.capture.width
 			height = this.capture.height
 
-			this.toRGBA = new ToRGBA(this.clContext, '709', '709', new v210Reader(width, height))
+			this.toRGBA = new ToRGBA(
+				this.clContext,
+				'709',
+				'709',
+				new v210Reader(width, height),
+				this.clJobs
+			)
 			await this.toRGBA.init()
 
-			this.yadif = new Yadif(this.clContext, width, height, 'send_field', 'tff', 'all')
+			const progressive = false
+			const tff = true
+			const yadifMode = progressive ? 'send_frame' : 'send_field'
+			this.yadif = new Yadif(
+				this.clContext,
+				this.clJobs,
+				width,
+				height,
+				{ mode: yadifMode, tff: tff },
+				!progressive
+			)
 			await this.yadif.init()
 		} catch (err) {
 			throw new InvalidProducerError(err)
@@ -155,9 +174,7 @@ export class MacadamProducer implements Producer {
 				const toRGBA = this.toRGBA as ToRGBA
 				const clDest = await toRGBA.createDest({ width: width, height: height })
 				clDest.timestamp = clSources[0].timestamp
-				await toRGBA.processFrame(clSources, clDest, this.clContext.queue.process)
-				await this.clContext.waitFinish(this.clContext.queue.process)
-				clSources.forEach((s) => s.release())
+				toRGBA.processFrame(clSources, clDest)
 				return clDest
 			} else {
 				if (isEnd(clSources)) this.toRGBA = null
@@ -169,9 +186,7 @@ export class MacadamProducer implements Producer {
 			if (isValue(frame)) {
 				const yadif = this.yadif as Yadif
 				const yadifDests: OpenCLBuffer[] = []
-				await yadif.processFrame(frame, yadifDests, this.clContext.queue.process)
-				await this.clContext.waitFinish(this.clContext.queue.process)
-				frame.release()
+				await yadif.processFrame(frame, yadifDests)
 				return yadifDests.length > 1 ? yadifDests : nil
 			} else {
 				if (isEnd(frame)) {
@@ -239,7 +254,7 @@ export class MacadamProducerFactory implements ProducerFactory<MacadamProducer> 
 		this.clContext = clContext
 	}
 
-	createProducer(params: LoadParams): MacadamProducer {
-		return new MacadamProducer(params, this.clContext)
+	createProducer(params: LoadParams, clJobs: ClJobs): MacadamProducer {
+		return new MacadamProducer(params, this.clContext, clJobs)
 	}
 }

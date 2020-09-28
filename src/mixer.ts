@@ -20,10 +20,11 @@
 
 import { clContext as nodenCLContext, OpenCLBuffer } from 'nodencl'
 import { RedioPipe, RedioEnd, isValue, Valve, nil } from 'redioactive'
+import { Frame, Filterer, filterer } from 'beamcoder'
 import { VideoFormat } from './config'
+import { ClJobs } from './clJobQueue'
 import ImageProcess from './process/imageProcess'
 import Transform from './process/transform'
-import { Frame, Filterer, filterer } from 'beamcoder'
 
 interface AnchorParams {
 	x: number
@@ -52,13 +53,19 @@ export class Mixer {
 	fillParams: FillParams = { xOffset: 0, yOffset: 0, xScale: 1, yScale: 1 }
 	volume = 1.0
 
-	constructor(clContext: nodenCLContext, srcFormat: VideoFormat, consumerFormat: VideoFormat) {
+	constructor(
+		clContext: nodenCLContext,
+		srcFormat: VideoFormat,
+		consumerFormat: VideoFormat,
+		clJobs: ClJobs
+	) {
 		this.clContext = clContext
 		this.srcFormat = srcFormat
 		this.consumerFormat = consumerFormat
 		this.transform = new ImageProcess(
 			this.clContext,
-			new Transform(this.clContext, this.srcFormat.width, this.srcFormat.height)
+			new Transform(this.clContext, this.srcFormat.width, this.srcFormat.height),
+			clJobs
 		)
 	}
 
@@ -160,11 +167,10 @@ export class Mixer {
 						offsetY: -this.fillParams.yOffset,
 						output: xfDest
 					},
-					this.clContext.queue.process
+					frame.timestamp,
+					() => frame.release()
 				)
 
-				await this.clContext.waitFinish(this.clContext.queue.process)
-				frame.release()
 				return xfDest
 			} else {
 				// this.black?.release()
@@ -182,22 +188,22 @@ export class Mixer {
 			.valve(mixVidValve)
 	}
 
-	setAnchor(_layer: number, x: number, y: number): boolean {
+	setAnchor(x: number, y: number): boolean {
 		this.anchorParams = { x: x, y: y }
 		return true
 	}
 
-	setRotation(_layer: number, angle: number): boolean {
+	setRotation(angle: number): boolean {
 		this.rotation = angle
 		return true
 	}
 
-	setFill(_layer: number, xPos: number, yPos: number, xScale: number, yScale: number): boolean {
+	setFill(xPos: number, yPos: number, xScale: number, yScale: number): boolean {
 		this.fillParams = { xOffset: xPos, yOffset: yPos, xScale: xScale, yScale: yScale }
 		return true
 	}
 
-	setVolume(_layer: number, volume: number): boolean {
+	setVolume(volume: number): boolean {
 		this.volume = volume
 		const volFilter = this.audMixFilterer?.graph.filters.find((f) => f.filter.name === 'volume')
 		if (volFilter && volFilter.priv) volFilter.priv = { volume: this.volume.toString() }

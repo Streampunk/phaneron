@@ -18,11 +18,10 @@
   14 Ormiscaig, Aultbea, Achnasheen, IV22 2JJ  U.K.
 */
 
-import { clContext as nodenCLContext, OpenCLBuffer, ImageDims, RunTimings } from 'nodencl'
+import { clContext as nodenCLContext, OpenCLBuffer, ImageDims } from 'nodencl'
 import { Loader, Saver } from './loadSave'
 import { PackImpl, Interlace } from './packer'
-import ImageProcess from './imageProcess'
-import Resize from './resize'
+import { ClJobs } from '../clJobQueue'
 
 export class ToRGBA {
 	private readonly clContext: nodenCLContext
@@ -35,10 +34,11 @@ export class ToRGBA {
 		clContext: nodenCLContext,
 		colSpecRead: string,
 		colSpecWrite: string,
-		readImpl: PackImpl
+		readImpl: PackImpl,
+		clJobs: ClJobs
 	) {
 		this.clContext = clContext
-		this.loader = new Loader(this.clContext, colSpecRead, colSpecWrite, readImpl)
+		this.loader = new Loader(this.clContext, colSpecRead, colSpecWrite, readImpl, clJobs)
 		this.numBytes = readImpl.getNumBytes()
 		this.numBytesRGBA = readImpl.getNumBytesRGBA()
 		this.totalBytes = readImpl.getTotalBytes()
@@ -91,64 +91,30 @@ export class ToRGBA {
 		return Promise.resolve()
 	}
 
-	async processFrame(
-		sources: Array<OpenCLBuffer>,
-		dest: OpenCLBuffer,
-		clQueue?: number
-	): Promise<RunTimings> {
-		return this.loader.run({ sources: sources, dest: dest }, clQueue ? clQueue : 0)
+	processFrame(sources: Array<OpenCLBuffer>, dest: OpenCLBuffer): void {
+		return this.loader.run({ sources: sources, dest: dest }, sources[0].timestamp * 2, () =>
+			sources.forEach((s) => s.release())
+		)
 	}
 }
 
 export class FromRGBA {
 	private readonly clContext: nodenCLContext
-	private readonly width: number
-	private readonly height: number
 	private readonly saver: Saver
 	private readonly numBytes: Array<number>
 	private readonly numBytesRGBA: number
 	private readonly totalBytes: number
-	private readonly srcWidth: number
-	private readonly srcHeight: number
-	private resizer: ImageProcess | null = null
-	private rgbaSz: OpenCLBuffer | null = null
 
-	constructor(
-		clContext: nodenCLContext,
-		colSpecRead: string,
-		writeImpl: PackImpl,
-		srcWidth?: number,
-		srcHeight?: number
-	) {
+	constructor(clContext: nodenCLContext, colSpecRead: string, writeImpl: PackImpl, clJobs: ClJobs) {
 		this.clContext = clContext
-		this.width = writeImpl.getWidth()
-		this.height = writeImpl.getHeight()
-		this.saver = new Saver(this.clContext, colSpecRead, writeImpl)
+		this.saver = new Saver(this.clContext, colSpecRead, writeImpl, clJobs)
 		this.numBytes = writeImpl.getNumBytes()
 		this.numBytesRGBA = writeImpl.getNumBytesRGBA()
 		this.totalBytes = writeImpl.getTotalBytes()
-		this.srcWidth = srcWidth ? srcWidth : this.width
-		this.srcHeight = srcHeight ? srcHeight : this.height
 	}
 
 	async init(): Promise<void> {
 		await this.saver.init()
-
-		if (!(this.srcWidth === this.width && this.srcHeight === this.height)) {
-			this.resizer = new ImageProcess(
-				this.clContext,
-				new Resize(this.clContext, this.width, this.height)
-			)
-			await this.resizer.init()
-
-			this.rgbaSz = await this.clContext.createBuffer(
-				this.numBytesRGBA,
-				'readwrite',
-				'coarse',
-				{ width: this.width, height: this.height },
-				'rgbaSz'
-			)
-		}
 	}
 
 	getNumBytes(): Array<number> {
@@ -169,21 +135,9 @@ export class FromRGBA {
 		)
 	}
 
-	async processFrame(
-		source: OpenCLBuffer,
-		dests: Array<OpenCLBuffer>,
-		clQueue?: number,
-		interlace?: Interlace
-	): Promise<RunTimings> {
-		let saveSource = source
-		if (this.resizer && this.rgbaSz) {
-			await this.resizer.run({ input: source, output: this.rgbaSz }, clQueue ? clQueue : 0)
-			saveSource = this.rgbaSz
-		}
-
-		return this.saver.run(
-			{ source: saveSource, dests: dests, interlace: interlace },
-			clQueue ? clQueue : 0
+	processFrame(source: OpenCLBuffer, dests: Array<OpenCLBuffer>, interlace?: Interlace): void {
+		this.saver.run({ source: source, dests: dests, interlace: interlace }, source.timestamp, () =>
+			source.release()
 		)
 	}
 

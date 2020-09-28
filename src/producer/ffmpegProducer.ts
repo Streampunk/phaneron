@@ -33,6 +33,7 @@ import {
 	frame
 } from 'beamcoder'
 import redio, { RedioPipe, nil, end, isValue, RedioEnd, Generator, Valve } from 'redioactive'
+import { ClJobs } from '../clJobQueue'
 import { LoadParams } from '../chanLayer'
 import { VideoFormat, VideoFormats } from '../config'
 import { ToRGBA } from '../process/io'
@@ -42,6 +43,7 @@ import { Reader as v210Reader } from '../process/v210'
 import { Reader as rgba8Reader } from '../process/rgba8'
 import { Reader as bgra8Reader } from '../process/bgra8'
 import Yadif from '../process/yadif'
+import { PackImpl } from '../process/packer'
 
 interface AudioChannel {
 	name: string
@@ -51,6 +53,7 @@ interface AudioChannel {
 export class FFmpegProducer implements Producer {
 	private readonly loadParams: LoadParams
 	private readonly clContext: nodenCLContext
+	private readonly clJobs: ClJobs
 	private demuxer: Demuxer | null = null
 	private format: VideoFormat
 	private audSource: RedioPipe<Frame | RedioEnd> | undefined
@@ -58,9 +61,10 @@ export class FFmpegProducer implements Producer {
 	private running = true
 	private paused = false
 
-	constructor(loadParams: LoadParams, context: nodenCLContext) {
+	constructor(loadParams: LoadParams, context: nodenCLContext, clJobs: ClJobs) {
 		this.loadParams = loadParams
 		this.clContext = context
+		this.clJobs = clJobs
 		this.format = new VideoFormats().get('1080p5000') // default
 	}
 
@@ -171,41 +175,43 @@ export class FFmpegProducer implements Producer {
 
 		let toRGBA: ToRGBA | null = null
 		let filterOutputFormat = vidStream.codecpar.format
+		let readImpl: PackImpl
 		switch (vidStream.codecpar.format) {
 			case 'yuv422p':
 				console.log('Using native yuv422p8 loader')
-				toRGBA = new ToRGBA(this.clContext, '709', '709', new yuv422p8Reader(width, height))
+				readImpl = new yuv422p8Reader(width, height)
 				break
 			case 'yuv422p10le':
 				console.log('Using native yuv422p10 loader')
-				toRGBA = new ToRGBA(this.clContext, '709', '709', new yuv422p10Reader(width, height))
+				readImpl = new yuv422p10Reader(width, height)
 				break
 			case 'v210':
 				console.log('Using native v210 loader')
-				toRGBA = new ToRGBA(this.clContext, '709', '709', new v210Reader(width, height))
+				readImpl = new v210Reader(width, height)
 				break
 			case 'rgba':
 				console.log('Using native rgba8 loader')
-				toRGBA = new ToRGBA(this.clContext, '709', '709', new rgba8Reader(width, height))
+				readImpl = new rgba8Reader(width, height)
 				break
 			case 'bgra':
 				console.log('Using native bgra8 loader')
-				toRGBA = new ToRGBA(this.clContext, '709', '709', new bgra8Reader(width, height))
+				readImpl = new bgra8Reader(width, height)
 				break
 			default:
 				if (vidStream.codecpar.format.includes('yuv')) {
 					console.log(`Non-native loader for ${vidStream.codecpar.format} - using yuv422p10`)
 					filterOutputFormat = 'yuv422p10le'
-					toRGBA = new ToRGBA(this.clContext, '709', '709', new yuv422p10Reader(width, height))
+					readImpl = new yuv422p10Reader(width, height)
 				} else if (vidStream.codecpar.format.includes('rgb')) {
 					console.log(`Non-native loader for ${vidStream.codecpar.format} - using rgba8`)
 					filterOutputFormat = 'rgba'
-					toRGBA = new ToRGBA(this.clContext, '709', '709', new rgba8Reader(width, height))
+					readImpl = new rgba8Reader(width, height)
 				} else
 					throw new Error(
 						`Unsupported video format '${vidStream.codecpar.format}' from FFmpeg decoder`
 					)
 		}
+		toRGBA = new ToRGBA(this.clContext, '709', '709', readImpl, this.clJobs)
 		await toRGBA.init()
 		const chanTb = [consumerFormat.duration, consumerFormat.timescale]
 		const vidFilterer = await filterer({
@@ -229,7 +235,18 @@ export class FFmpegProducer implements Producer {
 		// console.log('\nFFmpeg producer video:\n', vidFilterer.graph.dump())
 
 		let yadif: Yadif | null = null
-		yadif = new Yadif(this.clContext, width, height, 'send_field', 'tff', 'all')
+		const fieldOrder = vidStream.codecpar.field_order
+		const progressive = fieldOrder === 'progressive'
+		const tff = fieldOrder === 'unknown' || fieldOrder.split(' ', 1)[1] === 'top displayed first'
+		const yadifMode = progressive ? 'send_frame' : 'send_field'
+		yadif = new Yadif(
+			this.clContext,
+			this.clJobs,
+			width,
+			height,
+			{ mode: yadifMode, tff: tff },
+			!progressive
+		)
 		await yadif.init()
 
 		const demux: Generator<Packet[] | RedioEnd> = async () => {
@@ -353,9 +370,7 @@ export class FFmpegProducer implements Producer {
 				const convert = toRGBA as ToRGBA
 				const clDest = await convert.createDest({ width: width, height: height })
 				clDest.timestamp = clSources[0].timestamp
-				await convert.processFrame(clSources, clDest, this.clContext.queue.process)
-				await this.clContext.waitFinish(this.clContext.queue.process)
-				clSources.forEach((s) => s.release())
+				convert.processFrame(clSources, clDest)
 				return clDest
 			} else {
 				toRGBA = null
@@ -366,9 +381,7 @@ export class FFmpegProducer implements Producer {
 		const vidDeint: Valve<OpenCLBuffer | RedioEnd, OpenCLBuffer | RedioEnd> = async (frame) => {
 			if (isValue(frame)) {
 				const yadifDests: OpenCLBuffer[] = []
-				await yadif?.processFrame(frame, yadifDests, this.clContext.queue.process)
-				await this.clContext.waitFinish(this.clContext.queue.process)
-				frame.release()
+				await yadif?.processFrame(frame, yadifDests)
 				return yadifDests.length > 1 ? yadifDests : nil
 			} else {
 				yadif?.release()
@@ -409,7 +422,7 @@ export class FFmpegProducer implements Producer {
 			.valve(vidPacketFilter)
 			.valve(vidDecode, { oneToMany: true })
 			.valve(vidFilter, { oneToMany: true })
-			.valve(vidLoader, { bufferSizeMax: 3 })
+			.valve(vidLoader, { bufferSizeMax: 2 })
 			.valve(vidProcess)
 			.valve(vidDeint, { oneToMany: true })
 
@@ -445,7 +458,7 @@ export class FFmpegProducerFactory implements ProducerFactory<FFmpegProducer> {
 		this.clContext = clContext
 	}
 
-	createProducer(loadParams: LoadParams): FFmpegProducer {
-		return new FFmpegProducer(loadParams, this.clContext)
+	createProducer(loadParams: LoadParams, clJobs: ClJobs): FFmpegProducer {
+		return new FFmpegProducer(loadParams, this.clContext, clJobs)
 	}
 }

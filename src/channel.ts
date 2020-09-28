@@ -24,47 +24,53 @@ import { ProducerRegistry } from './producer/producer'
 import { ConsumerConfig } from './config'
 import { Layer } from './layer'
 import { ConsumerRegistry, Consumer } from './consumer/consumer'
-import { Mixer } from './mixer'
 import { Combiner } from './combiner'
+import { ClJobs } from './clJobQueue'
 
 export class Channel {
 	private readonly clContext: nodenCLContext
+	private readonly clJobs: ClJobs
 	private readonly consumerConfig: ConsumerConfig
 	private readonly consumerRegistry: ConsumerRegistry
 	private readonly producerRegistry: ProducerRegistry
 	private readonly combiner: Combiner
-	private consumer: Consumer
-	private mixer: Mixer | null = null
+	private readonly consumer: Consumer
 
 	constructor(
 		clContext: nodenCLContext,
 		consumerConfig: ConsumerConfig,
 		consumerRegistry: ConsumerRegistry,
-		producerRegistry: ProducerRegistry
+		producerRegistry: ProducerRegistry,
+		clJobs: ClJobs
 	) {
 		this.clContext = clContext
+		this.clJobs = clJobs
 		this.consumerConfig = consumerConfig
 		this.consumerRegistry = consumerRegistry
 		this.producerRegistry = producerRegistry
-		this.combiner = new Combiner(this.clContext, this.consumerConfig.format)
+		this.combiner = new Combiner(this.clContext, this.consumerConfig.format, this.clJobs)
 		this.consumer = this.consumerRegistry.createConsumer(this.consumerConfig)
 	}
 
 	async initialise(): Promise<void> {
 		await this.combiner.initialise()
-		return this.consumer.initialise()
+		return this.consumer.initialise(this.clJobs)
 	}
 
 	async loadSource(layerNum: number, params: LoadParams, preview = false): Promise<boolean> {
 		this.clear(layerNum)
 
-		const producer = await this.producerRegistry.createSource(params, this.consumerConfig.format)
+		const producer = await this.producerRegistry.createSource(
+			params,
+			this.consumerConfig.format,
+			this.clJobs
+		)
 		if (producer === null) {
 			console.log(`Failed to create source for params ${params}`)
 			return false
 		}
 
-		const layer = new Layer(this.clContext, this.consumerConfig.format)
+		const layer = new Layer(this.clContext, this.consumerConfig.format, this.clJobs)
 		await layer.load(producer, preview, params.autoPlay as boolean)
 		this.combiner.setLayer(layerNum, layer)
 
@@ -82,25 +88,25 @@ export class Channel {
 
 	play(layerNum: number): boolean {
 		const layer = this.combiner.getLayer(layerNum)
-		if (layer) layer.play()
+		layer?.play()
 		return layer !== undefined
 	}
 
 	pause(layerNum: number): boolean {
 		const layer = this.combiner.getLayer(layerNum)
-		if (layer) layer.pause()
+		layer?.pause()
 		return layer !== undefined
 	}
 
 	resume(layerNum: number): boolean {
 		const layer = this.combiner.getLayer(layerNum)
-		if (layer) layer.resume()
+		layer?.resume()
 		return layer !== undefined
 	}
 
 	stop(layerNum: number): boolean {
 		const layer = this.combiner.getLayer(layerNum)
-		if (layer) layer.stop()
+		layer?.stop()
 		return layer !== undefined
 	}
 
@@ -108,45 +114,33 @@ export class Channel {
 		let result = true
 		if (layerNum === 0) this.combiner.clearLayers()
 		else {
-			this.stop(layerNum)
-			result = this.combiner.delLayer(layerNum)
+			result = this.stop(layerNum)
+			result &&= this.combiner.delLayer(layerNum)
 		}
 		return result
 	}
 
 	anchor(layerNum: number, params: string[]): boolean {
-		if (params.length) {
-			this.mixer?.setAnchor(layerNum, +params[0], +params[1])
-		} else {
-			console.dir(this.mixer?.anchorParams, { colors: true })
-		}
-		return true
+		const layer = this.combiner.getLayer(layerNum)
+		layer?.anchor(params)
+		return layer !== undefined
 	}
 
 	rotation(layerNum: number, params: string[]): boolean {
-		if (params.length) {
-			this.mixer?.setRotation(layerNum, +params[0])
-		} else {
-			console.dir(this.mixer?.rotation, { colors: true })
-		}
-		return true
+		const layer = this.combiner.getLayer(layerNum)
+		layer?.rotation(params)
+		return layer !== undefined
 	}
 
 	fill(layerNum: number, params: string[]): boolean {
-		if (params.length) {
-			this.mixer?.setFill(layerNum, +params[0], +params[1], +params[2], +params[3])
-		} else {
-			console.dir(this.mixer?.fillParams, { colors: true })
-		}
-		return true
+		const layer = this.combiner.getLayer(layerNum)
+		layer?.fill(params)
+		return layer !== undefined
 	}
 
 	volume(layerNum: number, params: string[]): boolean {
-		if (params.length) {
-			this.mixer?.setVolume(layerNum, +params[0])
-		} else {
-			console.dir(this.mixer?.volume, { colors: true })
-		}
-		return true
+		const layer = this.combiner.getLayer(layerNum)
+		layer?.volume(params)
+		return layer !== undefined
 	}
 }

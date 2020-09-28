@@ -24,18 +24,21 @@ import { Frame } from 'beamcoder'
 import { Producer } from './producer/producer'
 import { Mixer } from './mixer'
 import { VideoFormat } from './config'
+import { ClJobs } from './clJobQueue'
 
 export class Layer {
 	private readonly clContext: nodenCLContext
 	private readonly consumerFormat: VideoFormat
+	private readonly clJobs: ClJobs
 	private background: Producer | null
 	private foreground: Producer | null
 	private autoPlay = false
 	private mixer: Mixer | null = null
 
-	constructor(clContext: nodenCLContext, consumerFormat: VideoFormat) {
+	constructor(clContext: nodenCLContext, consumerFormat: VideoFormat, clJobs: ClJobs) {
 		this.clContext = clContext
 		this.consumerFormat = consumerFormat
+		this.clJobs = clJobs
 		this.background = null
 		this.foreground = null
 	}
@@ -50,7 +53,12 @@ export class Layer {
 			console.log('Failed to create sources for layer')
 			return false
 		}
-		this.mixer = new Mixer(this.clContext, this.background.getFormat(), this.consumerFormat)
+		this.mixer = new Mixer(
+			this.clContext,
+			this.background.getFormat(),
+			this.consumerFormat,
+			this.clJobs
+		)
 		await this.mixer.init(srcAudio, srcVideo)
 
 		if (this.autoPlay && !this.foreground) {
@@ -83,6 +91,38 @@ export class Layer {
 		this.foreground?.release()
 		this.foreground = null
 		this.autoPlay = false
+	}
+
+	anchor(params: string[]): void {
+		if (params.length) {
+			this.mixer?.setAnchor(+params[0], +params[1])
+		} else {
+			console.dir(this.mixer?.anchorParams, { colors: true })
+		}
+	}
+
+	rotation(params: string[]): void {
+		if (params.length) {
+			this.mixer?.setRotation(+params[0])
+		} else {
+			console.dir(this.mixer?.rotation, { colors: true })
+		}
+	}
+
+	fill(params: string[]): void {
+		if (params.length) {
+			this.mixer?.setFill(+params[0], +params[1], +params[2], +params[3])
+		} else {
+			console.dir(this.mixer?.fillParams, { colors: true })
+		}
+	}
+
+	volume(params: string[]): void {
+		if (params.length) {
+			this.mixer?.setVolume(+params[0])
+		} else {
+			console.dir(this.mixer?.volume, { colors: true })
+		}
 	}
 
 	getAudioPipe(): RedioPipe<Frame | RedioEnd> | undefined {

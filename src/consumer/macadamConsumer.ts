@@ -26,6 +26,7 @@ import { FromRGBA } from '../process/io'
 import { Writer } from '../process/v210'
 import { Frame, Filterer, filterer } from 'beamcoder'
 import { ConsumerConfig } from '../config'
+import { ClJobs } from '../clJobQueue'
 
 interface AudioBuffer {
 	buffer: Buffer
@@ -49,6 +50,7 @@ export class MacadamConsumer implements Consumer {
 	private readonly audioTimebase: number[]
 	private readonly videoTimebase: number[]
 	private audFilterer: Filterer | null = null
+	private clJobs: ClJobs | undefined
 
 	constructor(context: nodenCLContext, config: ConsumerConfig) {
 		this.clContext = context
@@ -75,7 +77,8 @@ export class MacadamConsumer implements Consumer {
 			)
 	}
 
-	async initialise(): Promise<void> {
+	async initialise(clJobs: ClJobs): Promise<void> {
+		this.clJobs = clJobs
 		this.playback = await Macadam.playback({
 			deviceIndex: this.config.device.deviceIndex - 1,
 			channels: this.audioChannels,
@@ -120,7 +123,8 @@ export class MacadamConsumer implements Consumer {
 		this.fromRGBA = new FromRGBA(
 			this.clContext,
 			'709',
-			new Writer(this.playback.width, this.playback.height, this.config.format.fields === 2)
+			new Writer(this.playback.width, this.playback.height, this.config.format.fields === 2),
+			this.clJobs
 		)
 		await this.fromRGBA.init()
 
@@ -180,11 +184,9 @@ export class MacadamConsumer implements Consumer {
 						(d) => (d.timestamp = (frame.timestamp / this.config.format.fields) << 0)
 					)
 				}
-				const queue = this.clContext.queue.process
 				const interlace = 0x1 | (this.vidField << 1)
-				await fromRGBA.processFrame(frame, this.clDests, queue, interlace)
-				await this.clContext.waitFinish(queue)
-				frame.release()
+				await fromRGBA.processFrame(frame, this.clDests, interlace)
+				await this.clJobs?.runQueue(frame.timestamp)
 				if (this.config.format.fields === 2) this.vidField = 1 - this.vidField
 				else this.vidField = 0
 				return this.vidField === 1 ? nil : this.clDests[0]

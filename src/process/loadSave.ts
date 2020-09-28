@@ -19,7 +19,7 @@
 */
 
 import Packer, { PackImpl } from './packer'
-import { clContext as nodenCLContext, OpenCLBuffer, KernelParams, RunTimings } from 'nodencl'
+import { clContext as nodenCLContext, OpenCLBuffer, KernelParams } from 'nodencl'
 import {
 	gamma2linearLUT,
 	ycbcr2rgbMatrix,
@@ -28,6 +28,7 @@ import {
 	linear2gammaLUT,
 	rgb2ycbcrMatrix
 } from './colourMaths'
+import { ClJobs, JobCB } from '../clJobQueue'
 
 export class Loader extends Packer {
 	private readonly gammaArray: Float32Array
@@ -37,8 +38,14 @@ export class Loader extends Packer {
 	private colMatrix: OpenCLBuffer | null = null
 	private gamutMatrix: OpenCLBuffer | null = null
 
-	constructor(clContext: nodenCLContext, colSpec: string, outColSpec: string, packImpl: PackImpl) {
-		super(clContext, packImpl)
+	constructor(
+		clContext: nodenCLContext,
+		colSpec: string,
+		outColSpec: string,
+		packImpl: PackImpl,
+		clJobs: ClJobs
+	) {
+		super(clContext, packImpl, clJobs)
 
 		this.gammaArray = gamma2linearLUT(colSpec)
 		if (!this.packImpl.getIsRGB()) {
@@ -92,7 +99,7 @@ export class Loader extends Packer {
 		Buffer.from(this.gamutMatrixArray.buffer).copy(this.gamutMatrix)
 	}
 
-	async run(params: KernelParams, queueNum: number): Promise<RunTimings> {
+	run(params: KernelParams, timestamp: number, cb: JobCB): void {
 		if (this.program === null) throw new Error('Loader.run failed with no program available')
 
 		const kernelParams = this.packImpl.getKernelParams(params)
@@ -100,7 +107,7 @@ export class Loader extends Packer {
 		kernelParams.gamutMatrix = this.gamutMatrix
 		if (this.colMatrix) kernelParams.colMatrix = this.colMatrix
 
-		return this.clContext.runProgram(this.program, kernelParams, queueNum)
+		this.clJobs.add(timestamp, this.packImpl.getName(), this.program, kernelParams, cb)
 	}
 }
 
@@ -110,8 +117,8 @@ export class Saver extends Packer {
 	private gammaLut: OpenCLBuffer | null = null
 	private colMatrix: OpenCLBuffer | null = null
 
-	constructor(clContext: nodenCLContext, colSpec: string, packImpl: PackImpl) {
-		super(clContext, packImpl)
+	constructor(clContext: nodenCLContext, colSpec: string, packImpl: PackImpl, clJobs: ClJobs) {
+		super(clContext, packImpl, clJobs)
 
 		this.gammaArray = linear2gammaLUT(colSpec)
 		if (!this.packImpl.getIsRGB()) {
@@ -152,13 +159,13 @@ export class Saver extends Packer {
 		}
 	}
 
-	async run(params: KernelParams, queueNum: number): Promise<RunTimings> {
+	run(params: KernelParams, timestamp: number, cb: JobCB): void {
 		if (this.program === null) throw new Error('Saver.run failed with no program available')
 
 		const kernelParams = this.packImpl.getKernelParams(params)
 		kernelParams.gammaLut = this.gammaLut
 		if (this.colMatrix) kernelParams.colMatrix = this.colMatrix
 
-		return this.clContext.runProgram(this.program, kernelParams, queueNum)
+		this.clJobs.add(timestamp, this.packImpl.getName(), this.program, kernelParams, cb)
 	}
 }

@@ -18,7 +18,8 @@
   14 Ormiscaig, Aultbea, Achnasheen, IV22 2JJ  U.K.
 */
 
-import { clContext as nodenCLContext, OpenCLProgram, KernelParams, RunTimings } from 'nodencl'
+import { clContext as nodenCLContext, OpenCLProgram, KernelParams } from 'nodencl'
+import { ClJobs, JobCB } from '../clJobQueue'
 
 export enum Interlace {
 	Progressive = 0,
@@ -50,6 +51,9 @@ export abstract class PackImpl {
 		this.programName = programName
 	}
 
+	getName(): string {
+		return this.name
+	}
 	getWidth(): number {
 		return this.width
 	}
@@ -81,11 +85,13 @@ export abstract class PackImpl {
 export default abstract class Packer {
 	protected readonly clContext: nodenCLContext
 	protected readonly packImpl: PackImpl
+	protected readonly clJobs: ClJobs
 	protected program: OpenCLProgram | null = null
 
-	constructor(clContext: nodenCLContext, packImpl: PackImpl) {
+	constructor(clContext: nodenCLContext, packImpl: PackImpl, clJobs: ClJobs) {
 		this.clContext = clContext
 		this.packImpl = packImpl
+		this.clJobs = clJobs
 	}
 
 	async init(): Promise<void> {
@@ -96,5 +102,5 @@ export default abstract class Packer {
 		})
 	}
 
-	abstract async run(kernelParams: KernelParams, queueNum: number): Promise<RunTimings>
+	abstract run(params: KernelParams, timestamp: number, cb: JobCB): void
 }

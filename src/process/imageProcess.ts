@@ -18,7 +18,8 @@
   14 Ormiscaig, Aultbea, Achnasheen, IV22 2JJ  U.K.
 */
 
-import { clContext as nodenCLContext, OpenCLProgram, KernelParams, RunTimings } from 'nodencl'
+import { clContext as nodenCLContext, OpenCLProgram, KernelParams } from 'nodencl'
+import { ClJobs, JobCB } from '../clJobQueue'
 
 export abstract class ProcessImpl {
 	protected readonly name: string
@@ -38,6 +39,9 @@ export abstract class ProcessImpl {
 
 	abstract async init(): Promise<void>
 
+	getName(): string {
+		return this.name
+	}
 	getNumBytesRGBA(): number {
 		return this.width * this.height * 4 * 4
 	}
@@ -45,16 +49,19 @@ export abstract class ProcessImpl {
 		return Uint32Array.from([this.width, this.height])
 	}
 
-	abstract async getKernelParams(params: KernelParams, clQueue: number): Promise<KernelParams>
+	abstract async getKernelParams(params: KernelParams): Promise<KernelParams>
 }
 
 export default class ImageProcess {
 	private readonly clContext: nodenCLContext
 	private readonly processImpl: ProcessImpl
+	protected readonly clJobs: ClJobs
 	private program: OpenCLProgram | null = null
-	constructor(clContext: nodenCLContext, processImpl: ProcessImpl) {
+
+	constructor(clContext: nodenCLContext, processImpl: ProcessImpl, clJobs: ClJobs) {
 		this.clContext = clContext
 		this.processImpl = processImpl
+		this.clJobs = clJobs
 	}
 
 	async init(): Promise<void> {
@@ -65,9 +72,9 @@ export default class ImageProcess {
 		return this.processImpl.init()
 	}
 
-	async run(params: KernelParams, clQueue: number): Promise<RunTimings> {
+	async run(params: KernelParams, timestamp: number, cb: JobCB): Promise<void> {
 		if (this.program == null) throw new Error('Loader.run failed with no program available')
-		const kernelParams = await this.processImpl.getKernelParams(params, clQueue)
-		return this.clContext.runProgram(this.program, kernelParams, clQueue)
+		const kernelParams = await this.processImpl.getKernelParams(params)
+		this.clJobs.add(timestamp, this.processImpl.getName(), this.program, kernelParams, cb)
 	}
 }

@@ -19,6 +19,7 @@
 */
 
 import { clContext as nodenCLContext } from 'nodencl'
+import { ClProcessJobs } from './clJobQueue'
 import { start, processCommand } from './AMCP/server'
 import { Commands } from './AMCP/commands'
 import { Channel } from './channel'
@@ -128,8 +129,12 @@ initialiseOpenCL()
 		const consReg = new ConsumerRegistry(clContext)
 		const prodReg = new ProducerRegistry(clContext)
 
+		const clProcessJobs = new ClProcessJobs(clContext)
 		const config = new Config()
-		const channels = config.consumers.map((conf) => new Channel(clContext, conf, consReg, prodReg))
+		const channels = config.consumers.map((conf, i) => {
+			const clJobs = clProcessJobs.add(i)
+			return new Channel(clContext, conf, consReg, prodReg, clJobs)
+		})
 		await Promise.all(channels.map((chan) => chan.initialise()))
 
 		commands.add(new BasicCmds(channels).list())

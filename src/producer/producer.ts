@@ -19,12 +19,13 @@
 */
 
 import { clContext as nodenCLContext, OpenCLBuffer } from 'nodencl'
+import { Frame } from 'beamcoder'
+import { ClJobs } from '../clJobQueue'
 import { LoadParams } from '../chanLayer'
 import { VideoFormat } from '../config'
 import { FFmpegProducerFactory } from './ffmpegProducer'
 import { MacadamProducerFactory } from './macadamProducer'
 import { RedioPipe, RedioEnd } from 'redioactive'
-import { Frame } from 'beamcoder'
 
 export interface Producer {
 	initialise(consumerFormat: VideoFormat): void
@@ -36,7 +37,7 @@ export interface Producer {
 }
 
 export interface ProducerFactory<T extends Producer> {
-	createProducer(params: LoadParams): T
+	createProducer(params: LoadParams, clJobs: ClJobs): T
 }
 
 export class InvalidProducerError extends Error {
@@ -57,11 +58,15 @@ export class ProducerRegistry {
 		this.producerFactories.push(new FFmpegProducerFactory(clContext))
 	}
 
-	async createSource(params: LoadParams, consumerFormat: VideoFormat): Promise<Producer | null> {
+	async createSource(
+		params: LoadParams,
+		consumerFormat: VideoFormat,
+		clJobs: ClJobs
+	): Promise<Producer | null> {
 		let producerErr = ''
 		for (const f of this.producerFactories) {
 			try {
-				const producer = f.createProducer(params)
+				const producer = f.createProducer(params, clJobs)
 				await producer.initialise(consumerFormat)
 				return producer
 			} catch (err) {

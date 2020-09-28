@@ -182,7 +182,7 @@ export default class YadifCL extends ProcessImpl {
 			cur: params.cur,
 			next: params.next,
 			parity: params.parity,
-			tff: params.tff,
+			tff: (params.tff as boolean) ? 1 : 0,
 			skipSpatial: (params.skipSpatial as boolean) ? 1 : 0,
 			output: params.output
 		})

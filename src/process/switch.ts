@@ -18,7 +18,8 @@
   14 Ormiscaig, Aultbea, Achnasheen, IV22 2JJ  U.K.
 */
 
-import { clContext as nodenCLContext, OpenCLBuffer, KernelParams, RunTimings } from 'nodencl'
+import { clContext as nodenCLContext, OpenCLBuffer, KernelParams } from 'nodencl'
+import { ClJobs } from '../clJobQueue'
 import ImageProcess from './imageProcess'
 import Transform from './transform'
 import Mix from './mix'
@@ -27,6 +28,7 @@ import Combine from './combine'
 
 export default class Switch {
 	private readonly clContext: nodenCLContext
+	private readonly clJobs: ClJobs
 	private readonly width: number
 	private readonly height: number
 	private readonly numInputs: number
@@ -42,12 +44,14 @@ export default class Switch {
 
 	constructor(
 		clContext: nodenCLContext,
+		clJobs: ClJobs,
 		width: number,
 		height: number,
 		numInputs: number,
 		numOverlays: number
 	) {
 		this.clContext = clContext
+		this.clJobs = clJobs
 		this.width = width
 		this.height = height
 		this.numInputs = numInputs
@@ -59,7 +63,8 @@ export default class Switch {
 
 		this.xform0 = new ImageProcess(
 			this.clContext,
-			new Transform(this.clContext, this.width, this.height)
+			new Transform(this.clContext, this.width, this.height),
+			this.clJobs
 		)
 		await this.xform0.init()
 
@@ -77,7 +82,8 @@ export default class Switch {
 		if (this.numInputs > 1) {
 			this.xform1 = new ImageProcess(
 				this.clContext,
-				new Transform(this.clContext, this.width, this.height)
+				new Transform(this.clContext, this.width, this.height),
+				this.clJobs
 			)
 			await this.xform1.init()
 
@@ -92,16 +98,17 @@ export default class Switch {
 				'switch'
 			)
 
-			this.mixer = new ImageProcess(this.clContext, new Mix(this.width, this.height))
+			this.mixer = new ImageProcess(this.clContext, new Mix(this.width, this.height), this.clJobs)
 			await this.mixer.init()
 
-			this.wiper = new ImageProcess(this.clContext, new Wipe(this.width, this.height))
+			this.wiper = new ImageProcess(this.clContext, new Wipe(this.width, this.height), this.clJobs)
 			await this.wiper.init()
 		}
 
 		this.combiner = new ImageProcess(
 			this.clContext,
-			new Combine(this.width, this.height, this.numOverlays)
+			new Combine(this.width, this.height, this.numOverlays),
+			this.clJobs
 		)
 		await this.combiner.init()
 
@@ -121,9 +128,8 @@ export default class Switch {
 		inParams: Array<KernelParams>,
 		mixParams: KernelParams,
 		overlays: Array<OpenCLBuffer>,
-		output: OpenCLBuffer,
-		clQueue: number
-	): Promise<RunTimings> {
+		output: OpenCLBuffer
+	): Promise<void> {
 		if (
 			!(
 				this.xform0 &&
@@ -134,26 +140,43 @@ export default class Switch {
 			throw new Error(`Switch needs to be initialised ${this.numInputs}`)
 
 		inParams[0].output = this.rgbaXf0
-		await this.xform0.run(inParams[0], clQueue)
+		const inBuf0 = inParams[0].input as OpenCLBuffer
+		await this.xform0.run(inParams[0], inBuf0.timestamp, () => inBuf0.release())
 
 		if (this.numInputs > 1) {
 			inParams[1].output = this.rgbaXf1
-			await this.xform1?.run(inParams[1], clQueue)
+			const inBuf1 = inParams[1].input as OpenCLBuffer
+			await this.xform1?.run(inParams[1], inBuf1.timestamp, () => inBuf1.release())
 			if (mixParams.wipe) {
 				await this.wiper?.run(
 					{ input0: this.rgbaXf0, input1: this.rgbaXf1, wipe: mixParams.frac, output: this.rgbaMx },
-					clQueue
+					inBuf0.timestamp,
+					() => {
+						this.rgbaXf0?.release()
+						this.rgbaXf1?.release()
+					}
 				)
 			} else {
 				await this.mixer?.run(
 					{ input0: this.rgbaXf0, input1: this.rgbaXf1, mix: mixParams.frac, output: this.rgbaMx },
-					clQueue
+					inBuf0.timestamp,
+					() => {
+						this.rgbaXf0?.release()
+						this.rgbaXf1?.release()
+					}
 				)
 			}
 		} else {
 			this.rgbaMx = this.rgbaXf0
 		}
 
-		return await this.combiner.run({ bgIn: this.rgbaMx, ovIn: overlays, output: output }, clQueue)
+		return await this.combiner.run(
+			{ bgIn: this.rgbaMx, ovIn: overlays, output: output },
+			inBuf0.timestamp,
+			() => {
+				this.rgbaMx?.release()
+				overlays.forEach((o) => o.release())
+			}
+		)
 	}
 }

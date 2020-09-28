@@ -23,9 +23,10 @@ import { MacadamConsumerFactory } from './macadamConsumer'
 import { RedioPipe, RedioEnd } from 'redioactive'
 import { Frame } from 'beamcoder'
 import { ConsumerConfig } from '../config'
+import { ClJobs } from '../clJobQueue'
 
 export interface Consumer {
-	initialise(): Promise<void>
+	initialise(clJobs: ClJobs): Promise<void>
 	connect(mixAudio: RedioPipe<Frame | RedioEnd>, mixVideo: RedioPipe<OpenCLBuffer | RedioEnd>): void
 }
 

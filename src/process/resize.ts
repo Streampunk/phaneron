@@ -103,7 +103,7 @@ export default class Resize extends ProcessImpl {
 		return this.updateFlip(false, false, this.clContext.queue.load)
 	}
 
-	async getKernelParams(params: KernelParams, clQueue: number): Promise<KernelParams> {
+	async getKernelParams(params: KernelParams): Promise<KernelParams> {
 		const flipH = params.flipH as boolean
 		const flipV = params.flipV as boolean
 		const scale = params.scale as number
@@ -111,7 +111,7 @@ export default class Resize extends ProcessImpl {
 		const offsetY = params.offsetY as number
 
 		if (!(this.flipH === flipH && this.flipV === flipV))
-			await this.updateFlip(flipH, flipV, clQueue)
+			await this.updateFlip(flipH, flipV, this.clContext.queue.load)
 
 		if (scale && !(scale > 0.0)) throw 'resize scale factor must be greater than zero'
 
