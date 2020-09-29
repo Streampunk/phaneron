@@ -87,7 +87,7 @@ export class ClProcessJobs {
 	private readonly clContext: nodenCLContext
 	private readonly requests: Map<number, JobsRequest>
 	private readonly runEvents: EventEmitter
-	private readonly showTimestamps: boolean = false
+	private readonly showTimings = 0
 
 	constructor(clContext: nodenCLContext) {
 		this.clContext = clContext
@@ -104,6 +104,7 @@ export class ClProcessJobs {
 			const chan = curReq.value[0]
 			const req = curReq.value[1]
 			const timings = new Map<string, RunTimings>()
+			const start = process.hrtime()
 			for (let i = 0; i < req.jobs.length; ++i) {
 				const job = req.jobs[i]
 				timings.set(
@@ -114,11 +115,13 @@ export class ClProcessJobs {
 
 			await this.clContext.waitFinish(this.clContext.queue.process)
 			req.jobs.forEach((j) => j.cb())
-			this.logTimestamps(req.timestamp, timings)
+			const end = process.hrtime(start)
+			this.logTimings(chan, req.timestamp, end, timings)
 			req.done()
 			this.requests.delete(chan)
 			curReq = reqIt.next()
 		}
+
 		this.runEvents.once('run', async () => this.processQueue())
 	}
 
@@ -131,12 +134,12 @@ export class ClProcessJobs {
 		this.runEvents.emit('run')
 	}
 
-	logTimestamps(ts: number, timings: Map<string, RunTimings>): void {
-		if (this.showTimestamps) {
+	logTimings(channel: number, ts: number, end: number[], timings: Map<string, RunTimings>): void {
+		if (this.showTimings > 1) {
 			const tsIt = timings.entries()
 			let curTs = tsIt.next()
-			const tsSp = new Array(15 - ts.toString().length).fill(' ').join('')
-			console.log(`\n${ts}${tsSp}|   toGPU | process |   total (microseconds)`)
+			const tsSp = new Array(16 - 8 - ts.toString().length).fill(' ').join('')
+			console.log(`\nChan ${channel}: ${ts}${tsSp}|   toGPU | process |   total (microseconds)`)
 			console.log(new Array(45).fill('—').join(''))
 			let d2kTotal = 0
 			let keTotal = 0
@@ -144,7 +147,7 @@ export class ClProcessJobs {
 			while (!curTs.done) {
 				const process = curTs.value[0]
 				const t = curTs.value[1]
-				const pSp = new Array(15 - process.length).fill(' ').join('')
+				const pSp = new Array(16 - process.length).fill(' ').join('')
 				const d2kSp = new Array(7 - t.dataToKernel.toString().length).fill(' ').join('')
 				const keSp = new Array(7 - t.kernelExec.toString().length).fill(' ').join('')
 				const ttSp = new Array(7 - t.totalTime.toString().length).fill(' ').join('')
@@ -155,12 +158,15 @@ export class ClProcessJobs {
 				ttTotal += t.totalTime
 				curTs = tsIt.next()
 			}
-			const tSp = new Array(15 - 'TOTALS'.length).fill(' ').join('')
+			const tSp = new Array(16 - 'TOTALS'.length).fill(' ').join('')
 			const d2kSp = new Array(7 - d2kTotal.toString().length).fill(' ').join('')
 			const keSp = new Array(7 - keTotal.toString().length).fill(' ').join('')
 			const ttSp = new Array(7 - ttTotal.toString().length).fill(' ').join('')
 			console.log(new Array(45).fill('—').join(''))
 			console.log(`TOTALS${tSp}| ${d2kSp}${d2kTotal} | ${keSp}${keTotal} | ${ttSp}${ttTotal}`)
 		}
+
+		if (this.showTimings > 0)
+			console.log(`Chan ${channel}: ${ts}  ${(end[0] * 1000.0 + end[1] / 1000000.0).toFixed(2)}ms`)
 	}
 }

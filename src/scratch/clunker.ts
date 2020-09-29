@@ -27,6 +27,8 @@ import ImageProcess from '../process/imageProcess'
 import Transform from '../process/transform'
 import { Writer as v210Writer } from '../process/v210'
 import Yadif from '../process/yadif'
+import { ClJobs, ClProcessJobs } from '../clJobQueue'
+import { Interlace } from '../process/packer'
 
 const width = 1920
 const height = 1080
@@ -58,13 +60,15 @@ const loadFrame = async (
 const processFrame = async (
 	clContext: nodenCLContext,
 	src: { count: number; data: OpenCLBuffer[] },
-	clQueue: number
+	clJobs: ClJobs
 ) => {
 	// const start = process.hrtime()
 
+	src.data.forEach((s) => (s.timestamp = src.count))
 	const v210Dsts = await v210Saver.createDests()
 
 	const rgbaSrc = await ffmpegLoader.createDest({ width: width, height: height })
+	rgbaSrc.timestamp = src.count
 	const rgbaDsts: OpenCLBuffer[] = []
 	rgbaDsts[0] = await clContext.createBuffer(
 		ffmpegLoader.getNumBytesRGBA(),
@@ -73,6 +77,7 @@ const processFrame = async (
 		{ width: width, height: height },
 		'processFrame'
 	)
+	rgbaDsts[0].timestamp = src.count
 	rgbaDsts[1] = await clContext.createBuffer(
 		ffmpegLoader.getNumBytesRGBA(),
 		'readwrite',
@@ -80,15 +85,16 @@ const processFrame = async (
 		{ width: width, height: height },
 		'processFrame'
 	)
+	rgbaDsts[1].timestamp = src.count
 	const yadifDests: OpenCLBuffer[] = [] //[rgbaDsts[0], rgbaDsts[1]]
 
 	// const setup = process.hrtime(start)
 	// console.log(`OpenCL setup-${src.count}: ${(setup[1] / 1000000.0).toFixed(2)}`)
 
-	await ffmpegLoader.processFrame(src.data, rgbaSrc, clQueue)
+	await ffmpegLoader.processFrame(src.data, rgbaSrc, Interlace.Progressive)
 	// const load = process.hrtime(start)
 	// console.log(`OpenCL load-${src.count}: ${((load[1] - setup[1]) / 1000000.0).toFixed(2)}`)
-	await yadif.processFrame(rgbaSrc, yadifDests, clQueue)
+	await yadif.processFrame(rgbaSrc, yadifDests)
 	// const yad = process.hrtime(start)
 	// console.log(`OpenCL yadif-${src.count}: ${((yad[1] - load[1]) / 1000000.0).toFixed(2)}`)
 
@@ -108,22 +114,25 @@ const processFrame = async (
 					offsetY: 0.0,
 					output: rgbaDsts[field]
 				},
-				clQueue
+				src.count,
+				() => {
+					yadifDests[field].release()
+				}
 			)
 
 			const interlace = 0x1 | (field << 1)
-			await v210Saver.processFrame(rgbaDsts[field], v210Dsts, clQueue, interlace)
+			await v210Saver.processFrame(rgbaDsts[field], v210Dsts, interlace)
 		}
 	}
 	// const end = process.hrtime(start)
 	// console.log(`OpenCL-${src.count}: ${((end[1] - yad[1]) / 1000000.0).toFixed(2)}`)
 
-	await clContext.waitFinish(clQueue)
+	await clJobs.runQueue(src.count)
 
-	src.data.forEach((s) => s.release())
-	rgbaSrc.release()
-	yadifDests.forEach((s) => s.release())
-	rgbaDsts.forEach((s) => s.release())
+	// src.data.forEach((s) => s.release())
+	// rgbaSrc.release()
+	// yadifDests.forEach((s) => s.release())
+	// rgbaDsts.forEach((s) => s.release())
 
 	// const done = process.hrtime(start)
 	// console.log(`OpenCL done-${src.count}: ${(done[0] * 1000.0 + done[1] / 1000000.0).toFixed(2)}`)
@@ -167,6 +176,8 @@ const initialiseOpenCL = async (): Promise<nodenCLContext> => {
 
 const init = async (): Promise<void> => {
 	const clContext = await initialiseOpenCL()
+	const clProcessJobs = new ClProcessJobs(clContext)
+	const clJobs = clProcessJobs.add(1)
 
 	const demux = await demuxer('M:/dpp/AS11_DPP_HD_EXAMPLE_1.mxf')
 	await demux.seek({ time: 40 })
@@ -200,17 +211,18 @@ const init = async (): Promise<void> => {
 		clContext,
 		bgColSpecRead,
 		colSpecWrite,
-		new yuv422p10Reader(width, height)
+		new yuv422p10Reader(width, height),
+		clJobs
 	)
 	await ffmpegLoader.init()
 
-	yadif = new Yadif(clContext, width, height, 'send_field', 'tff', 'all')
+	yadif = new Yadif(clContext, clJobs, width, height, { mode: 'send_field', tff: true }, true)
 	await yadif.init()
 
-	transform = new ImageProcess(clContext, new Transform(clContext, width, height))
+	transform = new ImageProcess(clContext, new Transform(clContext, width, height), clJobs)
 	await transform.init()
 
-	v210Saver = new FromRGBA(clContext, colSpecWrite, new v210Writer(width, height, true))
+	v210Saver = new FromRGBA(clContext, colSpecWrite, new v210Writer(width, height, true), clJobs)
 	await v210Saver.init()
 
 	let result: { count: number; data: unknown }[] = []
@@ -273,7 +285,7 @@ const init = async (): Promise<void> => {
 			work[4] = processFrame(
 				clContext,
 				{ count: result[3].count, data: result[3].data as OpenCLBuffer[] },
-				clContext.queue.process
+				clJobs
 			)
 		if (result.length >= 3 && (result[2].data as Frame[]).length)
 			work[3] = loadFrame(

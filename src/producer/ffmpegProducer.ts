@@ -43,7 +43,7 @@ import { Reader as v210Reader } from '../process/v210'
 import { Reader as rgba8Reader } from '../process/rgba8'
 import { Reader as bgra8Reader } from '../process/bgra8'
 import Yadif from '../process/yadif'
-import { PackImpl } from '../process/packer'
+import { Interlace, PackImpl } from '../process/packer'
 
 interface AudioChannel {
 	name: string
@@ -237,7 +237,7 @@ export class FFmpegProducer implements Producer {
 		let yadif: Yadif | null = null
 		const fieldOrder = vidStream.codecpar.field_order
 		const progressive = fieldOrder === 'progressive'
-		const tff = fieldOrder === 'unknown' || fieldOrder.split(' ', 1)[1] === 'top displayed first'
+		const tff = fieldOrder === 'unknown' || fieldOrder.split(', ', 2)[1] === 'top displayed first'
 		const yadifMode = progressive ? 'send_frame' : 'send_field'
 		yadif = new Yadif(
 			this.clContext,
@@ -370,7 +370,11 @@ export class FFmpegProducer implements Producer {
 				const convert = toRGBA as ToRGBA
 				const clDest = await convert.createDest({ width: width, height: height })
 				clDest.timestamp = clSources[0].timestamp
-				convert.processFrame(clSources, clDest)
+				convert.processFrame(
+					clSources,
+					clDest,
+					progressive ? Interlace.Progressive : Interlace.TopField
+				)
 				return clDest
 			} else {
 				toRGBA = null
@@ -422,7 +426,7 @@ export class FFmpegProducer implements Producer {
 			.valve(vidPacketFilter)
 			.valve(vidDecode, { oneToMany: true })
 			.valve(vidFilter, { oneToMany: true })
-			.valve(vidLoader, { bufferSizeMax: 2 })
+			.valve(vidLoader, { bufferSizeMax: 1 })
 			.valve(vidProcess)
 			.valve(vidDeint, { oneToMany: true })
 

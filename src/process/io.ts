@@ -91,9 +91,11 @@ export class ToRGBA {
 		return Promise.resolve()
 	}
 
-	processFrame(sources: Array<OpenCLBuffer>, dest: OpenCLBuffer): void {
-		return this.loader.run({ sources: sources, dest: dest }, sources[0].timestamp * 2, () =>
-			sources.forEach((s) => s.release())
+	processFrame(sources: Array<OpenCLBuffer>, dest: OpenCLBuffer, interlace?: Interlace): void {
+		return this.loader.run(
+			{ sources: sources, dest: dest },
+			interlace === Interlace.Progressive ? sources[0].timestamp : sources[0].timestamp * 2,
+			() => sources.forEach((s) => s.release())
 		)
 	}
 }
@@ -130,7 +132,7 @@ export class FromRGBA {
 	async createDests(): Promise<Array<OpenCLBuffer>> {
 		return Promise.all(
 			this.numBytes.map((bytes) =>
-				this.clContext.createBuffer(bytes, 'readonly', 'coarse', undefined, 'FromRGBA')
+				this.clContext.createBuffer(bytes, 'writeonly', 'coarse', undefined, 'FromRGBA')
 			)
 		)
 	}

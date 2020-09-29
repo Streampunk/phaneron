@@ -26,6 +26,7 @@ import { ClJobs } from '../clJobQueue'
 import { LoadParams } from '../chanLayer'
 import { VideoFormat, VideoFormats } from '../config'
 import * as Macadam from 'macadam'
+import { Interlace } from '../process/packer'
 import { ToRGBA } from '../process/io'
 import { Reader as v210Reader } from '../process/v210'
 import Yadif from '../process/yadif'
@@ -57,6 +58,8 @@ export class MacadamProducer implements Producer {
 
 		let width = 0
 		let height = 0
+		const progressive = false
+		const tff = true
 		const sampleRate = consumerFormat.audioSampleRate
 		const numAudChannels = consumerFormat.audioChannels
 		const audLayout = `${numAudChannels}c`
@@ -105,8 +108,6 @@ export class MacadamProducer implements Producer {
 			)
 			await this.toRGBA.init()
 
-			const progressive = false
-			const tff = true
 			const yadifMode = progressive ? 'send_frame' : 'send_field'
 			this.yadif = new Yadif(
 				this.clContext,
@@ -174,7 +175,11 @@ export class MacadamProducer implements Producer {
 				const toRGBA = this.toRGBA as ToRGBA
 				const clDest = await toRGBA.createDest({ width: width, height: height })
 				clDest.timestamp = clSources[0].timestamp
-				toRGBA.processFrame(clSources, clDest)
+				toRGBA.processFrame(
+					clSources,
+					clDest,
+					progressive ? Interlace.Progressive : Interlace.TopField
+				)
 				return clDest
 			} else {
 				if (isEnd(clSources)) this.toRGBA = null

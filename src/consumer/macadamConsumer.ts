@@ -42,6 +42,7 @@ const bmdDisplayMode = new Map([
 export class MacadamConsumer implements Consumer {
 	private readonly clContext: nodenCLContext
 	private readonly config: ConsumerConfig
+	private readonly logTimings = false
 	private playback: Macadam.PlaybackChannel | null = null
 	private fromRGBA: FromRGBA | null = null
 	private clDests: OpenCLBuffer[] = []
@@ -177,6 +178,7 @@ export class MacadamConsumer implements Consumer {
 
 		const vidProcess: Valve<OpenCLBuffer | RedioEnd, OpenCLBuffer | RedioEnd> = async (frame) => {
 			if (isValue(frame)) {
+				const start = process.hrtime()
 				const fromRGBA = this.fromRGBA as FromRGBA
 				if (this.vidField === 0) {
 					this.clDests = await fromRGBA.createDests()
@@ -187,6 +189,14 @@ export class MacadamConsumer implements Consumer {
 				const interlace = 0x1 | (this.vidField << 1)
 				await fromRGBA.processFrame(frame, this.clDests, interlace)
 				await this.clJobs?.runQueue(frame.timestamp)
+				const end = process.hrtime(start)
+				if (this.logTimings)
+					console.log(
+						`Chan ${this.config.device.deviceIndex - 1}: ${frame.timestamp}  ${(
+							end[0] * 1000.0 +
+							end[1] / 1000000.0
+						).toFixed(2)}ms processing total`
+					)
 				if (this.config.format.fields === 2) this.vidField = 1 - this.vidField
 				else this.vidField = 0
 				return this.vidField === 1 ? nil : this.clDests[0]
