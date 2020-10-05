@@ -131,10 +131,20 @@ initialiseOpenCL()
 
 		const clProcessJobs = new ClProcessJobs(clContext)
 		const config = new Config()
-		const channels = config.consumers.map((conf, i) => {
-			const clJobs = clProcessJobs.add(i)
-			return new Channel(clContext, conf, consReg, prodReg, clJobs)
-		})
+		const channels: Channel[] = []
+
+		let i = 0
+		try {
+			config.consumers.forEach((conf) => {
+				const clJobs = clProcessJobs.add(i)
+				channels.push(new Channel(clContext, conf, consReg, prodReg, clJobs))
+				++i
+			})
+		} catch (err) {
+			console.log(
+				`Failed to initialise configured consumer ${config.consumers[i].device.name} ${config.consumers[i].device.deviceIndex}`
+			)
+		}
 		await Promise.all(channels.map((chan) => chan.initialise()))
 
 		commands.add(new BasicCmds(channels).list())

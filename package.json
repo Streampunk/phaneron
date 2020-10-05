@@ -11,8 +11,8 @@
     "build": "trash dist && yarn build:main",
     "build:main": "tsc -p tsconfig.json",
     "lint": "eslint . --ext .ts",
-		"lint:fix": "yarn lint --fix",
-		"start": "node dist/index.js"
+    "lint:fix": "yarn lint --fix",
+    "start": "node dist/index.js"
   },
   "dependencies": {
     "beamcoder": "^0.6.3",
@@ -21,7 +21,7 @@
     "redioactive": "^0.0.8"
   },
   "devDependencies": {
-    "@types/node": "^12.12.58",
+    "@types/node": "^12.12.62",
     "@typescript-eslint/eslint-plugin": "^4.3.0",
     "@typescript-eslint/parser": "^4.3.0",
     "eslint": "^7.10.0",

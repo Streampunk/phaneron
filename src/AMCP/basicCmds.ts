@@ -62,10 +62,13 @@ export class BasicCmds implements CmdList {
 	async loadbg(chanLay: ChanLayer, params: string[]): Promise<boolean> {
 		if (!chanLay.valid) return Promise.resolve(false)
 
+		const channel = this.channels[chanLay.channel - 1]
+		if (!channel) return Promise.resolve(false)
+
 		let curParam = 0
 		const clip = params[0]
-		let channel = 0
-		if (clip === 'DECKLINK') channel = +params[curParam + 1]
+		let chanNum = 0
+		if (clip === 'DECKLINK') chanNum = +params[curParam + 1]
 
 		const loop = params.find((param) => param === 'LOOP') !== undefined
 
@@ -78,13 +81,13 @@ export class BasicCmds implements CmdList {
 
 		const loadParams: LoadParams = {
 			url: clip,
-			channel: channel,
+			channel: chanNum,
 			loop: loop,
 			autoPlay: autoPlay,
 			seek: seek
 		}
 
-		const bgOK = this.channels[chanLay.channel - 1].loadSource(chanLay.layer, loadParams, false)
+		const bgOK = channel.loadSource(chanLay.layer, loadParams, false)
 
 		return bgOK
 	}
@@ -96,11 +99,10 @@ export class BasicCmds implements CmdList {
 	async load(chanLay: ChanLayer, params: string[]): Promise<boolean> {
 		if (!chanLay.valid) return Promise.resolve(false)
 
-		const bgOK = this.channels[chanLay.channel - 1].loadSource(
-			chanLay.layer,
-			{ url: params[0] },
-			true
-		)
+		const channel = this.channels[chanLay.channel - 1]
+		if (!channel) return Promise.resolve(false)
+
+		const bgOK = channel.loadSource(chanLay.layer, { url: params[0] }, true)
 
 		return bgOK
 	}
@@ -113,9 +115,12 @@ export class BasicCmds implements CmdList {
 	async play(chanLay: ChanLayer, params: string[]): Promise<boolean> {
 		if (!chanLay.valid) return Promise.resolve(false)
 
+		const channel = this.channels[chanLay.channel - 1]
+		if (!channel) return Promise.resolve(false)
+
 		if (params.length !== 0) await this.loadbg(chanLay, params)
 
-		const fgOK = this.channels[chanLay.channel - 1].play(chanLay.layer)
+		const fgOK = channel.play(chanLay.layer)
 
 		return fgOK
 	}
@@ -127,7 +132,9 @@ export class BasicCmds implements CmdList {
 	// eslint-disable-next-line @typescript-eslint/no-unused-vars
 	async pause(chanLay: ChanLayer, _params: string[]): Promise<boolean> {
 		if (!chanLay.valid) return Promise.resolve(false)
-		this.channels[chanLay.channel - 1].pause(chanLay.layer)
+		const channel = this.channels[chanLay.channel - 1]
+		if (!channel) return Promise.resolve(false)
+		channel.pause(chanLay.layer)
 		return Promise.resolve(true)
 	}
 
@@ -135,7 +142,9 @@ export class BasicCmds implements CmdList {
 	// eslint-disable-next-line @typescript-eslint/no-unused-vars
 	async resume(chanLay: ChanLayer, _params: string[]): Promise<boolean> {
 		if (!chanLay.valid) return Promise.resolve(false)
-		this.channels[chanLay.channel - 1].resume(chanLay.layer)
+		const channel = this.channels[chanLay.channel - 1]
+		if (!channel) return Promise.resolve(false)
+		channel.resume(chanLay.layer)
 		return Promise.resolve(true)
 	}
 
@@ -143,7 +152,9 @@ export class BasicCmds implements CmdList {
 	// eslint-disable-next-line @typescript-eslint/no-unused-vars
 	async stop(chanLay: ChanLayer, _params: string[]): Promise<boolean> {
 		if (!chanLay.valid) return Promise.resolve(false)
-		this.channels[chanLay.channel - 1].stop(chanLay.layer)
+		const channel = this.channels[chanLay.channel - 1]
+		if (!channel) return Promise.resolve(false)
+		channel.stop(chanLay.layer)
 		return Promise.resolve(true)
 	}
 
@@ -154,7 +165,9 @@ export class BasicCmds implements CmdList {
 	// eslint-disable-next-line @typescript-eslint/no-unused-vars
 	async clear(chanLay: ChanLayer, _params: string[]): Promise<boolean> {
 		if (!chanLay.valid) return Promise.resolve(false)
-		this.channels[chanLay.channel - 1].clear(chanLay.layer)
+		const channel = this.channels[chanLay.channel - 1]
+		if (!channel) return Promise.resolve(false)
+		channel.clear(chanLay.layer)
 		return Promise.resolve(true)
 	}
 }

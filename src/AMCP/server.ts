@@ -25,7 +25,7 @@ import { Commands } from './commands'
 let cmds: Commands
 let ccgResponses = responses218
 
-export function processCommand(command: string[] | null, token = ''): string {
+export async function processCommand(command: string[] | null, token = ''): Promise<string> {
 	if (!command) {
 		return '400 ERROR'
 	}
@@ -55,7 +55,7 @@ export function processCommand(command: string[] | null, token = ''): string {
 		return '***BYE***'
 	}
 	if (ccgResponses[command[0]]) {
-		if (!cmds?.process(command)) {
+		if (!(await cmds?.process(command))) {
 			return `400 ERROR\r\n${command.join(' ')} NOT IMPLEMENTED`
 		}
 		const responseFn = ccgResponses[command[0]]
@@ -131,14 +131,14 @@ server.on('listening', () => {
 
 server.on('connection', (sock) => {
 	let chunk = ''
-	sock.on('data', (input) => {
+	sock.on('data', async (input) => {
 		chunk += input.toString()
 		let eol = chunk.indexOf('\r\n')
 
 		while (eol > -1) {
 			const command = chunk.substring(0, eol)
 			console.log(command)
-			const result = processCommand(command.toUpperCase().match(/"[^"]+"|""|\S+/g))
+			const result = await processCommand(command.toUpperCase().match(/"[^"]+"|""|\S+/g))
 			if (result === '***BYE***') {
 				sock.destroy()
 				break
