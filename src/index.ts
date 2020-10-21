@@ -145,6 +145,7 @@ initialiseOpenCL()
 				`Failed to initialise configured consumer ${config.consumers[i].device.name} ${config.consumers[i].device.deviceIndex}`
 			)
 		}
+		if (channels.length === 0) console.error('Error: No channels found!!')
 		await Promise.all(channels.map((chan) => chan.initialise()))
 
 		commands.add(new BasicCmds(channels).list())

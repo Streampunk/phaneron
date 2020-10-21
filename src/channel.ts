@@ -49,12 +49,12 @@ export class Channel {
 		this.consumerRegistry = consumerRegistry
 		this.producerRegistry = producerRegistry
 		this.combiner = new Combiner(this.clContext, this.consumerConfig.format, this.clJobs)
-		this.consumer = this.consumerRegistry.createConsumer(this.consumerConfig)
+		this.consumer = this.consumerRegistry.createConsumer(this.consumerConfig, this.clJobs)
 	}
 
 	async initialise(): Promise<void> {
 		await this.combiner.initialise()
-		return this.consumer.initialise(this.clJobs)
+		return this.consumer.initialise()
 	}
 
 	async loadSource(layerNum: number, params: LoadParams, preview = false): Promise<boolean> {

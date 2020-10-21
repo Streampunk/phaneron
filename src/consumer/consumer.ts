@@ -26,12 +26,12 @@ import { ConsumerConfig } from '../config'
 import { ClJobs } from '../clJobQueue'
 
 export interface Consumer {
-	initialise(clJobs: ClJobs): Promise<void>
+	initialise(): Promise<void>
 	connect(mixAudio: RedioPipe<Frame | RedioEnd>, mixVideo: RedioPipe<OpenCLBuffer | RedioEnd>): void
 }
 
 export interface ConsumerFactory<T extends Consumer> {
-	createConsumer(config: ConsumerConfig): T
+	createConsumer(config: ConsumerConfig, clJobs: ClJobs): T
 }
 
 export class ConsumerRegistry {
@@ -42,9 +42,9 @@ export class ConsumerRegistry {
 		this.consumerFactories.set('decklink', new MacadamConsumerFactory(clContext))
 	}
 
-	createConsumer(config: ConsumerConfig): Consumer {
+	createConsumer(config: ConsumerConfig, clJobs: ClJobs): Consumer {
 		const factory = this.consumerFactories.get(config.device.name)
 		if (!factory) throw new Error(`Failed to create consumer for device '${config.device.name}'`)
-		return factory.createConsumer(config)
+		return factory.createConsumer(config, clJobs)
 	}
 }

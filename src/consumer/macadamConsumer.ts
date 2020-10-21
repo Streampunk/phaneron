@@ -42,6 +42,7 @@ const bmdDisplayMode = new Map([
 export class MacadamConsumer implements Consumer {
 	private readonly clContext: nodenCLContext
 	private readonly config: ConsumerConfig
+	private readonly clJobs: ClJobs
 	private readonly logTimings = false
 	private playback: Macadam.PlaybackChannel | null = null
 	private fromRGBA: FromRGBA | null = null
@@ -51,11 +52,11 @@ export class MacadamConsumer implements Consumer {
 	private readonly audioTimebase: number[]
 	private readonly videoTimebase: number[]
 	private audFilterer: Filterer | null = null
-	private clJobs: ClJobs | undefined
 
-	constructor(context: nodenCLContext, config: ConsumerConfig) {
+	constructor(context: nodenCLContext, config: ConsumerConfig, clJobs: ClJobs) {
 		this.clContext = context
 		this.config = config
+		this.clJobs = clJobs
 		this.vidField = 0
 		this.audioChannels = 8
 		this.audioTimebase = [1, this.config.format.audioSampleRate]
@@ -78,8 +79,7 @@ export class MacadamConsumer implements Consumer {
 			)
 	}
 
-	async initialise(clJobs: ClJobs): Promise<void> {
-		this.clJobs = clJobs
+	async initialise(): Promise<void> {
 		this.playback = await Macadam.playback({
 			deviceIndex: this.config.device.deviceIndex - 1,
 			channels: this.audioChannels,
@@ -188,7 +188,7 @@ export class MacadamConsumer implements Consumer {
 				}
 				const interlace = 0x1 | (this.vidField << 1)
 				await fromRGBA.processFrame(frame, this.clDests, interlace)
-				await this.clJobs?.runQueue(frame.timestamp)
+				await this.clJobs.runQueue(frame.timestamp)
 				const end = process.hrtime(start)
 				if (this.logTimings)
 					console.log(
@@ -280,8 +280,8 @@ export class MacadamConsumerFactory implements ConsumerFactory<MacadamConsumer> 
 		this.clContext = clContext
 	}
 
-	createConsumer(config: ConsumerConfig): MacadamConsumer {
-		const consumer = new MacadamConsumer(this.clContext, config)
+	createConsumer(config: ConsumerConfig, clJobs: ClJobs): MacadamConsumer {
+		const consumer = new MacadamConsumer(this.clContext, config, clJobs)
 		return consumer
 	}
 }
