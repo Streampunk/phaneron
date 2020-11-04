@@ -81,13 +81,14 @@ export class BasicCmds implements CmdList {
 
 		const loadParams: LoadParams = {
 			url: clip,
+			layer: chanLay.layer,
 			channel: chanNum,
 			loop: loop,
 			autoPlay: autoPlay,
 			seek: seek
 		}
 
-		const bgOK = channel.loadSource(chanLay.layer, loadParams, false)
+		const bgOK = channel.loadSource(loadParams, false)
 
 		return bgOK
 	}
@@ -102,7 +103,7 @@ export class BasicCmds implements CmdList {
 		const channel = this.channels[chanLay.channel - 1]
 		if (!channel) return Promise.resolve(false)
 
-		const bgOK = channel.loadSource(chanLay.layer, { url: params[0] }, true)
+		const bgOK = channel.loadSource({ url: params[0], layer: chanLay.layer }, true)
 
 		return bgOK
 	}

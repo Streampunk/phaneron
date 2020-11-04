@@ -26,6 +26,7 @@ export interface ChanLayer {
 
 export interface LoadParams {
 	url: string
+	layer: number
 	channel?: number
 	loop?: boolean
 	autoPlay?: boolean

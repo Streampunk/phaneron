@@ -30,15 +30,16 @@ export class Layer {
 	private readonly clContext: nodenCLContext
 	private readonly consumerFormat: VideoFormat
 	private readonly clJobs: ClJobs
+	private readonly mixer: Mixer
 	private background: Producer | null
 	private foreground: Producer | null
 	private autoPlay = false
-	private mixer: Mixer | null = null
 
 	constructor(clContext: nodenCLContext, consumerFormat: VideoFormat, clJobs: ClJobs) {
 		this.clContext = clContext
 		this.consumerFormat = consumerFormat
 		this.clJobs = clJobs
+		this.mixer = new Mixer(this.clContext, this.consumerFormat, this.clJobs)
 		this.background = null
 		this.foreground = null
 	}
@@ -53,13 +54,7 @@ export class Layer {
 			console.log('Failed to create sources for layer')
 			return false
 		}
-		this.mixer = new Mixer(
-			this.clContext,
-			this.background.getFormat(),
-			this.consumerFormat,
-			this.clJobs
-		)
-		await this.mixer.init(srcAudio, srcVideo)
+		await this.mixer.init(producer.getSourceID(), srcAudio, srcVideo, this.background.getFormat())
 
 		if (this.autoPlay && !this.foreground) {
 			this.play()
@@ -95,40 +90,40 @@ export class Layer {
 
 	anchor(params: string[]): void {
 		if (params.length) {
-			this.mixer?.setAnchor(+params[0], +params[1])
+			this.mixer.setAnchor(+params[0], +params[1])
 		} else {
-			console.dir(this.mixer?.anchorParams, { colors: true })
+			console.dir(this.mixer.anchorParams, { colors: true })
 		}
 	}
 
 	rotation(params: string[]): void {
 		if (params.length) {
-			this.mixer?.setRotation(+params[0])
+			this.mixer.setRotation(+params[0])
 		} else {
-			console.dir(this.mixer?.rotation, { colors: true })
+			console.dir(this.mixer.rotation, { colors: true })
 		}
 	}
 
 	fill(params: string[]): void {
 		if (params.length) {
-			this.mixer?.setFill(+params[0], +params[1], +params[2], +params[3])
+			this.mixer.setFill(+params[0], +params[1], +params[2], +params[3])
 		} else {
-			console.dir(this.mixer?.fillParams, { colors: true })
+			console.dir(this.mixer.fillParams, { colors: true })
 		}
 	}
 
 	volume(params: string[]): void {
 		if (params.length) {
-			this.mixer?.setVolume(+params[0])
+			this.mixer.setVolume(+params[0])
 		} else {
-			console.dir(this.mixer?.volume, { colors: true })
+			console.dir(this.mixer.volume, { colors: true })
 		}
 	}
 
 	getAudioPipe(): RedioPipe<Frame | RedioEnd> | undefined {
-		return this.mixer?.getAudioPipe()
+		return this.mixer.getAudioPipe()
 	}
 	getVideoPipe(): RedioPipe<OpenCLBuffer | RedioEnd> | undefined {
-		return this.mixer?.getVideoPipe()
+		return this.mixer.getVideoPipe()
 	}
 }

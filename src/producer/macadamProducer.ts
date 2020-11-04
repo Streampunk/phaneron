@@ -32,6 +32,7 @@ import { Reader as v210Reader } from '../process/v210'
 import Yadif from '../process/yadif'
 
 export class MacadamProducer implements Producer {
+	private readonly sourceID: string
 	private readonly params: LoadParams
 	private readonly clContext: nodenCLContext
 	private readonly clJobs: ClJobs
@@ -45,7 +46,8 @@ export class MacadamProducer implements Producer {
 	private running = true
 	private paused = false
 
-	constructor(params: LoadParams, context: nodenCLContext, clJobs: ClJobs) {
+	constructor(id: number, params: LoadParams, context: nodenCLContext, clJobs: ClJobs) {
+		this.sourceID = `P${id} Macadam ${params.url} L${params.layer}`
 		this.params = params
 		this.clContext = context
 		this.clJobs = clJobs
@@ -176,6 +178,7 @@ export class MacadamProducer implements Producer {
 				const clDest = await toRGBA.createDest({ width: width, height: height })
 				clDest.timestamp = clSources[0].timestamp
 				toRGBA.processFrame(
+					this.sourceID,
 					clSources,
 					clDest,
 					progressive ? Interlace.Progressive : Interlace.TopField
@@ -191,7 +194,7 @@ export class MacadamProducer implements Producer {
 			if (isValue(frame)) {
 				const yadif = this.yadif as Yadif
 				const yadifDests: OpenCLBuffer[] = []
-				await yadif.processFrame(frame, yadifDests)
+				await yadif.processFrame(frame, yadifDests, this.sourceID)
 				return yadifDests.length > 1 ? yadifDests : nil
 			} else {
 				if (isEnd(frame)) {
@@ -230,6 +233,10 @@ export class MacadamProducer implements Producer {
 		console.log(`Created Macadam producer for channel ${this.params.channel}`)
 	}
 
+	getSourceID(): string {
+		return this.sourceID
+	}
+
 	getFormat(): VideoFormat {
 		return this.format
 	}
@@ -259,7 +266,7 @@ export class MacadamProducerFactory implements ProducerFactory<MacadamProducer> 
 		this.clContext = clContext
 	}
 
-	createProducer(params: LoadParams, clJobs: ClJobs): MacadamProducer {
-		return new MacadamProducer(params, this.clContext, clJobs)
+	createProducer(id: number, params: LoadParams, clJobs: ClJobs): MacadamProducer {
+		return new MacadamProducer(id, params, this.clContext, clJobs)
 	}
 }

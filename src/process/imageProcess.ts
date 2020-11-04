@@ -19,7 +19,7 @@
 */
 
 import { clContext as nodenCLContext, OpenCLProgram, KernelParams } from 'nodencl'
-import { ClJobs, JobCB } from '../clJobQueue'
+import { ClJobs, JobCB, JobID } from '../clJobQueue'
 
 export abstract class ProcessImpl {
 	protected readonly name: string
@@ -72,9 +72,9 @@ export default class ImageProcess {
 		return this.processImpl.init()
 	}
 
-	async run(params: KernelParams, timestamp: number, cb: JobCB): Promise<void> {
+	async run(params: KernelParams, id: JobID, cb: JobCB): Promise<void> {
 		if (this.program == null) throw new Error('Loader.run failed with no program available')
 		const kernelParams = await this.processImpl.getKernelParams(params)
-		this.clJobs.add(timestamp, this.processImpl.getName(), this.program, kernelParams, cb)
+		this.clJobs.add(id, this.processImpl.getName(), this.program, kernelParams, cb)
 	}
 }

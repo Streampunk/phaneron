@@ -88,7 +88,7 @@ export default class Yadif {
 		)
 	}
 
-	private async runYadif(isSecond: boolean, input: OpenCLBuffer): Promise<void> {
+	private async runYadif(isSecond: boolean, input: OpenCLBuffer, sourceID: string): Promise<void> {
 		if (!this.yadifCl) throw new Error('Yadif needs to be initialised')
 
 		if (isSecond) await this.makeOutput()
@@ -105,7 +105,7 @@ export default class Yadif {
 				skipSpatial: this.skipSpatial,
 				output: out
 			},
-			out.timestamp,
+			{ source: sourceID, timestamp: out.timestamp },
 			() => {
 				if (!isSecond) input.release()
 			}
@@ -115,9 +115,13 @@ export default class Yadif {
 		return
 	}
 
-	async processFrame(input: OpenCLBuffer, outputs: Array<OpenCLBuffer>): Promise<void> {
+	async processFrame(
+		input: OpenCLBuffer,
+		outputs: Array<OpenCLBuffer>,
+		sourceID: string
+	): Promise<void> {
 		if (this.framePending) {
-			await this.runYadif(true, input)
+			await this.runYadif(true, input, sourceID)
 			outputs.push(this.out as OpenCLBuffer)
 		}
 
@@ -142,7 +146,7 @@ export default class Yadif {
 		}
 
 		await this.makeOutput()
-		await this.runYadif(false, input)
+		await this.runYadif(false, input, sourceID)
 		outputs.push(this.out as OpenCLBuffer)
 	}
 

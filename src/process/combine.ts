@@ -66,19 +66,8 @@ const combineKernel = `
 `
 
 export default class Combine extends ProcessImpl {
-	private readonly numOverlays: number
-
-	constructor(width: number, height: number, numOverlays: number) {
-		super(
-			numOverlays === 1 ? 'combine-1' : 'combine-2',
-			width,
-			height,
-			combineKernel,
-			numOverlays === 1 ? 'twoInputs' : 'threeInputs'
-		)
-		this.numOverlays = numOverlays
-		if (!(this.numOverlays > 0 && this.numOverlays < 3))
-			throw new Error(`Combine supports one or two overlays, ${this.numOverlays} requested`)
+	constructor(width: number, height: number) {
+		super('combine-1', width, height, combineKernel, 'twoInputs')
 	}
 
 	async init(): Promise<void> {
@@ -87,22 +76,21 @@ export default class Combine extends ProcessImpl {
 
 	async getKernelParams(params: KernelParams): Promise<KernelParams> {
 		const kernelParams: KernelParams = {
-			bgIn: params.bgIn,
 			output: params.output
 		}
 
-		const ovArray = params.ovIn as Array<OpenCLBuffer>
-		if (ovArray.length !== 1 && ovArray.length !== 2)
-			throw new Error("Combine requires 'ovIn' array parameter with 1 or 2 OpenCL buffers")
-
-		switch (this.numOverlays) {
+		const inArray = params.inputs as Array<OpenCLBuffer>
+		switch (inArray.length) {
 			case 1:
-				kernelParams.ovIn = ovArray[0]
+				kernelParams.bgIn = inArray[0]
+				kernelParams.ovIn = inArray[0]
 				break
 			case 2:
-				kernelParams.ov0In = ovArray[0]
-				kernelParams.ov1In = ovArray[1]
+				kernelParams.bgIn = inArray[0]
+				kernelParams.ovIn = inArray[1]
 				break
+			default:
+				throw new Error("Combine requires 'inputs' array parameter with 1 or 2 OpenCL buffers")
 		}
 
 		return Promise.resolve(kernelParams)

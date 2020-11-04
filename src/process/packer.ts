@@ -19,7 +19,7 @@
 */
 
 import { clContext as nodenCLContext, OpenCLProgram, KernelParams } from 'nodencl'
-import { ClJobs, JobCB } from '../clJobQueue'
+import { ClJobs, JobCB, JobID } from '../clJobQueue'
 
 export enum Interlace {
 	Progressive = 0,
@@ -102,5 +102,5 @@ export default abstract class Packer {
 		})
 	}
 
-	abstract run(params: KernelParams, timestamp: number, cb: JobCB): void
+	abstract run(params: KernelParams, id: JobID, cb: JobCB): void
 }

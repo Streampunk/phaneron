@@ -51,6 +51,7 @@ interface AudioChannel {
 }
 
 export class FFmpegProducer implements Producer {
+	private readonly sourceID: string
 	private readonly loadParams: LoadParams
 	private readonly clContext: nodenCLContext
 	private readonly clJobs: ClJobs
@@ -61,7 +62,8 @@ export class FFmpegProducer implements Producer {
 	private running = true
 	private paused = false
 
-	constructor(loadParams: LoadParams, context: nodenCLContext, clJobs: ClJobs) {
+	constructor(id: number, loadParams: LoadParams, context: nodenCLContext, clJobs: ClJobs) {
+		this.sourceID = `P${id} FFmpeg ${loadParams.url} L${loadParams.layer}`
 		this.loadParams = loadParams
 		this.clContext = context
 		this.clJobs = clJobs
@@ -371,6 +373,7 @@ export class FFmpegProducer implements Producer {
 				const clDest = await convert.createDest({ width: width, height: height })
 				clDest.timestamp = clSources[0].timestamp
 				convert.processFrame(
+					this.sourceID,
 					clSources,
 					clDest,
 					progressive ? Interlace.Progressive : Interlace.TopField
@@ -385,7 +388,7 @@ export class FFmpegProducer implements Producer {
 		const vidDeint: Valve<OpenCLBuffer | RedioEnd, OpenCLBuffer | RedioEnd> = async (frame) => {
 			if (isValue(frame)) {
 				const yadifDests: OpenCLBuffer[] = []
-				await yadif?.processFrame(frame, yadifDests)
+				await yadif?.processFrame(frame, yadifDests, this.sourceID)
 				return yadifDests.length > 1 ? yadifDests : nil
 			} else {
 				yadif?.release()
@@ -433,6 +436,10 @@ export class FFmpegProducer implements Producer {
 		console.log(`Created FFmpeg producer for path ${this.loadParams.url}`)
 	}
 
+	getSourceID(): string {
+		return this.sourceID
+	}
+
 	getFormat(): VideoFormat {
 		return this.format
 	}
@@ -462,7 +469,7 @@ export class FFmpegProducerFactory implements ProducerFactory<FFmpegProducer> {
 		this.clContext = clContext
 	}
 
-	createProducer(loadParams: LoadParams, clJobs: ClJobs): FFmpegProducer {
-		return new FFmpegProducer(loadParams, this.clContext, clJobs)
+	createProducer(id: number, loadParams: LoadParams, clJobs: ClJobs): FFmpegProducer {
+		return new FFmpegProducer(id, loadParams, this.clContext, clJobs)
 	}
 }

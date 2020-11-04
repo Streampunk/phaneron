@@ -29,36 +29,57 @@ import { ClJobs } from './clJobQueue'
 
 export class Channel {
 	private readonly clContext: nodenCLContext
-	private readonly clJobs: ClJobs
+	private readonly chanID: string
 	private readonly consumerConfig: ConsumerConfig
 	private readonly consumerRegistry: ConsumerRegistry
 	private readonly producerRegistry: ProducerRegistry
+	private readonly clJobs: ClJobs
 	private readonly combiner: Combiner
 	private readonly consumer: Consumer
 
 	constructor(
 		clContext: nodenCLContext,
+		chanID: string,
 		consumerConfig: ConsumerConfig,
 		consumerRegistry: ConsumerRegistry,
 		producerRegistry: ProducerRegistry,
 		clJobs: ClJobs
 	) {
 		this.clContext = clContext
-		this.clJobs = clJobs
+		this.chanID = chanID
 		this.consumerConfig = consumerConfig
 		this.consumerRegistry = consumerRegistry
 		this.producerRegistry = producerRegistry
-		this.combiner = new Combiner(this.clContext, this.consumerConfig.format, this.clJobs)
-		this.consumer = this.consumerRegistry.createConsumer(this.consumerConfig, this.clJobs)
+		this.clJobs = clJobs
+		this.combiner = new Combiner(
+			this.clContext,
+			this.chanID,
+			this.consumerConfig.format,
+			this.clJobs
+		)
+		this.consumer = this.consumerRegistry.createConsumer(
+			this.chanID,
+			this.consumerConfig,
+			this.clJobs
+		)
 	}
 
 	async initialise(): Promise<void> {
 		await this.combiner.initialise()
-		return this.consumer.initialise()
+		await this.consumer.initialise()
+
+		const combinerAudio = this.combiner.getAudioPipe()
+		const combinerVideo = this.combiner.getVideoPipe()
+		if (!(combinerAudio !== undefined && combinerVideo !== undefined)) {
+			throw new Error('Failed to get combiner connection pipes')
+		}
+		this.consumer.connect(combinerAudio, combinerVideo)
+
+		return Promise.resolve()
 	}
 
-	async loadSource(layerNum: number, params: LoadParams, preview = false): Promise<boolean> {
-		this.clear(layerNum)
+	async loadSource(params: LoadParams, preview = false): Promise<boolean> {
+		this.clear(params.layer)
 
 		const producer = await this.producerRegistry.createSource(
 			params,
@@ -72,16 +93,7 @@ export class Channel {
 
 		const layer = new Layer(this.clContext, this.consumerConfig.format, this.clJobs)
 		await layer.load(producer, preview, params.autoPlay as boolean)
-		this.combiner.setLayer(layerNum, layer)
-
-		// Connection from combiner to consumer should happen in initialise - more to do...
-		const combinerAudio = this.combiner.getAudioPipe()
-		const combinerVideo = this.combiner.getVideoPipe()
-		if (!(combinerAudio !== undefined && combinerVideo !== undefined)) {
-			console.log('Failed to get combiner connection pipes')
-			return false
-		}
-		this.consumer.connect(combinerAudio, combinerVideo)
+		this.combiner.setLayer(params.layer, layer)
 
 		return true
 	}
@@ -106,8 +118,12 @@ export class Channel {
 
 	stop(layerNum: number): boolean {
 		const layer = this.combiner.getLayer(layerNum)
-		layer?.stop()
-		return layer !== undefined
+		let result = layer !== undefined
+		if (layer) {
+			layer.stop()
+			result &&= this.combiner.delLayer(layerNum)
+		}
+		return result
 	}
 
 	clear(layerNum: number): boolean {

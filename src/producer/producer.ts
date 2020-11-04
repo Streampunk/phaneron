@@ -29,6 +29,7 @@ import { RedioPipe, RedioEnd } from 'redioactive'
 
 export interface Producer {
 	initialise(consumerFormat: VideoFormat): void
+	getSourceID(): string
 	getFormat(): VideoFormat
 	getSourceAudio(): RedioPipe<Frame | RedioEnd> | undefined
 	getSourceVideo(): RedioPipe<OpenCLBuffer | RedioEnd> | undefined
@@ -37,7 +38,7 @@ export interface Producer {
 }
 
 export interface ProducerFactory<T extends Producer> {
-	createProducer(params: LoadParams, clJobs: ClJobs): T
+	createProducer(id: number, params: LoadParams, clJobs: ClJobs): T
 }
 
 export class InvalidProducerError extends Error {
@@ -51,6 +52,7 @@ export class InvalidProducerError extends Error {
 
 export class ProducerRegistry {
 	private readonly producerFactories: ProducerFactory<Producer>[]
+	private producerID = 0
 
 	constructor(clContext: nodenCLContext) {
 		this.producerFactories = []
@@ -66,7 +68,7 @@ export class ProducerRegistry {
 		let producerErr = ''
 		for (const f of this.producerFactories) {
 			try {
-				const producer = f.createProducer(params, clJobs)
+				const producer = f.createProducer(this.producerID, params, clJobs)
 				await producer.initialise(consumerFormat)
 				return producer
 			} catch (err) {

@@ -130,21 +130,19 @@ initialiseOpenCL()
 		const prodReg = new ProducerRegistry(clContext)
 
 		const clProcessJobs = new ClProcessJobs(clContext)
+		const clJobs = clProcessJobs.getJobs()
 		const config = new Config()
 		const channels: Channel[] = []
 
-		let i = 0
-		try {
-			config.consumers.forEach((conf) => {
-				const clJobs = clProcessJobs.add(i)
-				channels.push(new Channel(clContext, conf, consReg, prodReg, clJobs))
-				++i
-			})
-		} catch (err) {
-			console.log(
-				`Failed to initialise configured consumer ${config.consumers[i].device.name} ${config.consumers[i].device.deviceIndex}`
-			)
-		}
+		config.consumers.forEach((conf, i) => {
+			try {
+				channels.push(new Channel(clContext, `Channel ${i}`, conf, consReg, prodReg, clJobs))
+			} catch (err) {
+				console.log(
+					`Failed to initialise configured consumer ${config.consumers[i].device.name} ${config.consumers[i].device.deviceIndex}`
+				)
+			}
+		})
 		if (channels.length === 0) console.error('Error: No channels found!!')
 		await Promise.all(channels.map((chan) => chan.initialise()))
 

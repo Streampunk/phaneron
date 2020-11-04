@@ -31,7 +31,7 @@ export interface Consumer {
 }
 
 export interface ConsumerFactory<T extends Consumer> {
-	createConsumer(config: ConsumerConfig, clJobs: ClJobs): T
+	createConsumer(chanID: string, config: ConsumerConfig, clJobs: ClJobs): T
 }
 
 export class ConsumerRegistry {
@@ -42,9 +42,9 @@ export class ConsumerRegistry {
 		this.consumerFactories.set('decklink', new MacadamConsumerFactory(clContext))
 	}
 
-	createConsumer(config: ConsumerConfig, clJobs: ClJobs): Consumer {
+	createConsumer(chanID: string, config: ConsumerConfig, clJobs: ClJobs): Consumer {
 		const factory = this.consumerFactories.get(config.device.name)
 		if (!factory) throw new Error(`Failed to create consumer for device '${config.device.name}'`)
-		return factory.createConsumer(config, clJobs)
+		return factory.createConsumer(chanID, config, clJobs)
 	}
 }

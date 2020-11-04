@@ -41,6 +41,7 @@ const bmdDisplayMode = new Map([
 
 export class MacadamConsumer implements Consumer {
 	private readonly clContext: nodenCLContext
+	private readonly chanID: string
 	private readonly config: ConsumerConfig
 	private readonly clJobs: ClJobs
 	private readonly logTimings = false
@@ -53,8 +54,9 @@ export class MacadamConsumer implements Consumer {
 	private readonly videoTimebase: number[]
 	private audFilterer: Filterer | null = null
 
-	constructor(context: nodenCLContext, config: ConsumerConfig, clJobs: ClJobs) {
+	constructor(context: nodenCLContext, chanID: string, config: ConsumerConfig, clJobs: ClJobs) {
 		this.clContext = context
+		this.chanID = chanID
 		this.config = config
 		this.clJobs = clJobs
 		this.vidField = 0
@@ -187,8 +189,8 @@ export class MacadamConsumer implements Consumer {
 					)
 				}
 				const interlace = 0x1 | (this.vidField << 1)
-				await fromRGBA.processFrame(frame, this.clDests, interlace)
-				await this.clJobs.runQueue(frame.timestamp)
+				await fromRGBA.processFrame(this.chanID, frame, this.clDests, interlace)
+				await this.clJobs.runQueue({ source: this.chanID, timestamp: frame.timestamp })
 				const end = process.hrtime(start)
 				if (this.logTimings)
 					console.log(
@@ -250,26 +252,6 @@ export class MacadamConsumer implements Consumer {
 			.valve(vidSaver)
 			.zip(mixAudio.valve(audFilter, { oneToMany: true }))
 			.spout(macadamSpout)
-
-		// const interval = 40
-		// let prev: number | undefined = undefined
-		// outFrm.each(
-		// 	async (frame) => {
-		// 		return new Promise((resolve) => {
-		// 			if (prev === undefined) prev = new Date().getTime() - interval
-		// 			const cur = new Date().getTime()
-		// 			prev += interval
-		// 			setTimeout(() => {
-		// 				if (frame && isValue(frame)) {
-		// 					if (frame.timestamp % (1000 / interval) === 0) console.log('tick', frame.timestamp)
-		// 					frame.release()
-		// 				}
-		// 				resolve()
-		// 			}, Math.max(interval - (cur - prev), 0))
-		// 		})
-		// 	},
-		// 	{ bufferSizeMax: 10 }
-		// )
 	}
 }
 
@@ -280,8 +262,8 @@ export class MacadamConsumerFactory implements ConsumerFactory<MacadamConsumer> 
 		this.clContext = clContext
 	}
 
-	createConsumer(config: ConsumerConfig, clJobs: ClJobs): MacadamConsumer {
-		const consumer = new MacadamConsumer(this.clContext, config, clJobs)
+	createConsumer(chanID: string, config: ConsumerConfig, clJobs: ClJobs): MacadamConsumer {
+		const consumer = new MacadamConsumer(this.clContext, chanID, config, clJobs)
 		return consumer
 	}
 }

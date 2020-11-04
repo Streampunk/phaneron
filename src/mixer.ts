@@ -41,9 +41,8 @@ interface FillParams {
 export class Mixer {
 	private readonly clContext: nodenCLContext
 	private readonly srcFormat: VideoFormat
-	private readonly consumerFormat: VideoFormat
+	private readonly clJobs: ClJobs
 	private transform: ImageProcess | null
-	// private black: OpenCLBuffer | null = null
 	private mixAudio: RedioPipe<Frame | RedioEnd> | undefined
 	private mixVideo: RedioPipe<OpenCLBuffer | RedioEnd> | undefined
 	private audMixFilterer: Filterer | null = null
@@ -53,15 +52,10 @@ export class Mixer {
 	fillParams: FillParams = { xOffset: 0, yOffset: 0, xScale: 1, yScale: 1 }
 	volume = 1.0
 
-	constructor(
-		clContext: nodenCLContext,
-		srcFormat: VideoFormat,
-		consumerFormat: VideoFormat,
-		clJobs: ClJobs
-	) {
+	constructor(clContext: nodenCLContext, srcFormat: VideoFormat, clJobs: ClJobs) {
 		this.clContext = clContext
 		this.srcFormat = srcFormat
-		this.consumerFormat = consumerFormat
+		this.clJobs = clJobs
 		this.transform = new ImageProcess(
 			this.clContext,
 			new Transform(this.clContext, this.srcFormat.width, this.srcFormat.height),
@@ -70,8 +64,10 @@ export class Mixer {
 	}
 
 	async init(
+		sourceID: string,
 		srcAudio: RedioPipe<Frame | RedioEnd>,
-		srcVideo: RedioPipe<OpenCLBuffer | RedioEnd>
+		srcVideo: RedioPipe<OpenCLBuffer | RedioEnd>,
+		consumerFormat: VideoFormat
 	): Promise<void> {
 		const sampleRate = this.srcFormat.audioSampleRate
 		const numAudChannels = this.srcFormat.audioChannels
@@ -110,34 +106,9 @@ export class Mixer {
 		}
 
 		await this.transform?.init()
-		const numBytesRGBA = this.consumerFormat.width * this.consumerFormat.height * 4 * 4
-		const srcXscale = this.consumerFormat.squareWidth / this.srcFormat.squareWidth
-		const srcYscale = this.consumerFormat.squareHeight / this.srcFormat.squareHeight
-
-		// this.black = await this.clContext.createBuffer(
-		// 	numBytesRGBA,
-		// 	'readwrite',
-		// 	'coarse',
-		// 	{
-		// 		width: this.width,
-		// 		height: this.height
-		// 	},
-		// 	'mixer'
-		// )
-
-		// let off = 0
-		// const blackFloat = new Float32Array(this.width * this.height * 4)
-		// for (let y = 0; y < this.height; ++y) {
-		// 	for (let x = 0; x < this.width * 4; x += 4) {
-		// 		blackFloat[off + x + 0] = 0.0
-		// 		blackFloat[off + x + 1] = 0.0
-		// 		blackFloat[off + x + 2] = 0.0
-		// 		blackFloat[off + x + 3] = 0.0
-		// 	}
-		// 	off += this.width * 4
-		// }
-		// await this.black.hostAccess('writeonly')
-		// Buffer.from(blackFloat.buffer).copy(this.black)
+		const numBytesRGBA = consumerFormat.width * consumerFormat.height * 4 * 4
+		const srcXscale = consumerFormat.squareWidth / this.srcFormat.squareWidth
+		const srcYscale = consumerFormat.squareHeight / this.srcFormat.squareHeight
 
 		const mixVidValve: Valve<OpenCLBuffer | RedioEnd, OpenCLBuffer | RedioEnd> = async (frame) => {
 			if (isValue(frame)) {
@@ -146,8 +117,8 @@ export class Mixer {
 					'readwrite',
 					'coarse',
 					{
-						width: this.consumerFormat.width,
-						height: this.consumerFormat.height
+						width: consumerFormat.width,
+						height: consumerFormat.height
 					},
 					'transform'
 				)
@@ -167,13 +138,13 @@ export class Mixer {
 						offsetY: -this.fillParams.yOffset,
 						output: xfDest
 					},
-					frame.timestamp,
+					{ source: sourceID, timestamp: frame.timestamp },
 					() => frame.release()
 				)
+				await this.clJobs.runQueue({ source: sourceID, timestamp: frame.timestamp })
 
 				return xfDest
 			} else {
-				// this.black?.release()
 				this.transform = null
 				return frame
 			}

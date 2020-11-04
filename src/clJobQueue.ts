@@ -30,69 +30,73 @@ interface ClJob {
 	cb: JobCB
 }
 
-type JobsRequest = { timestamp: number; jobs: ClJob[]; done: () => void }
+export type JobID = {
+	source: string
+	timestamp: number
+}
 
-export type QueueRunner = (
-	clContext: nodenCLContext,
-	channel: number,
-	tsJobs: ClJob[],
-	clQueue: number
-) => void
+type JobsRequest = { id: string; jobs: ClJob[]; done: () => void }
 
 export class ClJobs {
-	private readonly channel: number
 	private readonly processJobs: ClProcessJobs
-	private jobs: Map<number, ClJob[]>
+	private jobs: Map<string, ClJob[]>
 
-	constructor(channel: number, processJobs: ClProcessJobs) {
-		this.channel = channel
+	constructor(processJobs: ClProcessJobs) {
 		this.processJobs = processJobs
-		this.jobs = new Map<number, ClJob[]>()
+		this.jobs = new Map<string, ClJob[]>()
 	}
 
-	add(ts: number, name: string, program: OpenCLProgram, params: KernelParams, cb: JobCB): void {
-		let tsJobs = this.jobs.get(ts)
+	makeKey(id: JobID): string {
+		return `${id.source} ts ${id.timestamp}`
+	}
+
+	add(id: JobID, name: string, program: OpenCLProgram, params: KernelParams, cb: JobCB): void {
+		const key = this.makeKey(id)
+		let tsJobs = this.jobs.get(key)
 		if (!tsJobs) {
-			this.jobs.set(ts, [])
-			tsJobs = this.jobs.get(ts) as ClJob[]
+			this.jobs.set(key, [])
+			tsJobs = this.jobs.get(key) as ClJob[]
 		}
 		tsJobs.push({ name: name, program: program, params: params, cb: cb })
 	}
 
-	get(ts: number): ClJob[] | undefined {
-		return this.jobs.get(ts)
+	get(id: JobID): ClJob[] | undefined {
+		return this.jobs.get(this.makeKey(id))
 	}
 
-	delete(ts: number): void {
-		this.jobs.delete(ts)
+	delete(id: JobID): void {
+		this.jobs.delete(this.makeKey(id))
 	}
 
 	clear(): void {
 		this.jobs.clear()
 	}
 
-	async runQueue(ts: number): Promise<void> {
-		const tsJobs = this.jobs.get(ts)
-		if (!tsJobs) throw new Error(`Failed to run queue for timestamp ${ts}`)
+	async runQueue(id: JobID): Promise<void> {
+		const key = this.makeKey(id)
+		const tsJobs = this.jobs.get(key)
+		if (!tsJobs) throw new Error(`Failed to run queue for id ${key}`)
 
 		return new Promise<void>((resolve) => {
-			const jobsRequest = { timestamp: ts, jobs: tsJobs, done: resolve }
-			this.processJobs.requestRun(this.channel, jobsRequest)
-			this.delete(ts)
+			const jobsRequest = { id: key, jobs: tsJobs, done: resolve }
+			this.processJobs.requestRun(key, jobsRequest)
+			this.delete(id)
 		})
 	}
 }
 
 export class ClProcessJobs {
 	private readonly clContext: nodenCLContext
-	private readonly requests: Map<number, JobsRequest>
+	private readonly requests: Map<string, JobsRequest>
 	private readonly runEvents: EventEmitter
+	private readonly clJobs: ClJobs
 	private readonly showTimings = 0
 
 	constructor(clContext: nodenCLContext) {
 		this.clContext = clContext
-		this.requests = new Map<number, JobsRequest>()
+		this.requests = new Map<string, JobsRequest>()
 		this.runEvents = new EventEmitter()
+		this.clJobs = new ClJobs(this)
 
 		this.runEvents.once('run', async () => this.processQueue())
 	}
@@ -116,7 +120,7 @@ export class ClProcessJobs {
 			await this.clContext.waitFinish(this.clContext.queue.process)
 			req.jobs.forEach((j) => j.cb())
 			const end = process.hrtime(start)
-			this.logTimings(chan, req.timestamp, end, timings)
+			this.logTimings(req.id, end, timings)
 			req.done()
 			this.requests.delete(chan)
 			curReq = reqIt.next()
@@ -125,29 +129,30 @@ export class ClProcessJobs {
 		this.runEvents.once('run', async () => this.processQueue())
 	}
 
-	add(channel: number): ClJobs {
-		return new ClJobs(channel, this)
+	getJobs(): ClJobs {
+		return this.clJobs
 	}
 
-	requestRun(channel: number, request: JobsRequest): void {
-		this.requests.set(channel, request)
+	requestRun(id: string, request: JobsRequest): void {
+		this.requests.set(id, request)
 		this.runEvents.emit('run')
 	}
 
-	logTimings(channel: number, ts: number, end: number[], timings: Map<string, RunTimings>): void {
+	logTimings(id: string, end: number[], timings: Map<string, RunTimings>): void {
+		const idLim = id.slice(-20)
+		const idSp = new Array(25 - idLim.length).fill(' ').join('')
 		if (this.showTimings > 1) {
 			const tsIt = timings.entries()
 			let curTs = tsIt.next()
-			const tsSp = new Array(16 - 8 - ts.toString().length).fill(' ').join('')
-			console.log(`\nChan ${channel}: ${ts}${tsSp}|   toGPU | process |   total (microseconds)`)
-			console.log(new Array(45).fill('—').join(''))
+			console.log(`\n${idLim}:${idSp}|   toGPU | process |   total (microseconds)`)
+			console.log(new Array(56).fill('—').join(''))
 			let d2kTotal = 0
 			let keTotal = 0
 			let ttTotal = 0
 			while (!curTs.done) {
 				const process = curTs.value[0]
 				const t = curTs.value[1]
-				const pSp = new Array(16 - process.length).fill(' ').join('')
+				const pSp = new Array(26 - process.length).fill(' ').join('')
 				const d2kSp = new Array(7 - t.dataToKernel.toString().length).fill(' ').join('')
 				const keSp = new Array(7 - t.kernelExec.toString().length).fill(' ').join('')
 				const ttSp = new Array(7 - t.totalTime.toString().length).fill(' ').join('')
@@ -158,15 +163,18 @@ export class ClProcessJobs {
 				ttTotal += t.totalTime
 				curTs = tsIt.next()
 			}
-			const tSp = new Array(16 - 'TOTALS'.length).fill(' ').join('')
+			const tSp = new Array(26 - 'TOTALS'.length).fill(' ').join('')
 			const d2kSp = new Array(7 - d2kTotal.toString().length).fill(' ').join('')
 			const keSp = new Array(7 - keTotal.toString().length).fill(' ').join('')
 			const ttSp = new Array(7 - ttTotal.toString().length).fill(' ').join('')
-			console.log(new Array(45).fill('—').join(''))
+			console.log(new Array(56).fill('—').join(''))
 			console.log(`TOTALS${tSp}| ${d2kSp}${d2kTotal} | ${keSp}${keTotal} | ${ttSp}${ttTotal}`)
 		}
 
 		if (this.showTimings > 0)
-			console.log(`Chan ${channel}: ${ts}  ${(end[0] * 1000.0 + end[1] / 1000000.0).toFixed(2)}ms`)
+			console.log(
+				// eslint-disable-next-line prettier/prettier
+				`${idLim}:${idSp}  ${(end[0] * 1000.0 + end[1] / 1000000.0).toFixed(2)}ms elapsed`
+			)
 	}
 }

@@ -28,7 +28,7 @@ import {
 	linear2gammaLUT,
 	rgb2ycbcrMatrix
 } from './colourMaths'
-import { ClJobs, JobCB } from '../clJobQueue'
+import { ClJobs, JobCB, JobID } from '../clJobQueue'
 
 export class Loader extends Packer {
 	private readonly gammaArray: Float32Array
@@ -99,7 +99,7 @@ export class Loader extends Packer {
 		Buffer.from(this.gamutMatrixArray.buffer).copy(this.gamutMatrix)
 	}
 
-	run(params: KernelParams, timestamp: number, cb: JobCB): void {
+	run(params: KernelParams, id: JobID, cb: JobCB): void {
 		if (this.program === null) throw new Error('Loader.run failed with no program available')
 
 		const kernelParams = this.packImpl.getKernelParams(params)
@@ -107,7 +107,7 @@ export class Loader extends Packer {
 		kernelParams.gamutMatrix = this.gamutMatrix
 		if (this.colMatrix) kernelParams.colMatrix = this.colMatrix
 
-		this.clJobs.add(timestamp, this.packImpl.getName(), this.program, kernelParams, cb)
+		this.clJobs.add(id, this.packImpl.getName(), this.program, kernelParams, cb)
 	}
 }
 
@@ -159,13 +159,13 @@ export class Saver extends Packer {
 		}
 	}
 
-	run(params: KernelParams, timestamp: number, cb: JobCB): void {
+	run(params: KernelParams, id: JobID, cb: JobCB): void {
 		if (this.program === null) throw new Error('Saver.run failed with no program available')
 
 		const kernelParams = this.packImpl.getKernelParams(params)
 		kernelParams.gammaLut = this.gammaLut
 		if (this.colMatrix) kernelParams.colMatrix = this.colMatrix
 
-		this.clJobs.add(timestamp, this.packImpl.getName(), this.program, kernelParams, cb)
+		this.clJobs.add(id, this.packImpl.getName(), this.program, kernelParams, cb)
 	}
 }
