@@ -21,53 +21,61 @@
 import { ProcessImpl } from './imageProcess'
 import { OpenCLBuffer, KernelParams } from 'nodencl'
 
-const combineKernel = `
-  __constant sampler_t sampler1 =
-      CLK_NORMALIZED_COORDS_FALSE
-    | CLK_ADDRESS_CLAMP_TO_EDGE
-    | CLK_FILTER_NEAREST;
+const getCombineKernel = (numLayers: number): string => {
+	let kernel = `
+		__constant sampler_t sampler1 =
+			CLK_NORMALIZED_COORDS_FALSE
+			| CLK_ADDRESS_CLAMP_TO_EDGE
+			| CLK_FILTER_NEAREST;
 
-  __kernel void
-    twoInputs(__read_only image2d_t bgIn,
-              __read_only image2d_t ovIn,
-              __write_only image2d_t output) {
+		__kernel void combine_${numLayers}(
+			__read_only image2d_t l0In,
+			__read_only image2d_t l1In,
+	`
 
-    int x = get_global_id(0);
-    int y = get_global_id(1);
-    float4 bg = read_imagef(bgIn, sampler1, (int2)(x,y));
-    float4 ov = read_imagef(ovIn, sampler1, (int2)(x,y));
-    float k = 1.0f - ov.s3;
-    float4 k4 = (float4)(k, k, k, 0.0f);
-    float4 out = fma(bg, k4, ov);
-    write_imagef(output, (int2)(x, y), out);
-  };
+	for (let i = 2; i < numLayers; ++i) {
+		kernel += `
+			__read_only image2d_t l${i}In,
+		`
+	}
 
-  __kernel void
-    threeInputs(__read_only image2d_t bgIn,
-                __read_only image2d_t ov0In,
-                __read_only image2d_t ov1In,
-                __write_only image2d_t output) {
+	kernel += `
+			__write_only image2d_t output
+		) {
+			int x = get_global_id(0);
+			int y = get_global_id(1);
+			float4 l0 = read_imagef(l0In, sampler1, (int2)(x,y));
+			float4 l1 = read_imagef(l1In, sampler1, (int2)(x,y));
+			float k = 1.0f - l1.s3;
+			float4 k4 = (float4)(k, k, k, 0.0f);
+			float4 out0 = fma(l0, k4, l1);
+	`
 
-    int x = get_global_id(0);
-    int y = get_global_id(1);
-    float4 bg = read_imagef(bgIn, sampler1, (int2)(x,y));
+	for (let i = 2; i < numLayers; ++i) {
+		kernel += `
+			float4 l${i} = read_imagef(l${i}In, sampler1, (int2)(x,y));
+			k = 1.0f - l${i}.s3;
+			k4 = (float4)(k, k, k, 0.0f);
+			float4 out${i - 1} = fma(out0, k4, l${i});
+		`
+	}
 
-    float4 ov0 = read_imagef(ov0In, sampler1, (int2)(x,y));
-    float k = 1.0f - ov0.s3;
-    float4 k4 = (float4)(k, k, k, 0.0f);
-    float4 out0 = fma(bg, k4, ov0);
-
-    float4 ov1 = read_imagef(ov1In, sampler1, (int2)(x,y));
-    k = 1.0f - ov1.s3;
-    k4 = (float4)(k, k, k, 0.0f);
-    float4 out1 = fma(out0, k4, ov1);
-    write_imagef(output, (int2)(x, y), out1);
-  };
-`
+	kernel += `
+			write_imagef(output, (int2)(x, y), out${numLayers - 2});
+		};
+	`
+	return kernel
+}
 
 export default class Combine extends ProcessImpl {
-	constructor(width: number, height: number) {
-		super('combine-1', width, height, combineKernel, 'twoInputs')
+	constructor(numLayers: number, width: number, height: number) {
+		super(
+			`combine-${numLayers}`,
+			width,
+			height,
+			getCombineKernel(numLayers < 2 ? 2 : numLayers),
+			`combine_${numLayers < 2 ? 2 : numLayers}` // combine will not actually be used if numLayers < 2
+		)
 	}
 
 	async init(): Promise<void> {
@@ -80,17 +88,11 @@ export default class Combine extends ProcessImpl {
 		}
 
 		const inArray = params.inputs as Array<OpenCLBuffer>
-		switch (inArray.length) {
-			case 1:
-				kernelParams.bgIn = inArray[0]
-				kernelParams.ovIn = inArray[0]
-				break
-			case 2:
-				kernelParams.bgIn = inArray[0]
-				kernelParams.ovIn = inArray[1]
-				break
-			default:
-				throw new Error("Combine requires 'inputs' array parameter with 1 or 2 OpenCL buffers")
+		if (inArray.length < 2)
+			throw new Error("Combine requires an 'inputs' array parameter with at least 2 OpenCL buffers")
+
+		for (let i = 0; i < inArray.length; ++i) {
+			kernelParams[`l${i}In`] = inArray[i]
 		}
 
 		return Promise.resolve(kernelParams)

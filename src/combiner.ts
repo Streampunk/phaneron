@@ -22,7 +22,7 @@ import { clContext as nodenCLContext } from 'nodencl'
 import { Layer } from './layer'
 import redio, { RedioPipe, RedioEnd, isValue, Valve, nil } from 'redioactive'
 import { OpenCLBuffer } from 'nodencl'
-import { filterer, Filterer, frame, Frame } from 'beamcoder'
+import { AudioInputParam, filterer, Filterer, frame, Frame } from 'beamcoder'
 import { VideoFormat } from './config'
 import { ClJobs } from './clJobQueue'
 import ImageProcess from './process/imageProcess'
@@ -30,10 +30,13 @@ import Combine from './process/combine'
 
 export class Combiner {
 	private readonly clContext: nodenCLContext
-	private readonly consumerFormat: VideoFormat
 	private readonly chanID: string
+	private readonly consumerFormat: VideoFormat
+	private readonly clJobs: ClJobs
 	private layers: Map<number, Layer>
-	private combiner: ImageProcess | undefined
+	private lastNumAudLayers = 0
+	private lastNumVidLayers = 0
+	private vidCombiner: ImageProcess | undefined
 	private audioPipe: RedioPipe<Frame | RedioEnd> | undefined
 	private videoPipe: RedioPipe<OpenCLBuffer | RedioEnd> | undefined
 	private silenceAudValve: Valve<Frame | RedioEnd, Frame | RedioEnd> | undefined
@@ -41,6 +44,8 @@ export class Combiner {
 	private blackPipe: RedioPipe<OpenCLBuffer | RedioEnd> | undefined
 	private audLayerPipes: RedioPipe<Frame | RedioEnd>[] = []
 	private vidLayerPipes: RedioPipe<OpenCLBuffer | RedioEnd>[] = []
+	private audSilenceFilterer: Filterer | undefined
+	private audCombineFilterer: Filterer | undefined
 	private combineAudValve:
 		| Valve<[Frame | RedioEnd, ...(Frame | RedioEnd)[]], Frame | RedioEnd>
 		| undefined
@@ -55,25 +60,16 @@ export class Combiner {
 		clJobs: ClJobs
 	) {
 		this.clContext = clContext
-		this.consumerFormat = consumerFormat
 		this.chanID = chanID
+		this.consumerFormat = consumerFormat
+		this.clJobs = clJobs
 		this.layers = new Map<number, Layer>()
-		this.combiner = new ImageProcess(
-			this.clContext,
-			new Combine(this.consumerFormat.width, this.consumerFormat.height),
-			clJobs
-		)
 	}
 
 	async initialise(): Promise<void> {
-		await this.combiner?.init()
-
 		const sampleRate = this.consumerFormat.audioSampleRate
 		const numAudChannels = this.consumerFormat.audioChannels
 		const audLayout = `${numAudChannels}c`
-
-		let audSilenceFilterer: Filterer | null = null
-		let audCombineFilterer: Filterer | null = null
 
 		const silenceArr = new Float32Array(1024 * numAudChannels)
 		const silence = frame({
@@ -86,7 +82,7 @@ export class Combiner {
 			data: [Buffer.from(silenceArr.buffer)]
 		})
 
-		audSilenceFilterer = await filterer({
+		this.audSilenceFilterer = await filterer({
 			filterType: 'audio',
 			inputParams: [
 				{
@@ -109,35 +105,7 @@ export class Combiner {
 		})
 		// console.log('\nSilence:\n', audSilenceFilterer.graph.dump())
 
-		audCombineFilterer = await filterer({
-			filterType: 'audio',
-			inputParams: [
-				{
-					name: 'in0:a',
-					timeBase: [1, sampleRate],
-					sampleRate: sampleRate,
-					sampleFormat: 'flt',
-					channelLayout: audLayout
-				},
-				{
-					name: 'in1:a',
-					timeBase: [1, sampleRate],
-					sampleRate: sampleRate,
-					sampleFormat: 'flt',
-					channelLayout: audLayout
-				}
-			],
-			outputParams: [
-				{
-					name: 'out0:a',
-					sampleRate: sampleRate,
-					sampleFormat: 'flt',
-					channelLayout: audLayout
-				}
-			],
-			filterSpec: `[in0:a][in1:a] amix=inputs=2:duration=shortest [out0:a]`
-		})
-		// console.log('\nCombine audio:\n', audCombineFilterer.graph.dump())
+		await this.makeCombineAudFilterer(this.lastNumAudLayers)
 
 		const numBytesRGBA = this.consumerFormat.width * this.consumerFormat.height * 4 * 4
 		const black: OpenCLBuffer = await this.clContext.createBuffer(
@@ -165,11 +133,13 @@ export class Combiner {
 		await black.hostAccess('writeonly')
 		Buffer.from(blackFloat.buffer).copy(black)
 
+		await this.makeCombineVidProcess(this.lastNumVidLayers)
+
 		this.silencePipe = redio(async () => silence, { bufferSizeMax: 1 })
 
 		this.silenceAudValve = async (frame) => {
-			if (isValue(frame) && audSilenceFilterer) {
-				const ff = await audSilenceFilterer.filter([{ name: 'in0:a', frames: [frame] }])
+			if (isValue(frame) && this.audSilenceFilterer) {
+				const ff = await this.audSilenceFilterer.filter([{ name: 'in0:a', frames: [frame] }])
 				return ff[0].frames.length > 0 ? ff[0].frames : nil
 			} else {
 				return frame
@@ -177,19 +147,26 @@ export class Combiner {
 		}
 
 		this.combineAudValve = async (frames) => {
-			if (isValue(frames) && audCombineFilterer) {
+			if (isValue(frames) && this.audCombineFilterer) {
 				const numLayers = frames.length - 1
-				const layerFrames = frames.slice(1) as Frame[]
+				const layerFrames = frames.slice(1)
+				const doFilter = layerFrames.reduce((acc, f) => acc && isValue(f), true)
+				if (this.lastNumAudLayers !== numLayers) {
+					await this.makeCombineAudFilterer(numLayers)
+					this.lastNumAudLayers = numLayers
+				}
+
 				if (numLayers < 2) {
-					return frames[numLayers === 0 ? 0 : 1]
-				} else if (frames.reduce((acc, f) => acc && isValue(f), true)) {
-					const ff = await audCombineFilterer.filter([
-						{ name: 'in0:a', frames: [layerFrames[0]] },
-						{ name: 'in1:a', frames: [layerFrames[1]] }
-					])
+					return numLayers === 0 ? frames[0] : layerFrames[0]
+				} else if (doFilter) {
+					const filterFrames = layerFrames.map((f, i) => ({
+						name: `in${i}:a`,
+						frames: [f as Frame]
+					}))
+					const ff = await this.audCombineFilterer.filter(filterFrames)
 					return ff[0].frames.length > 0 ? ff[0].frames : nil
 				} else {
-					return frames[1]
+					return layerFrames[0]
 				}
 			} else {
 				return frames
@@ -202,6 +179,12 @@ export class Combiner {
 			if (isValue(frames)) {
 				const numLayers = frames.length - 1
 				const layerFrames = frames.slice(1) as OpenCLBuffer[]
+
+				if (this.lastNumVidLayers !== numLayers) {
+					await this.makeCombineVidProcess(numLayers)
+					this.lastNumVidLayers = numLayers
+				}
+
 				if (numLayers === 0) {
 					if (isValue(frames[0])) {
 						frames[0].addRef()
@@ -224,7 +207,7 @@ export class Combiner {
 					)
 					combineDest.timestamp = layerFrames[0].timestamp
 
-					await this.combiner?.run(
+					await this.vidCombiner?.run(
 						{
 							inputs: layerFrames,
 							output: combineDest
@@ -238,10 +221,10 @@ export class Combiner {
 					return layerFrames[0]
 				}
 			} else {
-				if (this.combiner) {
+				if (this.vidCombiner) {
 					console.log('combinerVid release')
 					black.release()
-					this.combiner = undefined
+					this.vidCombiner = undefined
 				}
 				return frames
 			}
@@ -258,6 +241,50 @@ export class Combiner {
 			.valve(this.combineVidValve)
 
 		this.update()
+	}
+
+	async makeCombineAudFilterer(numLayers: number): Promise<void> {
+		const sampleRate = this.consumerFormat.audioSampleRate
+		const numAudChannels = this.consumerFormat.audioChannels
+		const audLayout = `${numAudChannels}c`
+		const inParams: Array<AudioInputParam> = []
+
+		let inStr = ''
+		const filtLayers = numLayers > 0 ? numLayers : 1
+		for (let i = 0; i < filtLayers; i++) {
+			inStr += `[in${i}:a]`
+			inParams.push({
+				name: `in${i}:a`,
+				timeBase: [1, sampleRate],
+				sampleRate: sampleRate,
+				sampleFormat: 'flt',
+				channelLayout: `${numAudChannels}c`
+			})
+		}
+
+		this.audCombineFilterer = await filterer({
+			filterType: 'audio',
+			inputParams: inParams,
+			outputParams: [
+				{
+					name: 'out0:a',
+					sampleRate: sampleRate,
+					sampleFormat: 'flt',
+					channelLayout: audLayout
+				}
+			],
+			filterSpec: `${inStr} amix=inputs=${filtLayers}:duration=shortest [out0:a]`
+		})
+		// console.log('\nCombine audio:\n', this.audCombineFilterer.graph.dump())
+	}
+
+	async makeCombineVidProcess(numLayers: number): Promise<void> {
+		this.vidCombiner = new ImageProcess(
+			this.clContext,
+			new Combine(numLayers, this.consumerFormat.width, this.consumerFormat.height),
+			this.clJobs
+		)
+		await this.vidCombiner.init()
 	}
 
 	update(): void {
