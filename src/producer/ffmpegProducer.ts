@@ -43,7 +43,7 @@ import { Reader as v210Reader } from '../process/v210'
 import { Reader as rgba8Reader } from '../process/rgba8'
 import { Reader as bgra8Reader } from '../process/bgra8'
 import Yadif from '../process/yadif'
-import { Interlace, PackImpl } from '../process/packer'
+import { PackImpl } from '../process/packer'
 
 interface AudioChannel {
 	name: string
@@ -356,7 +356,7 @@ export class FFmpegProducer implements Producer {
 			if (isValue(frame)) {
 				const convert = toRGBA as ToRGBA
 				const clSources = await convert.createSources()
-				clSources.forEach((s) => (s.timestamp = frame.pts))
+				clSources.forEach((s) => (s.timestamp = progressive ? frame.pts : frame.pts * 2))
 				await convert.loadFrame(frame.data, clSources, this.clContext.queue.load)
 				await this.clContext.waitFinish(this.clContext.queue.load)
 				return clSources
@@ -372,12 +372,7 @@ export class FFmpegProducer implements Producer {
 				const convert = toRGBA as ToRGBA
 				const clDest = await convert.createDest({ width: width, height: height })
 				clDest.timestamp = clSources[0].timestamp
-				convert.processFrame(
-					this.sourceID,
-					clSources,
-					clDest,
-					progressive ? Interlace.Progressive : Interlace.TopField
-				)
+				convert.processFrame(this.sourceID, clSources, clDest)
 				return clDest
 			} else {
 				toRGBA = null

@@ -139,12 +139,12 @@ export class ClProcessJobs {
 	}
 
 	logTimings(id: string, end: number[], timings: Map<string, RunTimings>): void {
-		const idLim = id.slice(-20)
+		const idLim = id.slice(-20).concat(':').padEnd(21, ' ')
 		const idSp = new Array(25 - idLim.length).fill(' ').join('')
 		if (this.showTimings > 1) {
 			const tsIt = timings.entries()
 			let curTs = tsIt.next()
-			console.log(`\n${idLim}:${idSp}|   toGPU | process |   total (microseconds)`)
+			console.log(`\n${idLim}${idSp} |   toGPU | process |   total (microseconds)`)
 			console.log(new Array(56).fill('—').join(''))
 			let d2kTotal = 0
 			let keTotal = 0
@@ -171,10 +171,11 @@ export class ClProcessJobs {
 			console.log(`TOTALS${tSp}| ${d2kSp}${d2kTotal} | ${keSp}${keTotal} | ${ttSp}${ttTotal}`)
 		}
 
-		if (this.showTimings > 0)
+		if (this.showTimings > 0) {
+			const elapsed = end[0] * 1000.0 + end[1] / 1000000.0
 			console.log(
-				// eslint-disable-next-line prettier/prettier
-				`${idLim}:${idSp}  ${(end[0] * 1000.0 + end[1] / 1000000.0).toFixed(2)}ms elapsed`
+				`${idLim}${elapsed < 10.0 ? idSp : idSp.slice(1)}  ${elapsed.toFixed(2)}ms elapsed`
 			)
+		}
 	}
 }

@@ -136,7 +136,7 @@ initialiseOpenCL()
 
 		config.consumers.forEach((conf, i) => {
 			try {
-				channels.push(new Channel(clContext, `Channel ${i}`, conf, consReg, prodReg, clJobs))
+				channels.push(new Channel(clContext, `Channel ${i + 1}`, conf, consReg, prodReg, clJobs))
 			} catch (err) {
 				console.log(
 					`Failed to initialise configured consumer ${config.consumers[i].device.name} ${config.consumers[i].device.deviceIndex}`

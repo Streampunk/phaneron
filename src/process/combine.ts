@@ -56,7 +56,7 @@ const getCombineKernel = (numLayers: number): string => {
 			float4 l${i} = read_imagef(l${i}In, sampler1, (int2)(x,y));
 			k = 1.0f - l${i}.s3;
 			k4 = (float4)(k, k, k, 0.0f);
-			float4 out${i - 1} = fma(out0, k4, l${i});
+			float4 out${i - 1} = fma(out${i - 2}, k4, l${i});
 		`
 	}
 

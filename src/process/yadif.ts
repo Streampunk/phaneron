@@ -93,7 +93,7 @@ export default class Yadif {
 
 		if (isSecond) await this.makeOutput()
 		const out = this.out as OpenCLBuffer
-		out.timestamp = this.cur ? this.cur.timestamp * 2 + (isSecond ? 1 : 0) : 0
+		out.timestamp = this.cur ? this.cur.timestamp + (isSecond ? 1 : 0) : 0
 
 		await this.yadifCl.run(
 			{

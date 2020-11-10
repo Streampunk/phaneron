@@ -77,7 +77,8 @@ export class MacadamConsumer implements Consumer {
 			})
 		if (Macadam.getDeviceConfig(macadamIndex).fieldFlickerRemoval)
 			console.log(
-				`Macadam consumer ${this.config.device.deviceIndex} - failed to turn off single field output mode`
+				// eslint-disable-next-line prettier/prettier
+				`Macadam consumer ${this.config.device.deviceIndex - 1} - failed to turn off single field output mode`
 			)
 	}
 
@@ -131,7 +132,7 @@ export class MacadamConsumer implements Consumer {
 		)
 		await this.fromRGBA.init()
 
-		console.log(`Created Macadam consumer for Blackmagic id: ${this.config.device.deviceIndex}`)
+		console.log(`Created Macadam consumer for Blackmagic id: ${this.config.device.deviceIndex - 1}`)
 		return Promise.resolve()
 	}
 
@@ -151,7 +152,8 @@ export class MacadamConsumer implements Consumer {
 					const hwDelay = hwTimeNow.hardwareTime - hwTime.hardwareTime - hwTimeNow.ticksPerFrame
 					if (hwDelay > hwTimeNow.ticksPerFrame * 0.9)
 						console.log(
-							`Macadam consumer ${this.config.device.deviceIndex} - frame may be delayed (${hwDelay} ticks)`
+							// eslint-disable-next-line prettier/prettier
+							`Macadam consumer ${this.config.device.deviceIndex - 1} - frame may be delayed (${hwDelay} ticks)`
 						)
 				}
 				resolve()
@@ -194,7 +196,7 @@ export class MacadamConsumer implements Consumer {
 				const end = process.hrtime(start)
 				if (this.logTimings)
 					console.log(
-						`Chan ${this.config.device.deviceIndex - 1}: ${frame.timestamp}  ${(
+						`Macadam channel ${this.config.device.deviceIndex}: ${frame.timestamp}  ${(
 							end[0] * 1000.0 +
 							end[1] / 1000000.0
 						).toFixed(2)}ms processing total`

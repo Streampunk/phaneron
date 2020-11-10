@@ -91,18 +91,12 @@ export class ToRGBA {
 		return Promise.resolve()
 	}
 
-	processFrame(
-		sourceID: string,
-		sources: Array<OpenCLBuffer>,
-		dest: OpenCLBuffer,
-		interlace?: Interlace
-	): void {
+	processFrame(sourceID: string, sources: Array<OpenCLBuffer>, dest: OpenCLBuffer): void {
 		return this.loader.run(
 			{ sources: sources, dest: dest },
 			{
 				source: sourceID,
-				timestamp:
-					interlace === Interlace.Progressive ? sources[0].timestamp : sources[0].timestamp * 2
+				timestamp: sources[0].timestamp
 			},
 			() => sources.forEach((s) => s.release())
 		)

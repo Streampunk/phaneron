@@ -70,6 +70,7 @@ export class ProducerRegistry {
 			try {
 				const producer = f.createProducer(this.producerID, params, clJobs)
 				await producer.initialise(consumerFormat)
+				this.producerID++
 				return producer
 			} catch (err) {
 				producerErr = err.message
