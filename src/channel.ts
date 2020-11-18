@@ -20,7 +20,7 @@
 
 import { clContext as nodenCLContext } from 'nodencl'
 import { LoadParams } from './chanLayer'
-import { ProducerRegistry } from './producer/producer'
+import { Producer, ProducerRegistry } from './producer/producer'
 import { ConsumerConfig } from './config'
 import { Layer } from './layer'
 import { ConsumerRegistry, Consumer } from './consumer/consumer'
@@ -81,18 +81,25 @@ export class Channel {
 	async loadSource(params: LoadParams, preview = false): Promise<boolean> {
 		this.clear(params.layer)
 
-		const producer = await this.producerRegistry.createSource(
-			params,
-			this.consumerConfig.format,
-			this.clJobs
-		)
-		if (producer === null) {
+		let producer: Producer | null = null
+		let error = ''
+		try {
+			producer = await this.producerRegistry.createSource(
+				params,
+				this.consumerConfig.format,
+				this.clJobs
+			)
+		} catch (err) {
+			error = err
+		}
+
+		if (producer === null || error.length > 0) {
 			console.log(`Failed to create source for params ${params}`)
 			return false
 		}
 
 		const layer = new Layer(this.clContext, this.consumerConfig.format, this.clJobs)
-		await layer.load(producer, preview, params.autoPlay as boolean)
+		await layer.load(producer as Producer, preview, params.autoPlay as boolean)
 		this.combiner.setLayer(params.layer, layer)
 
 		return true

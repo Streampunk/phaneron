@@ -26,6 +26,11 @@ import { ClJobs } from './clJobQueue'
 import ImageProcess from './process/imageProcess'
 import Transform from './process/transform'
 
+export interface AudioMixFrame {
+	frame: Frame
+	mute: boolean
+}
+
 interface AnchorParams {
 	x: number
 	y: number
@@ -46,6 +51,7 @@ export class Mixer {
 	private mixAudio: RedioPipe<Frame | RedioEnd> | undefined
 	private mixVideo: RedioPipe<OpenCLBuffer | RedioEnd> | undefined
 	private audMixFilterer: Filterer | null = null
+	private muted = false
 
 	anchorParams: AnchorParams = { x: 0, y: 0 }
 	rotation = 0
@@ -65,7 +71,7 @@ export class Mixer {
 
 	async init(
 		sourceID: string,
-		srcAudio: RedioPipe<Frame | RedioEnd>,
+		srcAudio: RedioPipe<AudioMixFrame | RedioEnd>,
 		srcVideo: RedioPipe<OpenCLBuffer | RedioEnd>,
 		consumerFormat: VideoFormat
 	): Promise<void> {
@@ -95,10 +101,16 @@ export class Mixer {
 		})
 		// console.log('\nMixer audio:\n', this.audMixFilterer.graph.dump())
 
-		const audMixFilter: Valve<Frame | RedioEnd, Frame | RedioEnd> = async (frame) => {
-			if (isValue(frame) && this.audMixFilterer) {
-				const ff = await this.audMixFilterer.filter([{ name: 'in0:a', frames: [frame] }])
-				return ff[0].frames.length > 0 ? ff[0].frames : nil
+		const audMixFilter: Valve<AudioMixFrame | RedioEnd, Frame | RedioEnd> = async (frame) => {
+			if (isValue(frame)) {
+				if (this.audMixFilterer) {
+					if (frame.mute != this.muted) {
+						this.muted = frame.mute
+						this.setVolume(this.volume, this.muted)
+					}
+					const ff = await this.audMixFilterer.filter([{ name: 'in0:a', frames: [frame.frame] }])
+					return ff[0].frames.length > 0 ? ff[0].frames : nil
+				} else return [frame.frame]
 			} else {
 				this.audMixFilterer = null
 				return frame
@@ -174,10 +186,11 @@ export class Mixer {
 		return true
 	}
 
-	setVolume(volume: number): boolean {
+	setVolume(volume: number, mute?: boolean): boolean {
 		this.volume = volume
 		const volFilter = this.audMixFilterer?.graph.filters.find((f) => f.filter.name === 'volume')
-		if (volFilter && volFilter.priv) volFilter.priv = { volume: this.volume.toString() }
+		if (volFilter && volFilter.priv)
+			volFilter.priv = { volume: mute ? '0.0' : this.volume.toString() }
 		return true
 	}
 

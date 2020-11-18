@@ -19,19 +19,19 @@
 */
 
 import { clContext as nodenCLContext, OpenCLBuffer } from 'nodencl'
-import { Frame } from 'beamcoder'
 import { ClJobs } from '../clJobQueue'
 import { LoadParams } from '../chanLayer'
 import { VideoFormat } from '../config'
 import { FFmpegProducerFactory } from './ffmpegProducer'
 import { MacadamProducerFactory } from './macadamProducer'
 import { RedioPipe, RedioEnd } from 'redioactive'
+import { AudioMixFrame } from '../mixer'
 
 export interface Producer {
 	initialise(consumerFormat: VideoFormat): void
 	getSourceID(): string
 	getFormat(): VideoFormat
-	getSourceAudio(): RedioPipe<Frame | RedioEnd> | undefined
+	getSourceAudio(): RedioPipe<AudioMixFrame | RedioEnd> | undefined
 	getSourceVideo(): RedioPipe<OpenCLBuffer | RedioEnd> | undefined
 	setPaused(pause: boolean): void
 	release(): void

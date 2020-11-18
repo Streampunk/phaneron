@@ -162,8 +162,8 @@ export class MacadamConsumer implements Consumer {
 	}
 
 	connect(
-		mixAudio: RedioPipe<Frame | RedioEnd>,
-		mixVideo: RedioPipe<OpenCLBuffer | RedioEnd>
+		combineAudio: RedioPipe<Frame | RedioEnd>,
+		combineVideo: RedioPipe<OpenCLBuffer | RedioEnd>
 	): void {
 		this.vidField = 0
 
@@ -249,10 +249,10 @@ export class MacadamConsumer implements Consumer {
 			}
 		}
 
-		mixVideo
+		combineVideo
 			.valve(vidProcess)
 			.valve(vidSaver)
-			.zip(mixAudio.valve(audFilter, { oneToMany: true }))
+			.zip(combineAudio.valve(audFilter, { oneToMany: true }))
 			.spout(macadamSpout)
 	}
 }

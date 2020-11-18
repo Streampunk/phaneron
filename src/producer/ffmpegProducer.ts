@@ -44,6 +44,7 @@ import { Reader as rgba8Reader } from '../process/rgba8'
 import { Reader as bgra8Reader } from '../process/bgra8'
 import Yadif from '../process/yadif'
 import { PackImpl } from '../process/packer'
+import { AudioMixFrame } from '../mixer'
 
 interface AudioChannel {
 	name: string
@@ -57,7 +58,7 @@ export class FFmpegProducer implements Producer {
 	private readonly clJobs: ClJobs
 	private demuxer: Demuxer | null = null
 	private format: VideoFormat
-	private audSource: RedioPipe<Frame | RedioEnd> | undefined
+	private audSource: RedioPipe<AudioMixFrame | RedioEnd> | undefined
 	private vidSource: RedioPipe<OpenCLBuffer | RedioEnd> | undefined
 	private running = true
 	private paused = false
@@ -79,7 +80,6 @@ export class FFmpegProducer implements Producer {
 		}
 		if (this.loadParams.seek) await this.demuxer.seek({ time: this.loadParams.seek })
 
-		// const streams: Stream[] = []
 		const audioStreams: Stream[] = []
 		const videoStreams: Stream[] = []
 		const audioIndexes: number[] = []
@@ -313,10 +313,14 @@ export class FFmpegProducer implements Producer {
 			}
 		}
 
-		const audFilter: Valve<AudioChannel[] | RedioEnd, Frame | RedioEnd> = async (frames) => {
+		const audFilter: Valve<AudioChannel[] | RedioEnd, AudioMixFrame | RedioEnd> = async (
+			frames
+		) => {
 			if (isValue(frames) && audFilterer) {
 				const ff = await audFilterer.filter(frames)
-				return ff[0].frames.length > 0 ? ff[0].frames : nil
+				const audMixFrames =
+					ff[0].frames.length > 0 ? ff[0].frames.map((f) => ({ frame: f, mute: false })) : nil
+				return audMixFrames
 			} else {
 				return frames as RedioEnd
 			}
@@ -397,27 +401,32 @@ export class FFmpegProducer implements Producer {
 			fields: 1,
 			width: width,
 			height: height,
-			squareWidth: width,
+			squareWidth: (width * vidStream.sample_aspect_ratio[0]) / vidStream.sample_aspect_ratio[1],
 			squareHeight: height,
-			timescale: 50,
-			duration: 1,
+			timescale: vidStream.time_base[1] * (progressive ? 1 : 2),
+			duration: vidStream.time_base[0],
 			audioSampleRate: 48000,
 			audioChannels: numAudChannels
 		}
 
 		const ffPackets = redio(demux, { bufferSizeMax: 10 })
 
+		let audSrc: RedioPipe<RedioEnd | AudioMixFrame> | undefined
 		if (audioStreams.length) {
-			this.audSource = ffPackets
+			audSrc = ffPackets
 				.fork()
 				.valve(audPacketFilter)
 				.valve(audDecode)
 				.valve(audFilter, { oneToMany: true })
 		} else {
 			// eslint-disable-next-line prettier/prettier
-			this.audSource = redio(silence, { bufferSizeMax: 10 })
+			audSrc = redio(silence, { bufferSizeMax: 10 })
 				.valve(audFilter, { oneToMany: true })
 		}
+		this.audSource = audSrc.pause((frame) => {
+			if (this.paused && isValue(frame)) (frame as AudioMixFrame).mute = true
+			return this.paused
+		})
 
 		this.vidSource = ffPackets
 			.fork()
@@ -427,6 +436,10 @@ export class FFmpegProducer implements Producer {
 			.valve(vidLoader, { bufferSizeMax: 1 })
 			.valve(vidProcess)
 			.valve(vidDeint, { oneToMany: true })
+			.pause((frame) => {
+				if (this.paused && isValue(frame)) (frame as OpenCLBuffer).addRef()
+				return this.paused
+			})
 
 		console.log(`Created FFmpeg producer for path ${this.loadParams.url}`)
 	}
@@ -439,7 +452,7 @@ export class FFmpegProducer implements Producer {
 		return this.format
 	}
 
-	getSourceAudio(): RedioPipe<Frame | RedioEnd> | undefined {
+	getSourceAudio(): RedioPipe<AudioMixFrame | RedioEnd> | undefined {
 		return this.audSource
 	}
 
@@ -449,7 +462,6 @@ export class FFmpegProducer implements Producer {
 
 	setPaused(pause: boolean): void {
 		this.paused = pause
-		console.log('Paused:', this.paused)
 	}
 
 	release(): void {

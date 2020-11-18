@@ -20,7 +20,7 @@
 
 import { clContext as nodenCLContext } from 'nodencl'
 import { Layer } from './layer'
-import redio, { RedioPipe, RedioEnd, isValue, Valve, nil } from 'redioactive'
+import redio, { RedioPipe, RedioEnd, isValue, Valve, nil, end } from 'redioactive'
 import { OpenCLBuffer } from 'nodencl'
 import { AudioInputParam, filterer, Filterer, frame, Frame } from 'beamcoder'
 import { VideoFormat } from './config'
@@ -151,25 +151,37 @@ export class Combiner {
 				const numLayers = frames.length - 1
 				const layerFrames = frames.slice(1)
 				const doFilter = layerFrames.reduce((acc, f) => acc && isValue(f), true)
+
 				if (this.lastNumAudLayers !== numLayers) {
 					await this.makeCombineAudFilterer(numLayers)
 					this.lastNumAudLayers = numLayers
 				}
 
-				if (numLayers < 2) {
-					return numLayers === 0 ? frames[0] : layerFrames[0]
+				const srcFrames = frames as [Frame | RedioEnd, ...(Frame | RedioEnd)[]]
+				if (!isValue(srcFrames[0])) return end
+				const refFrame = srcFrames[0]
+
+				if (numLayers === 0) {
+					return srcFrames[0]
+				} else if (numLayers === 1) {
+					if (!isValue(srcFrames[1])) return end
+					srcFrames[1].pts = refFrame.pts
+					return srcFrames[1]
 				} else if (doFilter) {
-					const filterFrames = layerFrames.map((f, i) => ({
-						name: `in${i}:a`,
-						frames: [f as Frame]
-					}))
+					const filterFrames = (layerFrames as Frame[]).map((f, i) => {
+						f.pts = refFrame.pts
+						return {
+							name: `in${i}:a`,
+							frames: [f]
+						}
+					})
 					const ff = await this.audCombineFilterer.filter(filterFrames)
 					return ff[0].frames.length > 0 ? ff[0].frames : nil
 				} else {
-					return layerFrames[0]
+					return end
 				}
 			} else {
-				return frames
+				return end
 			}
 		}
 
@@ -185,16 +197,18 @@ export class Combiner {
 					this.lastNumVidLayers = numLayers
 				}
 
+				const srcFrames = frames as [OpenCLBuffer | RedioEnd, ...(OpenCLBuffer | RedioEnd)[]]
+				if (!isValue(srcFrames[0])) return end
+				srcFrames[0].timestamp++
+
 				if (numLayers === 0) {
-					if (isValue(frames[0])) {
-						frames[0].addRef()
-						frames[0].timestamp++
-					}
+					srcFrames[0].addRef()
 					return frames[0]
 				} else if (numLayers === 1) {
+					if (!isValue(srcFrames[1])) return end
+					srcFrames[1].timestamp = srcFrames[0].timestamp
 					return frames[1]
 				} else if (frames.reduce((acc, f) => acc && isValue(f), true)) {
-					if (isValue(frames[0])) frames[0].timestamp++
 					const combineDest = await this.clContext.createBuffer(
 						numBytesRGBA,
 						'readwrite',
@@ -205,20 +219,19 @@ export class Combiner {
 						},
 						'combine'
 					)
-					combineDest.timestamp = layerFrames[0].timestamp
+					combineDest.timestamp = srcFrames[0].timestamp
 
 					await this.vidCombiner?.run(
 						{
 							inputs: layerFrames,
 							output: combineDest
 						},
-						{ source: this.chanID, timestamp: layerFrames[0].timestamp },
+						{ source: this.chanID, timestamp: srcFrames[0].timestamp },
 						() => layerFrames.forEach((f) => f.release())
 					)
 					return combineDest
 				} else {
-					console.log('piping ???')
-					return layerFrames[0]
+					return end
 				}
 			} else {
 				if (this.vidCombiner) {
@@ -226,7 +239,7 @@ export class Combiner {
 					black.release()
 					this.vidCombiner = undefined
 				}
-				return frames
+				return end
 			}
 		}
 

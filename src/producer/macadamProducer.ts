@@ -21,7 +21,7 @@
 import { ProducerFactory, Producer, InvalidProducerError } from './producer'
 import { clContext as nodenCLContext, OpenCLBuffer } from 'nodencl'
 import redio, { RedioPipe, nil, end, isValue, RedioEnd, isEnd, Generator, Valve } from 'redioactive'
-import { Frame, frame, Filterer, filterer } from 'beamcoder'
+import { frame, Filterer, filterer } from 'beamcoder'
 import { ClJobs } from '../clJobQueue'
 import { LoadParams } from '../chanLayer'
 import { VideoFormat, VideoFormats } from '../config'
@@ -29,6 +29,7 @@ import * as Macadam from 'macadam'
 import { ToRGBA } from '../process/io'
 import { Reader as v210Reader } from '../process/v210'
 import Yadif from '../process/yadif'
+import { AudioMixFrame } from '../mixer'
 
 export class MacadamProducer implements Producer {
 	private readonly sourceID: string
@@ -38,7 +39,7 @@ export class MacadamProducer implements Producer {
 	private capture: Macadam.CaptureChannel | null = null
 	private audFilterer: Filterer | null = null
 	private format: VideoFormat
-	private audSource: RedioPipe<Frame | RedioEnd> | undefined
+	private audSource: RedioPipe<AudioMixFrame | RedioEnd> | undefined
 	private vidSource: RedioPipe<OpenCLBuffer | RedioEnd> | undefined
 	private toRGBA: ToRGBA | null = null
 	private yadif: Yadif | null = null
@@ -54,7 +55,7 @@ export class MacadamProducer implements Producer {
 	}
 
 	async initialise(consumerFormat: VideoFormat): Promise<void> {
-		if (this.params.url != 'DECKLINK')
+		if (this.params.url !== 'DECKLINK')
 			throw new InvalidProducerError('Macadam producer supports decklink devices')
 
 		let width = 0
@@ -120,7 +121,7 @@ export class MacadamProducer implements Producer {
 			)
 			await this.yadif.init()
 		} catch (err) {
-			throw new InvalidProducerError(err)
+			throw new Error(err)
 		}
 
 		const frameSource: Generator<Macadam.CaptureFrame | RedioEnd> = async () => {
@@ -133,7 +134,7 @@ export class MacadamProducer implements Producer {
 			return result
 		}
 
-		const audFilter: Valve<Macadam.CaptureFrame | RedioEnd, Frame | RedioEnd> = async (
+		const audFilter: Valve<Macadam.CaptureFrame | RedioEnd, AudioMixFrame | RedioEnd> = async (
 			captureFrame
 		) => {
 			if (isValue(captureFrame) && this.audFilterer) {
@@ -147,7 +148,9 @@ export class MacadamProducer implements Producer {
 					data: [captureFrame.audio.data]
 				})
 				const ff = await this.audFilterer.filter([{ name: 'in0:a', frames: [ffFrame] }])
-				return ff[0].frames.length > 0 ? ff[0].frames : nil
+				const audMixFrames =
+					ff[0].frames.length > 0 ? ff[0].frames.map((f) => ({ frame: f, mute: false })) : nil
+				return audMixFrames
 			} else {
 				return captureFrame as RedioEnd
 			}
@@ -217,12 +220,20 @@ export class MacadamProducer implements Producer {
 		this.audSource = macadamFrames
 			.fork({ bufferSizeMax: 1 })
 			.valve(audFilter, { bufferSizeMax: 2, oneToMany: true })
+			.pause((frame) => {
+				if (this.paused && isValue(frame)) (frame as AudioMixFrame).mute = true
+				return this.paused
+			})
 
 		this.vidSource = macadamFrames
 			.fork({ bufferSizeMax: 1 })
 			.valve(vidLoader, { bufferSizeMax: 1 })
 			.valve(vidProcess, { bufferSizeMax: 1 })
 			.valve(vidDeint, { bufferSizeMax: 1, oneToMany: true })
+			.pause((frame) => {
+				if (this.paused && isValue(frame)) (frame as OpenCLBuffer).addRef()
+				return this.paused
+			})
 
 		console.log(`Created Macadam producer for channel ${this.params.channel}`)
 	}
@@ -235,7 +246,7 @@ export class MacadamProducer implements Producer {
 		return this.format
 	}
 
-	getSourceAudio(): RedioPipe<Frame | RedioEnd> | undefined {
+	getSourceAudio(): RedioPipe<AudioMixFrame | RedioEnd> | undefined {
 		return this.audSource
 	}
 
@@ -245,7 +256,6 @@ export class MacadamProducer implements Producer {
 
 	setPaused(pause: boolean): void {
 		this.paused = pause
-		console.log('setPaused', this.paused)
 	}
 
 	release(): void {
