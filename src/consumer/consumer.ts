@@ -20,9 +20,10 @@
 
 import { clContext as nodenCLContext, OpenCLBuffer } from 'nodencl'
 import { MacadamConsumerFactory } from './macadamConsumer'
+import { ScreenConsumerFactory } from './screenConsumer'
 import { RedioPipe, RedioEnd } from 'redioactive'
 import { Frame } from 'beamcoder'
-import { ConsumerConfig } from '../config'
+import { VideoFormat, DeviceConfig, ConsumerConfig } from '../config'
 import { ClJobs } from '../clJobQueue'
 
 export interface Consumer {
@@ -31,7 +32,7 @@ export interface Consumer {
 }
 
 export interface ConsumerFactory<T extends Consumer> {
-	createConsumer(chanID: string, config: ConsumerConfig, clJobs: ClJobs): T
+	createConsumer(chanID: string, format: VideoFormat, device: DeviceConfig, clJobs: ClJobs): T
 }
 
 export class ConsumerRegistry {
@@ -39,12 +40,15 @@ export class ConsumerRegistry {
 
 	constructor(clContext: nodenCLContext) {
 		this.consumerFactories = new Map()
-		this.consumerFactories.set('decklink', new MacadamConsumerFactory(clContext))
+		this.consumerFactories.set('macadam', new MacadamConsumerFactory(clContext))
+		this.consumerFactories.set('screen', new ScreenConsumerFactory(clContext))
 	}
 
-	createConsumer(chanID: string, config: ConsumerConfig, clJobs: ClJobs): Consumer {
-		const factory = this.consumerFactories.get(config.device.name)
-		if (!factory) throw new Error(`Failed to create consumer for device '${config.device.name}'`)
-		return factory.createConsumer(chanID, config, clJobs)
+	createConsumers(chanID: string, config: ConsumerConfig, clJobs: ClJobs): Consumer[] {
+		return config.devices.map((d) => {
+			const factory = this.consumerFactories.get(d.name)
+			if (!factory) throw new Error(`Failed to create consumer for device '${d.name}'`)
+			return factory.createConsumer(chanID, config.format, d, clJobs)
+		})
 	}
 }

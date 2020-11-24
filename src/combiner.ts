@@ -32,10 +32,11 @@ export class Combiner {
 	private readonly clContext: nodenCLContext
 	private readonly chanID: string
 	private readonly consumerFormat: VideoFormat
+	private readonly numDevices: number
 	private readonly clJobs: ClJobs
 	private layers: Map<number, Layer>
 	private lastNumAudLayers = 0
-	private lastNumVidLayers = 0
+	private lastNumVidLayers = 2
 	private vidCombiner: ImageProcess | undefined
 	private audioPipe: RedioPipe<Frame | RedioEnd> | undefined
 	private videoPipe: RedioPipe<OpenCLBuffer | RedioEnd> | undefined
@@ -57,11 +58,13 @@ export class Combiner {
 		clContext: nodenCLContext,
 		chanID: string,
 		consumerFormat: VideoFormat,
+		numDevices: number,
 		clJobs: ClJobs
 	) {
 		this.clContext = clContext
-		this.chanID = chanID
+		this.chanID = `${chanID} combine`
 		this.consumerFormat = consumerFormat
+		this.numDevices = numDevices
 		this.clJobs = clJobs
 		this.layers = new Map<number, Layer>()
 	}
@@ -190,25 +193,28 @@ export class Combiner {
 		this.combineVidValve = async (frames) => {
 			if (isValue(frames)) {
 				const numLayers = frames.length - 1
-				const layerFrames = frames.slice(1) as OpenCLBuffer[]
+				let layerFrames = frames.slice(1) as OpenCLBuffer[]
 
-				if (this.lastNumVidLayers !== numLayers) {
-					await this.makeCombineVidProcess(numLayers)
-					this.lastNumVidLayers = numLayers
+				if (!isValue(frames[0])) return end
+				const timestamp = frames[0].timestamp++
+
+				const combineLayers = numLayers < 2 ? 2 : numLayers
+				if (this.lastNumVidLayers !== combineLayers) {
+					await this.makeCombineVidProcess(combineLayers)
+					this.lastNumVidLayers = combineLayers
 				}
 
-				const srcFrames = frames as [OpenCLBuffer | RedioEnd, ...(OpenCLBuffer | RedioEnd)[]]
-				if (!isValue(srcFrames[0])) return end
-				srcFrames[0].timestamp++
-
 				if (numLayers === 0) {
-					srcFrames[0].addRef()
-					return frames[0]
+					frames[0].addRef()
+					frames[0].addRef()
+					layerFrames = [frames[0], frames[0]]
 				} else if (numLayers === 1) {
-					if (!isValue(srcFrames[1])) return end
-					srcFrames[1].timestamp = srcFrames[0].timestamp
-					return frames[1]
-				} else if (frames.reduce((acc, f) => acc && isValue(f), true)) {
+					if (!isValue(frames[1])) return end
+					frames[1].addRef()
+					layerFrames = [frames[1], frames[1]]
+				}
+
+				if (frames.reduce((acc, f) => acc && isValue(f), true)) {
 					const combineDest = await this.clContext.createBuffer(
 						numBytesRGBA,
 						'readwrite',
@@ -219,16 +225,18 @@ export class Combiner {
 						},
 						'combine'
 					)
-					combineDest.timestamp = srcFrames[0].timestamp
+					combineDest.timestamp = timestamp
+					for (let d = 1; d < this.numDevices; ++d) combineDest.addRef()
 
 					await this.vidCombiner?.run(
 						{
 							inputs: layerFrames,
 							output: combineDest
 						},
-						{ source: this.chanID, timestamp: srcFrames[0].timestamp },
+						{ source: this.chanID, timestamp: timestamp },
 						() => layerFrames.forEach((f) => f.release())
 					)
+					await this.clJobs.runQueue({ source: this.chanID, timestamp: timestamp })
 					return combineDest
 				} else {
 					return end

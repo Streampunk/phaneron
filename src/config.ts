@@ -69,7 +69,7 @@ export class VideoFormats {
 	}
 }
 
-interface DeviceConfig {
+export interface DeviceConfig {
 	name: string
 	deviceIndex: number
 	[key: string]: unknown
@@ -85,7 +85,7 @@ interface DecklinkConfig extends DeviceConfig {
 }
 
 export const decklinkDefaults: DecklinkConfig = {
-	name: 'decklink',
+	name: 'macadam',
 	deviceIndex: 1,
 	keyDeviceIndex: 0,
 	embeddedAudio: false,
@@ -97,5 +97,5 @@ export const decklinkDefaults: DecklinkConfig = {
 
 export interface ConsumerConfig {
 	format: VideoFormat
-	device: DeviceConfig
+	devices: DeviceConfig[]
 }

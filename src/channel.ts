@@ -35,7 +35,7 @@ export class Channel {
 	private readonly producerRegistry: ProducerRegistry
 	private readonly clJobs: ClJobs
 	private readonly combiner: Combiner
-	private readonly consumer: Consumer
+	private readonly consumers: Consumer[]
 
 	constructor(
 		clContext: nodenCLContext,
@@ -55,9 +55,10 @@ export class Channel {
 			this.clContext,
 			this.chanID,
 			this.consumerConfig.format,
+			this.consumerConfig.devices.length,
 			this.clJobs
 		)
-		this.consumer = this.consumerRegistry.createConsumer(
+		this.consumers = this.consumerRegistry.createConsumers(
 			this.chanID,
 			this.consumerConfig,
 			this.clJobs
@@ -66,14 +67,14 @@ export class Channel {
 
 	async initialise(): Promise<void> {
 		await this.combiner.initialise()
-		await this.consumer.initialise()
+		await Promise.all(this.consumers.map((c) => c.initialise()))
 
 		const combinerAudio = this.combiner.getAudioPipe()
 		const combinerVideo = this.combiner.getVideoPipe()
 		if (!(combinerAudio !== undefined && combinerVideo !== undefined)) {
 			throw new Error('Failed to get combiner connection pipes')
 		}
-		this.consumer.connect(combinerAudio, combinerVideo)
+		this.consumers.forEach((c) => c.connect(combinerAudio.fork(), combinerVideo.fork()))
 
 		return Promise.resolve()
 	}

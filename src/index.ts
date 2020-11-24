@@ -39,43 +39,55 @@ class Config {
 		this.consumers = [
 			{
 				format: this.videoFormats.get('1080i5000'),
-				device: Object.assign(
-					{ ...decklinkDefaults },
-					{
-						deviceIndex: 1,
-						embeddedAudio: true
-					}
-				)
-			},
-			{
-				format: this.videoFormats.get('1080i5000'),
-				device: Object.assign(
-					{ ...decklinkDefaults },
-					{
-						deviceIndex: 2,
-						embeddedAudio: true
-					}
-				)
-			},
-			{
-				format: this.videoFormats.get('1080i5000'),
-				device: Object.assign(
-					{ ...decklinkDefaults },
-					{
-						deviceIndex: 3,
-						embeddedAudio: true
-					}
-				)
-			},
-			{
-				format: this.videoFormats.get('1080i5000'),
-				device: Object.assign(
-					{ ...decklinkDefaults },
-					{
-						deviceIndex: 4,
-						embeddedAudio: true
-					}
-				)
+				devices: [
+					Object.assign(
+						{ ...decklinkDefaults },
+						{
+							deviceIndex: 1,
+							embeddedAudio: true
+						}
+					) //,
+					// {
+					// 	name: 'screen',
+					// 	deviceIndex: 0
+					// }
+				]
+				// },
+				// {
+				// 	format: this.videoFormats.get('1080i5000'),
+				// 	devices: [
+				// 		Object.assign(
+				// 			{ ...decklinkDefaults },
+				// 			{
+				// 				deviceIndex: 2,
+				// 				embeddedAudio: true
+				// 			}
+				// 		)
+				// 	]
+				// },
+				// {
+				// 	format: this.videoFormats.get('1080i5000'),
+				// 	devices: [
+				// 		Object.assign(
+				// 			{ ...decklinkDefaults },
+				// 			{
+				// 				deviceIndex: 3,
+				// 				embeddedAudio: true
+				// 			}
+				// 		)
+				// 	]
+				// },
+				// {
+				// 	format: this.videoFormats.get('1080i5000'),
+				// 	devices: [
+				// 		Object.assign(
+				// 			{ ...decklinkDefaults },
+				// 			{
+				// 				deviceIndex: 4,
+				// 				embeddedAudio: true
+				// 			}
+				// 		)
+				// 	]
 			}
 		]
 	}
@@ -136,10 +148,10 @@ initialiseOpenCL()
 
 		config.consumers.forEach((conf, i) => {
 			try {
-				channels.push(new Channel(clContext, `Channel ${i + 1}`, conf, consReg, prodReg, clJobs))
+				channels.push(new Channel(clContext, `ch ${i + 1}`, conf, consReg, prodReg, clJobs))
 			} catch (err) {
 				console.log(
-					`Failed to initialise configured consumer ${config.consumers[i].device.name} ${config.consumers[i].device.deviceIndex}`
+					`Failed to initialise configured consumer ${config.consumers[i].devices[0].name} ${config.consumers[i].devices[0].deviceIndex}`
 				)
 			}
 		})
