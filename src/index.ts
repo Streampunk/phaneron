@@ -46,11 +46,11 @@ class Config {
 							deviceIndex: 1,
 							embeddedAudio: true
 						}
-					) //,
-					// {
-					// 	name: 'screen',
-					// 	deviceIndex: 0
-					// }
+					),
+					{
+						name: 'screen',
+						deviceIndex: 0
+					}
 				]
 				// },
 				// {

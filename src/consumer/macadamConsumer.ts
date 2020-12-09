@@ -63,9 +63,9 @@ export class MacadamConsumer implements Consumer {
 		clJobs: ClJobs
 	) {
 		this.clContext = context
-		this.chanID = `${chanID} macadam`
 		this.format = format
 		this.device = device
+		this.chanID = `${chanID} macadam-${this.device.deviceIndex - 1}`
 		this.clJobs = clJobs
 		this.vidField = 0
 		this.audioChannels = 8

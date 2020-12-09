@@ -37,7 +37,7 @@ export abstract class ProcessImpl {
 		this.programName = programName
 	}
 
-	abstract async init(): Promise<void>
+	abstract init(): Promise<void>
 
 	getName(): string {
 		return this.name
@@ -49,7 +49,7 @@ export abstract class ProcessImpl {
 		return Uint32Array.from([this.width, this.height])
 	}
 
-	abstract async getKernelParams(params: KernelParams): Promise<KernelParams>
+	abstract getKernelParams(params: KernelParams): Promise<KernelParams>
 }
 
 export default class ImageProcess {

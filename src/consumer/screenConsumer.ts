@@ -19,11 +19,14 @@
 */
 
 import { clContext as nodenCLContext, OpenCLBuffer } from 'nodencl'
+import { RedioPipe, RedioEnd, nil, isValue, Valve, Spout } from 'redioactive'
+import { Frame, Filterer, filterer } from 'beamcoder'
+import { AudioIO, IoStreamWrite, SampleFormatFloat32 } from 'naudiodon'
+import Koa from 'koa'
+import cors from '@koa/cors'
 import { ConsumerFactory, Consumer } from './consumer'
-import { RedioPipe, RedioEnd, nil, end, isValue, Valve, Spout } from 'redioactive'
 import { FromRGBA } from '../process/io'
 import { Writer } from '../process/rgba8'
-import { Frame, Filterer, filterer } from 'beamcoder'
 import { VideoFormat, DeviceConfig } from '../config'
 import { ClJobs } from '../clJobQueue'
 
@@ -37,28 +40,49 @@ export class ScreenConsumer implements Consumer {
 	private readonly chanID: string
 	private readonly format: VideoFormat
 	private readonly clJobs: ClJobs
-	private fromRGBA: FromRGBA | null = null
-	private readonly audioChannels: number
+	private fromRGBA: FromRGBA | undefined
+	private readonly audioOutChannels: number
 	private readonly audioTimebase: number[]
 	private readonly videoTimebase: number[]
-	private audFilterer: Filterer | null = null
+	private audioOut: IoStreamWrite
+	private audFilterer: Filterer | undefined
+	private readonly kapp: Koa<Koa.DefaultState, Koa.DefaultContext>
+	private readonly lastWeb: Buffer
 
 	constructor(context: nodenCLContext, chanID: string, format: VideoFormat, clJobs: ClJobs) {
 		this.clContext = context
 		this.chanID = `${chanID} screen`
 		this.format = format
 		this.clJobs = clJobs
-		this.audioChannels = 8
+		this.audioOutChannels = 2
 		this.audioTimebase = [1, this.format.audioSampleRate]
 		this.videoTimebase = [this.format.duration, this.format.timescale]
+		this.audioOut = AudioIO({
+			outOptions: {
+				channelCount: this.audioOutChannels,
+				sampleFormat: SampleFormatFloat32,
+				sampleRate: this.format.audioSampleRate,
+				closeOnError: false
+			}
+		})
+
+		this.lastWeb = Buffer.alloc(this.format.width * this.format.height * 4)
+		this.kapp = new Koa()
+		this.kapp.use(cors())
+		this.kapp.use(async (ctx) => (ctx.body = this.lastWeb))
+
+		const server = this.kapp.listen(3001)
+		process.on('SIGHUP', server.close)
 	}
 
 	async initialise(): Promise<void> {
 		const sampleRate = this.audioTimebase[1]
-		const audLayout = `${this.audioChannels}c`
+		const audInLayout = `${this.format.audioChannels}c`
+		const audOutLayout = `${this.audioOutChannels}c`
 		// !!! Needs more work to handle 59.94 frame rates !!!
 		const samplesPerFrame =
 			(this.format.audioSampleRate * this.format.duration) / this.format.timescale
+		const outSampleFormat = 'flt'
 
 		this.audFilterer = await filterer({
 			filterType: 'audio',
@@ -68,23 +92,23 @@ export class ScreenConsumer implements Consumer {
 					timeBase: this.audioTimebase,
 					sampleRate: sampleRate,
 					sampleFormat: 'flt',
-					channelLayout: audLayout
+					channelLayout: audInLayout
 				}
 			],
 			outputParams: [
 				{
 					name: 'out0:a',
-					sampleRate: sampleRate,
-					sampleFormat: 's32',
-					channelLayout: audLayout
+					sampleRate: this.format.audioSampleRate,
+					sampleFormat: outSampleFormat,
+					channelLayout: audOutLayout
 				}
 			],
-			filterSpec: `[in0:a] asetnsamples=n=${samplesPerFrame}:p=1 [out0:a]`
+			filterSpec: `[in0:a] aformat=sample_fmts=${outSampleFormat}:sample_rates=${this.format.audioSampleRate}:channel_layouts=${audOutLayout}, asetnsamples=n=${samplesPerFrame}:p=1 [out0:a]`
 		})
 		// console.log('\nScreen consumer audio:\n', this.audFilterer.graph.dump())
 
-		const width = 1920
-		const height = 1080
+		const width = this.format.width
+		const height = this.format.height
 		this.fromRGBA = new FromRGBA(
 			this.clContext,
 			'sRGB',
@@ -102,15 +126,16 @@ export class ScreenConsumer implements Consumer {
 		combineVideo: RedioPipe<OpenCLBuffer | RedioEnd>
 	): void {
 		const audFilter: Valve<Frame | RedioEnd, AudioBuffer | RedioEnd> = async (frame) => {
-			if (isValue(frame) && this.audFilterer) {
-				const ff = await this.audFilterer.filter([{ name: 'in0:a', frames: [frame] }])
+			if (isValue(frame)) {
+				const audFilt = this.audFilterer as Filterer
+				const ff = await audFilt.filter([{ name: 'in0:a', frames: [frame] }])
 				const result: AudioBuffer[] = ff[0].frames.map((f) => ({
 					buffer: f.data[0],
 					timestamp: f.pts
 				}))
 				return result.length > 0 ? result : nil
 			} else {
-				return end
+				return frame
 			}
 		}
 
@@ -157,17 +182,32 @@ export class ScreenConsumer implements Consumer {
 				if (Math.abs(ats - vts) > 0.1)
 					console.log('Screen audio and video timestamp mismatch - aud:', ats, ' vid:', vts)
 
-				return new Promise((resolve) =>
-					setTimeout(() => {
+				const write = (data: Buffer, cb: () => void) => {
+					if (
+						!this.audioOut.write(data, (err: Error | null | undefined) => {
+							if (err) console.log('Write Error:', err)
+						})
+					) {
+						this.audioOut.once('drain', cb)
+					} else {
+						process.nextTick(cb)
+					}
+				}
+
+				return new Promise((resolve) => {
+					vidBuf.copy(this.lastWeb)
+					write(audBuf.buffer, () => {
 						vidBuf.release()
 						resolve()
-					}, 10)
-				)
+					})
+				})
 			} else {
 				// this.clContext.logBuffers()
 				return Promise.resolve()
 			}
 		}
+
+		this.audioOut.start()
 
 		combineVideo
 			.valve(vidProcess)
