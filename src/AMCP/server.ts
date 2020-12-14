@@ -172,6 +172,6 @@ export function version(version: string): void {
 	}
 }
 
-if (!module.parent) {
+if (require.main === module) {
 	start().then(console.log, console.error)
 }
