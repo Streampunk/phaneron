@@ -32,11 +32,11 @@ export class Combiner {
 	private readonly clContext: nodenCLContext
 	private readonly chanID: string
 	private readonly consumerFormat: VideoFormat
-	private readonly numDevices: number
 	private readonly clJobs: ClJobs
 	private layers: Map<number, Layer>
 	private lastNumAudLayers = 0
 	private lastNumVidLayers = 2
+	private numConsumers = 0
 	private vidCombiner: ImageProcess | undefined
 	private audioPipe: RedioPipe<Frame | RedioEnd> | undefined
 	private videoPipe: RedioPipe<OpenCLBuffer | RedioEnd> | undefined
@@ -58,13 +58,11 @@ export class Combiner {
 		clContext: nodenCLContext,
 		chanID: string,
 		consumerFormat: VideoFormat,
-		numDevices: number,
 		clJobs: ClJobs
 	) {
 		this.clContext = clContext
 		this.chanID = `${chanID} combine`
 		this.consumerFormat = consumerFormat
-		this.numDevices = numDevices
 		this.clJobs = clJobs
 		this.layers = new Map<number, Layer>()
 	}
@@ -226,7 +224,7 @@ export class Combiner {
 						'combine'
 					)
 					combineDest.timestamp = timestamp
-					for (let d = 1; d < this.numDevices; ++d) combineDest.addRef()
+					for (let d = 1; d < this.numConsumers; ++d) combineDest.addRef()
 
 					await this.vidCombiner?.run(
 						{
@@ -326,6 +324,14 @@ export class Combiner {
 			this.audLayerPipes.push(layer.getAudioPipe() as RedioPipe<Frame | RedioEnd>)
 			this.vidLayerPipes.push(layer.getVideoPipe() as RedioPipe<OpenCLBuffer | RedioEnd>)
 		})
+	}
+
+	addConsumer(): void {
+		this.numConsumers++
+	}
+
+	removeConsumer(): void {
+		this.numConsumers--
 	}
 
 	setLayer(layerNum: number, layer: Layer): void {

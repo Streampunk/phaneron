@@ -20,10 +20,7 @@
 
 import { clContext as nodenCLContext, OpenCLBuffer } from 'nodencl'
 import { RedioPipe, RedioEnd, nil, isValue, Valve, Spout } from 'redioactive'
-import { Frame, Filterer, filterer } from 'beamcoder'
-import { AudioIO, IoStreamWrite, SampleFormatFloat32 } from 'naudiodon'
-import Koa from 'koa'
-import cors from '@koa/cors'
+import { /*muxer, Muxer,*/ Frame, Filterer, filterer } from 'beamcoder'
 import { ConsumerFactory, Consumer } from './consumer'
 import { FromRGBA } from '../process/io'
 import { Writer } from '../process/rgba8'
@@ -35,54 +32,39 @@ interface AudioBuffer {
 	timestamp: number
 }
 
-export class ScreenConsumer implements Consumer {
+export class FFmpegConsumer implements Consumer {
 	private readonly clContext: nodenCLContext
 	private readonly chanID: string
 	private readonly params: string[]
 	private readonly format: VideoFormat
+	private readonly device: DeviceConfig
 	private readonly clJobs: ClJobs
 	private fromRGBA: FromRGBA | undefined
 	private readonly audioOutChannels: number
 	private readonly audioTimebase: number[]
 	private readonly videoTimebase: number[]
-	private audioOut: IoStreamWrite
 	private audFilterer: Filterer | undefined
-	private readonly kapp: Koa<Koa.DefaultState, Koa.DefaultContext>
-	private readonly lastWeb: Buffer
+	// private readonly muxer: Muxer | undefined
 
 	constructor(
 		context: nodenCLContext,
 		chanID: string,
 		params: string[],
 		format: VideoFormat,
+		device: DeviceConfig,
 		clJobs: ClJobs
 	) {
 		this.clContext = context
-		this.chanID = `${chanID} screen`
 		this.params = params
 		this.format = format
+		this.device = device
+		this.chanID = `${chanID} ffmpeg-${this.device.deviceIndex}`
 		this.clJobs = clJobs
 		this.audioOutChannels = 2
 		this.audioTimebase = [1, this.format.audioSampleRate]
 		this.videoTimebase = [this.format.duration, this.format.timescale]
-		this.audioOut = AudioIO({
-			outOptions: {
-				channelCount: this.audioOutChannels,
-				sampleFormat: SampleFormatFloat32,
-				sampleRate: this.format.audioSampleRate,
-				closeOnError: false
-			}
-		})
 
-		if (this.params.length) console.log('Screen consumer - unused params', this.params)
-
-		this.lastWeb = Buffer.alloc(this.format.width * this.format.height * 4)
-		this.kapp = new Koa()
-		this.kapp.use(cors())
-		this.kapp.use(async (ctx) => (ctx.body = this.lastWeb))
-
-		const server = this.kapp.listen(3001)
-		process.on('SIGHUP', server.close)
+		if (this.params.length) console.log('FFmpeg consumer - unused params', this.params)
 	}
 
 	async initialise(): Promise<void> {
@@ -115,7 +97,7 @@ export class ScreenConsumer implements Consumer {
 			],
 			filterSpec: `[in0:a] aformat=sample_fmts=${outSampleFormat}:sample_rates=${this.format.audioSampleRate}:channel_layouts=${audOutLayout}, asetnsamples=n=${samplesPerFrame}:p=1 [out0:a]`
 		})
-		// console.log('\nScreen consumer audio:\n', this.audFilterer.graph.dump())
+		// console.log('\FFmpeg consumer audio:\n', this.audFilterer.graph.dump())
 
 		const width = this.format.width
 		const height = this.format.height
@@ -127,7 +109,7 @@ export class ScreenConsumer implements Consumer {
 		)
 		await this.fromRGBA.init()
 
-		console.log('Created Screen consumer')
+		console.log('Created FFmpeg consumer')
 		return Promise.resolve()
 	}
 
@@ -190,34 +172,19 @@ export class ScreenConsumer implements Consumer {
 				const vtb = this.videoTimebase
 				const vts = (vidBuf.timestamp * vtb[0]) / vtb[1]
 				if (Math.abs(ats - vts) > 0.1)
-					console.log('Screen audio and video timestamp mismatch - aud:', ats, ' vid:', vts)
-
-				const write = (data: Buffer, cb: () => void) => {
-					if (
-						!this.audioOut.write(data, (err: Error | null | undefined) => {
-							if (err) console.log('Write Error:', err)
-						})
-					) {
-						this.audioOut.once('drain', cb)
-					} else {
-						process.nextTick(cb)
-					}
-				}
+					console.log('MPEG-TS audio and video timestamp mismatch - aud:', ats, ' vid:', vts)
 
 				return new Promise((resolve) => {
-					vidBuf.copy(this.lastWeb)
-					write(audBuf.buffer, () => {
+					setTimeout(() => {
 						vidBuf.release()
 						resolve()
-					})
+					}, 18)
 				})
 			} else {
 				// this.clContext.logBuffers()
 				return Promise.resolve()
 			}
 		}
-
-		this.audioOut.start()
 
 		combineVideo
 			.valve(vidProcess)
@@ -227,7 +194,7 @@ export class ScreenConsumer implements Consumer {
 	}
 }
 
-export class ScreenConsumerFactory implements ConsumerFactory<ScreenConsumer> {
+export class FFmpegConsumerFactory implements ConsumerFactory<FFmpegConsumer> {
 	private readonly clContext: nodenCLContext
 
 	constructor(clContext: nodenCLContext) {
@@ -238,10 +205,10 @@ export class ScreenConsumerFactory implements ConsumerFactory<ScreenConsumer> {
 		chanID: string,
 		params: string[],
 		format: VideoFormat,
-		_device: DeviceConfig,
+		device: DeviceConfig,
 		clJobs: ClJobs
-	): ScreenConsumer {
-		const consumer = new ScreenConsumer(this.clContext, chanID, params, format, clJobs)
+	): FFmpegConsumer {
+		const consumer = new FFmpegConsumer(this.clContext, chanID, params, format, device, clJobs)
 		return consumer
 	}
 }

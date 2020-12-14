@@ -27,7 +27,7 @@ import { BasicCmds } from './AMCP/basicCmds'
 import { MixerCmds } from './AMCP/mixerCmds'
 import { ConsumerRegistry } from './consumer/consumer'
 import { ProducerRegistry } from './producer/producer'
-import { ConsumerConfig, decklinkDefaults, VideoFormats } from './config'
+import { ConsumerConfig, VideoFormats } from './config'
 import readline from 'readline'
 
 class Config {
@@ -40,55 +40,22 @@ class Config {
 			{
 				format: this.videoFormats.get('1080i5000'),
 				devices: [
-					Object.assign(
-						{ ...decklinkDefaults },
-						{
-							deviceIndex: 1,
-							embeddedAudio: true
-						}
-					),
-					{
-						name: 'screen',
-						deviceIndex: 0
-					}
+					{ name: 'decklink', deviceIndex: 1, embeddedAudio: true },
+					{ name: 'screen', deviceIndex: 0 }
 				]
-				// },
-				// {
-				// 	format: this.videoFormats.get('1080i5000'),
-				// 	devices: [
-				// 		Object.assign(
-				// 			{ ...decklinkDefaults },
-				// 			{
-				// 				deviceIndex: 2,
-				// 				embeddedAudio: true
-				// 			}
-				// 		)
-				// 	]
-				// },
-				// {
-				// 	format: this.videoFormats.get('1080i5000'),
-				// 	devices: [
-				// 		Object.assign(
-				// 			{ ...decklinkDefaults },
-				// 			{
-				// 				deviceIndex: 3,
-				// 				embeddedAudio: true
-				// 			}
-				// 		)
-				// 	]
-				// },
-				// {
-				// 	format: this.videoFormats.get('1080i5000'),
-				// 	devices: [
-				// 		Object.assign(
-				// 			{ ...decklinkDefaults },
-				// 			{
-				// 				deviceIndex: 4,
-				// 				embeddedAudio: true
-				// 			}
-				// 		)
-				// 	]
-			}
+			} //,
+			// {
+			// 	format: this.videoFormats.get('1080i5000'),
+			// 	devices: [{ name: 'decklink', deviceIndex: 2, embeddedAudio: true }]
+			// },
+			// {
+			// 	format: this.videoFormats.get('1080i5000'),
+			// 	devices: [{ name: 'decklink', deviceIndex: 3, embeddedAudio: true }]
+			// },
+			// {
+			// 	format: this.videoFormats.get('1080i5000'),
+			// 	devices: [{ name: 'decklink', deviceIndex: 4, embeddedAudio: true }]
+			// }
 		]
 	}
 }
@@ -146,19 +113,20 @@ initialiseOpenCL()
 		const config = new Config()
 		const channels: Channel[] = []
 
-		config.consumers.forEach((conf, i) => {
+		config.consumers.forEach((consumerConfig, i) => {
 			try {
-				channels.push(new Channel(clContext, `ch ${i + 1}`, conf, consReg, prodReg, clJobs))
-			} catch (err) {
-				console.log(
-					`Failed to initialise configured consumer ${config.consumers[i].devices[0].name} ${config.consumers[i].devices[0].deviceIndex}`
+				channels.push(
+					new Channel(clContext, `ch ${i + 1}`, i + 1, consumerConfig, consReg, prodReg, clJobs)
 				)
+			} catch (err) {
+				console.log(`Error creating configured channel ${i + 1}: ${err.message}`)
 			}
 		})
+
 		if (channels.length === 0) console.error('Error: No channels found!!')
 		await Promise.all(channels.map((chan) => chan.initialise()))
 
-		commands.add(new BasicCmds(channels).list())
+		commands.add(new BasicCmds(consReg, channels, clJobs).list())
 		commands.add(new MixerCmds(channels).list())
 
 		// setInterval(() => clContext.logBuffers(), 2000)

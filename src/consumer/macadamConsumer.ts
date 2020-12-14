@@ -28,6 +28,26 @@ import { Frame, Filterer, filterer } from 'beamcoder'
 import { VideoFormat, DeviceConfig } from '../config'
 import { ClJobs } from '../clJobQueue'
 
+interface DecklinkConfig extends DeviceConfig {
+	keyDeviceIndex: number
+	embeddedAudio: boolean
+	latency: 'normal' | 'low' | 'default'
+	keyer: 'external' | 'external_separate_device' | 'internal' | 'default'
+	keyOnly: boolean
+	bufferDepth: number
+}
+
+const decklinkDefaults: DecklinkConfig = {
+	name: 'decklink',
+	deviceIndex: 1,
+	keyDeviceIndex: 0,
+	embeddedAudio: false,
+	latency: 'normal',
+	keyer: 'external',
+	keyOnly: false,
+	bufferDepth: 3
+}
+
 interface AudioBuffer {
 	buffer: Buffer
 	timestamp: number
@@ -42,6 +62,7 @@ const bmdDisplayMode = new Map([
 export class MacadamConsumer implements Consumer {
 	private readonly clContext: nodenCLContext
 	private readonly chanID: string
+	private readonly params: string[]
 	private readonly format: VideoFormat
 	private readonly device: DeviceConfig
 	private readonly clJobs: ClJobs
@@ -58,19 +79,26 @@ export class MacadamConsumer implements Consumer {
 	constructor(
 		context: nodenCLContext,
 		chanID: string,
+		params: string[],
 		format: VideoFormat,
 		device: DeviceConfig,
 		clJobs: ClJobs
 	) {
 		this.clContext = context
+		this.params = params
 		this.format = format
 		this.device = device
-		this.chanID = `${chanID} macadam-${this.device.deviceIndex - 1}`
+		this.chanID = `${chanID} decklink-${this.device.deviceIndex - 1}`
 		this.clJobs = clJobs
 		this.vidField = 0
 		this.audioChannels = 8
 		this.audioTimebase = [1, this.format.audioSampleRate]
 		this.videoTimebase = [this.format.duration, this.format.timescale / this.format.fields]
+
+		if (this.params.length) console.log('Macadam consumer - unused params', this.params)
+
+		const defaultConfig: DeviceConfig = { name: 'decklink', deviceIndex: 0 }
+		this.device = Object.assign(defaultConfig, { ...decklinkDefaults }, this.device)
 
 		// Turn off single field output flag
 		//  - have to thump it twice to get it to change!!
@@ -267,11 +295,12 @@ export class MacadamConsumerFactory implements ConsumerFactory<MacadamConsumer> 
 
 	createConsumer(
 		chanID: string,
+		params: string[],
 		format: VideoFormat,
 		device: DeviceConfig,
 		clJobs: ClJobs
 	): MacadamConsumer {
-		const consumer = new MacadamConsumer(this.clContext, chanID, format, device, clJobs)
+		const consumer = new MacadamConsumer(this.clContext, chanID, params, format, device, clJobs)
 		return consumer
 	}
 }

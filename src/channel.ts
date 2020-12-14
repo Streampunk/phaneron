@@ -29,7 +29,6 @@ import { ClJobs } from './clJobQueue'
 
 export class Channel {
 	private readonly clContext: nodenCLContext
-	private readonly chanID: string
 	private readonly consumerConfig: ConsumerConfig
 	private readonly consumerRegistry: ConsumerRegistry
 	private readonly producerRegistry: ProducerRegistry
@@ -40,26 +39,21 @@ export class Channel {
 	constructor(
 		clContext: nodenCLContext,
 		chanID: string,
+		chanNum: number,
 		consumerConfig: ConsumerConfig,
 		consumerRegistry: ConsumerRegistry,
 		producerRegistry: ProducerRegistry,
 		clJobs: ClJobs
 	) {
 		this.clContext = clContext
-		this.chanID = chanID
 		this.consumerConfig = consumerConfig
 		this.consumerRegistry = consumerRegistry
 		this.producerRegistry = producerRegistry
 		this.clJobs = clJobs
-		this.combiner = new Combiner(
-			this.clContext,
-			this.chanID,
-			this.consumerConfig.format,
-			this.consumerConfig.devices.length,
-			this.clJobs
-		)
+		this.combiner = new Combiner(this.clContext, chanID, this.consumerConfig.format, this.clJobs)
 		this.consumers = this.consumerRegistry.createConsumers(
-			this.chanID,
+			chanNum,
+			chanID,
 			this.consumerConfig,
 			this.clJobs
 		)
@@ -68,15 +62,28 @@ export class Channel {
 	async initialise(): Promise<void> {
 		await this.combiner.initialise()
 		await Promise.all(this.consumers.map((c) => c.initialise()))
+		this.consumers.forEach((c) => this.addConsumer(c))
+		return Promise.resolve()
+	}
+
+	addConsumer(consumer: Consumer): void {
+		if (!this.consumers.find((c) => c === consumer)) this.consumers.push(consumer)
 
 		const combinerAudio = this.combiner.getAudioPipe()
 		const combinerVideo = this.combiner.getVideoPipe()
 		if (!(combinerAudio !== undefined && combinerVideo !== undefined)) {
 			throw new Error('Failed to get combiner connection pipes')
 		}
-		this.consumers.forEach((c) => c.connect(combinerAudio.fork(), combinerVideo.fork()))
+		consumer.connect(combinerAudio.fork(), combinerVideo.fork())
+		this.combiner.addConsumer()
+	}
 
-		return Promise.resolve()
+	removeConsumer(consumer: Consumer): void {
+		if (!this.consumers.some((c) => c === consumer))
+			throw new Error('remove consumer - consumer not found')
+		const i = this.consumers.indexOf(consumer)
+		this.consumers.splice(i, i + 1) // should be consumer.destroy()
+		this.combiner.removeConsumer()
 	}
 
 	async loadSource(params: LoadParams, preview = false): Promise<boolean> {

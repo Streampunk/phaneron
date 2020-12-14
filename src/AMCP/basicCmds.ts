@@ -21,12 +21,18 @@
 import { CmdList, CmdSet } from './commands'
 import { ChanLayer, LoadParams } from '../chanLayer'
 import { Channel } from '../channel'
+import { ConsumerRegistry } from '../consumer/consumer'
+import { ClJobs } from '../clJobQueue'
 
 export class BasicCmds implements CmdList {
+	private readonly consumerRegistry: ConsumerRegistry
 	private readonly channels: Array<Channel>
+	private readonly clJobs: ClJobs
 
-	constructor(channels: Array<Channel>) {
+	constructor(consumerRegistry: ConsumerRegistry, channels: Array<Channel>, clJobs: ClJobs) {
+		this.consumerRegistry = consumerRegistry
 		this.channels = channels
+		this.clJobs = clJobs
 	}
 
 	list(): CmdSet {
@@ -39,7 +45,9 @@ export class BasicCmds implements CmdList {
 				{ cmd: 'PAUSE', fn: this.pause.bind(this) },
 				{ cmd: 'RESUME', fn: this.resume.bind(this) },
 				{ cmd: 'STOP', fn: this.stop.bind(this) },
-				{ cmd: 'CLEAR', fn: this.clear.bind(this) }
+				{ cmd: 'CLEAR', fn: this.clear.bind(this) },
+				{ cmd: 'ADD', fn: this.add.bind(this) },
+				{ cmd: 'REMOVE', fn: this.remove.bind(this) }
 			]
 		}
 	}
@@ -170,5 +178,51 @@ export class BasicCmds implements CmdList {
 		if (!channel) return Promise.resolve(false)
 		channel.clear(chanLay.layer)
 		return Promise.resolve(true)
+	}
+
+	async add(chanLay: ChanLayer, params: string[]): Promise<boolean> {
+		if (!chanLay.valid) return Promise.resolve(false)
+		const channel = this.channels[chanLay.channel - 1]
+		if (!channel) return Promise.resolve(false)
+		if (params.length === 0) return Promise.resolve(false)
+		let consumerName = params[0]
+		if (consumerName === 'FILE' || consumerName === 'STREAM') consumerName = 'ffmpeg'
+		const consumerIndex = chanLay.layer ? chanLay.layer : -1
+		const deviceIndex = +params[1] || 0
+
+		try {
+			const consumer = this.consumerRegistry.createConsumer(
+				chanLay.channel,
+				consumerIndex,
+				params.slice(2),
+				{ name: consumerName, deviceIndex: deviceIndex },
+				this.clJobs
+			)
+			await consumer.initialise()
+			channel.addConsumer(consumer)
+		} catch (err) {
+			console.log(`Error adding consumer to configured channel ${chanLay.channel}: ${err.message}`)
+			return Promise.resolve(false)
+		}
+
+		return Promise.resolve(true)
+	}
+
+	async remove(chanLay: ChanLayer, params: string[]): Promise<boolean> {
+		if (!chanLay.valid) return Promise.resolve(false)
+		const channel = this.channels[chanLay.channel - 1]
+		if (!channel) return Promise.resolve(false)
+		const consumerIndex = chanLay.layer ? chanLay.layer : -1
+
+		try {
+			this.consumerRegistry.removeConsumer(chanLay.channel, channel, consumerIndex, params)
+		} catch (err) {
+			console.log(
+				`Error removing consumer from configured channel ${chanLay.channel}: ${err.message}`
+			)
+			return Promise.resolve(false)
+		}
+
+		return Promise.resolve(false)
 	}
 }

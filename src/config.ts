@@ -75,26 +75,6 @@ export interface DeviceConfig {
 	[key: string]: unknown
 }
 
-interface DecklinkConfig extends DeviceConfig {
-	keyDeviceIndex: number
-	embeddedAudio: boolean
-	latency: 'normal' | 'low' | 'default'
-	keyer: 'external' | 'external_separate_device' | 'internal' | 'default'
-	keyOnly: boolean
-	bufferDepth: number
-}
-
-export const decklinkDefaults: DecklinkConfig = {
-	name: 'macadam',
-	deviceIndex: 1,
-	keyDeviceIndex: 0,
-	embeddedAudio: false,
-	latency: 'normal',
-	keyer: 'external',
-	keyOnly: false,
-	bufferDepth: 3
-}
-
 export interface ConsumerConfig {
 	format: VideoFormat
 	devices: DeviceConfig[]
