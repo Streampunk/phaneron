@@ -28,6 +28,7 @@ import Combine from './combine'
 
 export default class Switch {
 	private readonly clContext: nodenCLContext
+	private readonly chanID: string
 	private readonly clJobs: ClJobs
 	private readonly width: number
 	private readonly height: number
@@ -44,6 +45,7 @@ export default class Switch {
 
 	constructor(
 		clContext: nodenCLContext,
+		chanID: string,
 		clJobs: ClJobs,
 		width: number,
 		height: number,
@@ -51,6 +53,7 @@ export default class Switch {
 		numOverlays: number
 	) {
 		this.clContext = clContext
+		this.chanID = `${chanID} switch`
 		this.clJobs = clJobs
 		this.width = width
 		this.height = height
@@ -141,16 +144,22 @@ export default class Switch {
 
 		inParams[0].output = this.rgbaXf0
 		const inBuf0 = inParams[0].input as OpenCLBuffer
-		await this.xform0.run(inParams[0], inBuf0.timestamp, () => inBuf0.release())
+		await this.xform0.run(inParams[0], { source: this.chanID, timestamp: inBuf0.timestamp }, () =>
+			inBuf0.release()
+		)
 
 		if (this.numInputs > 1) {
 			inParams[1].output = this.rgbaXf1
 			const inBuf1 = inParams[1].input as OpenCLBuffer
-			await this.xform1?.run(inParams[1], inBuf1.timestamp, () => inBuf1.release())
+			await this.xform1?.run(
+				inParams[1],
+				{ source: this.chanID, timestamp: inBuf1.timestamp },
+				() => inBuf1.release()
+			)
 			if (mixParams.wipe) {
 				await this.wiper?.run(
 					{ input0: this.rgbaXf0, input1: this.rgbaXf1, wipe: mixParams.frac, output: this.rgbaMx },
-					inBuf0.timestamp,
+					{ source: this.chanID, timestamp: inBuf0.timestamp },
 					() => {
 						this.rgbaXf0?.release()
 						this.rgbaXf1?.release()
@@ -159,7 +168,7 @@ export default class Switch {
 			} else {
 				await this.mixer?.run(
 					{ input0: this.rgbaXf0, input1: this.rgbaXf1, mix: mixParams.frac, output: this.rgbaMx },
-					inBuf0.timestamp,
+					{ source: this.chanID, timestamp: inBuf0.timestamp },
 					() => {
 						this.rgbaXf0?.release()
 						this.rgbaXf1?.release()
@@ -172,7 +181,7 @@ export default class Switch {
 
 		return await this.combiner.run(
 			{ bgIn: this.rgbaMx, ovIn: overlays, output: output },
-			inBuf0.timestamp,
+			{ source: this.chanID, timestamp: inBuf0.timestamp },
 			() => {
 				this.rgbaMx?.release()
 				overlays.forEach((o) => o.release())
