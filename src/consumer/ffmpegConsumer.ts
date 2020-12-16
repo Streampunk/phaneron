@@ -20,11 +20,11 @@
 
 import { clContext as nodenCLContext, OpenCLBuffer } from 'nodencl'
 import { RedioPipe, RedioEnd, nil, isValue, Valve, Spout } from 'redioactive'
-import { /*muxer, Muxer,*/ Frame, Filterer, filterer } from 'beamcoder'
+import { muxer, Muxer, encoder, Encoder, Frame, frame, Filterer, filterer, Packet } from 'beamcoder'
 import { ConsumerFactory, Consumer } from './consumer'
 import { FromRGBA } from '../process/io'
-import { Writer } from '../process/rgba8'
-import { VideoFormat, DeviceConfig } from '../config'
+import { Writer } from '../process/yuv422p8'
+import { ConfigParams, VideoFormat, DeviceConfig } from '../config'
 import { ClJobs } from '../clJobQueue'
 
 interface AudioBuffer {
@@ -35,21 +35,23 @@ interface AudioBuffer {
 export class FFmpegConsumer implements Consumer {
 	private readonly clContext: nodenCLContext
 	private readonly chanID: string
-	private readonly params: string[]
+	private readonly params: ConfigParams
 	private readonly format: VideoFormat
 	private readonly device: DeviceConfig
 	private readonly clJobs: ClJobs
+	private readonly filename: string
 	private fromRGBA: FromRGBA | undefined
 	private readonly audioOutChannels: number
 	private readonly audioTimebase: number[]
 	private readonly videoTimebase: number[]
 	private audFilterer: Filterer | undefined
-	// private readonly muxer: Muxer | undefined
+	private muxer: Muxer
+	private encoder: Encoder
 
 	constructor(
 		context: nodenCLContext,
 		chanID: string,
-		params: string[],
+		params: ConfigParams,
 		format: VideoFormat,
 		device: DeviceConfig,
 		clJobs: ClJobs
@@ -64,7 +66,40 @@ export class FFmpegConsumer implements Consumer {
 		this.audioTimebase = [1, this.format.audioSampleRate]
 		this.videoTimebase = [this.format.duration, this.format.timescale]
 
-		if (this.params.length) console.log('FFmpeg consumer - unused params', this.params)
+		this.filename = (this.params.stream as string) || 'http://localhost:3000/'
+		const muxFormat = (this.params.f as string) || 'mpjpeg'
+		const encoderName = 'mjpeg'
+		const pixFmt = encoderName === 'mjpeg' ? 'yuvj422p' : 'yuv422p'
+
+		this.muxer = muxer({
+			filename: this.filename,
+			format_name: muxFormat
+		})
+
+		this.encoder = encoder({
+			name: encoderName,
+			width: this.format.width,
+			height: this.format.height,
+			pix_fmt: pixFmt,
+			sample_aspect_ratio: [1, 1],
+			time_base: this.videoTimebase
+		})
+		const encoderParams = { ...this.params }
+		delete encoderParams['stream']
+		delete encoderParams['f']
+		delete encoderParams['multiple_requests']
+		Object.assign(this.encoder, encoderParams)
+
+		const stream = this.muxer.newStream({
+			name: encoderName,
+			time_base: this.videoTimebase
+		})
+		Object.assign(stream.codecpar, {
+			width: this.format.width,
+			height: this.format.height,
+			sample_aspect_ratio: [1, 1],
+			interleaved: true
+		})
 	}
 
 	async initialise(): Promise<void> {
@@ -103,11 +138,17 @@ export class FFmpegConsumer implements Consumer {
 		const height = this.format.height
 		this.fromRGBA = new FromRGBA(
 			this.clContext,
-			'sRGB',
+			'709',
 			new Writer(width, height, false),
 			this.clJobs
 		)
 		await this.fromRGBA.init()
+
+		await this.muxer.openIO({
+			url: this.filename,
+			options: { multiple_requests: (this.params.multiple_requests as number) || 0 }
+		})
+		await this.muxer.writeHeader()
 
 		console.log('Created FFmpeg consumer')
 		return Promise.resolve()
@@ -131,55 +172,71 @@ export class FFmpegConsumer implements Consumer {
 			}
 		}
 
-		const vidProcess: Valve<OpenCLBuffer | RedioEnd, OpenCLBuffer | RedioEnd> = async (frame) => {
+		const vidProcess: Valve<OpenCLBuffer | RedioEnd, OpenCLBuffer[] | RedioEnd> = async (frame) => {
 			if (isValue(frame)) {
 				const fromRGBA = this.fromRGBA as FromRGBA
 				const clDests = await fromRGBA.createDests()
 				clDests.forEach((d) => (d.timestamp = frame.timestamp))
 				fromRGBA.processFrame(this.chanID, frame, clDests, 0)
 				await this.clJobs.runQueue({ source: this.chanID, timestamp: frame.timestamp })
-				return clDests[0]
+				return clDests
 			} else {
 				return frame
 			}
 		}
 
-		const vidSaver: Valve<OpenCLBuffer | RedioEnd, OpenCLBuffer | RedioEnd> = async (frame) => {
-			if (isValue(frame)) {
+		const vidSaver: Valve<OpenCLBuffer[] | RedioEnd, OpenCLBuffer[] | RedioEnd> = async (
+			frames
+		) => {
+			if (isValue(frames)) {
 				const fromRGBA = this.fromRGBA as FromRGBA
-				await fromRGBA.saveFrame(frame, this.clContext.queue.unload)
+				await Promise.all(frames.map((f) => fromRGBA.saveFrame(f, this.clContext.queue.unload)))
 				await this.clContext.waitFinish(this.clContext.queue.unload)
-				return frame
+				return frames
 			} else {
-				return frame
+				return frames
 			}
 		}
 
-		const screenSpout: Spout<
-			[(OpenCLBuffer | RedioEnd | undefined)?, (AudioBuffer | RedioEnd | undefined)?] | RedioEnd
+		const vidEncode: Valve<OpenCLBuffer[] | RedioEnd, Packet | RedioEnd> = async (frames) => {
+			if (isValue(frames)) {
+				const filtFrame = frame({
+					width: this.format.width,
+					height: this.format.height,
+					pict_type: 'P',
+					format: 'yuvj422p',
+					sample_aspect_ratio: [1, 1],
+					pts: frames[0].timestamp,
+					dts: frames[0].timestamp,
+					data: frames
+				})
+				const encPackets = await this.encoder.encode(filtFrame)
+				frames.forEach((f) => f.release())
+				return encPackets.packets
+			} else {
+				return frames
+			}
+		}
+
+		const ffmpegSpout: Spout<
+			[(Packet | RedioEnd | undefined)?, (AudioBuffer | RedioEnd | undefined)?] | RedioEnd
 		> = async (frame) => {
 			if (isValue(frame)) {
 				const vidBuf = frame[0]
 				const audBuf = frame[1]
 				if (!(audBuf && isValue(audBuf) && vidBuf && isValue(vidBuf))) {
 					console.log('One-legged zipper:', audBuf, vidBuf)
-					if (vidBuf && isValue(vidBuf)) vidBuf.release()
 					return Promise.resolve()
 				}
 
 				const atb = this.audioTimebase
 				const ats = (audBuf.timestamp * atb[0]) / atb[1]
 				const vtb = this.videoTimebase
-				const vts = (vidBuf.timestamp * vtb[0]) / vtb[1]
+				const vts = (vidBuf.pts * vtb[0]) / vtb[1]
 				if (Math.abs(ats - vts) > 0.1)
-					console.log('MPEG-TS audio and video timestamp mismatch - aud:', ats, ' vid:', vts)
+					console.log('MJPEG audio and video timestamp mismatch - aud:', ats, ' vid:', vts)
 
-				return new Promise((resolve) => {
-					setTimeout(() => {
-						vidBuf.release()
-						resolve()
-					}, 18)
-				})
+				await this.muxer.writeFrame(vidBuf)
 			} else {
 				// this.clContext.logBuffers()
 				return Promise.resolve()
@@ -189,8 +246,9 @@ export class FFmpegConsumer implements Consumer {
 		combineVideo
 			.valve(vidProcess)
 			.valve(vidSaver)
+			.valve(vidEncode, { oneToMany: true })
 			.zip(combineAudio.valve(audFilter, { oneToMany: true }))
-			.spout(screenSpout)
+			.spout(ffmpegSpout)
 	}
 }
 
@@ -203,7 +261,7 @@ export class FFmpegConsumerFactory implements ConsumerFactory<FFmpegConsumer> {
 
 	createConsumer(
 		chanID: string,
-		params: string[],
+		params: ConfigParams,
 		format: VideoFormat,
 		device: DeviceConfig,
 		clJobs: ClJobs

@@ -23,6 +23,7 @@ import { ChanLayer, LoadParams } from '../chanLayer'
 import { Channel } from '../channel'
 import { ConsumerRegistry } from '../consumer/consumer'
 import { ClJobs } from '../clJobQueue'
+import { ConfigParams } from '../config'
 
 export class BasicCmds implements CmdList {
 	private readonly consumerRegistry: ConsumerRegistry
@@ -50,6 +51,22 @@ export class BasicCmds implements CmdList {
 				{ cmd: 'REMOVE', fn: this.remove.bind(this) }
 			]
 		}
+	}
+
+	parseParams(params: string[]): ConfigParams {
+		const paramsObj: ConfigParams = {}
+		const paramStr = params.join(' ')
+		const re = /(?<name>[^-\s]+)(\s+(?<value>[^\s]+))?/g
+		let matches: RegExpExecArray | null = null
+		while ((matches = re.exec(paramStr)) && matches.groups) {
+			if (matches.groups.value) {
+				const value = parseInt(matches.groups.value)
+				paramsObj[matches.groups.name.toLowerCase()] = isNaN(value)
+					? matches.groups.value.toLowerCase()
+					: value
+			}
+		}
+		return paramsObj
 	}
 
 	/**
@@ -185,8 +202,8 @@ export class BasicCmds implements CmdList {
 		const channel = this.channels[chanLay.channel - 1]
 		if (!channel) return Promise.resolve(false)
 		if (params.length === 0) return Promise.resolve(false)
-		let consumerName = params[0]
-		if (consumerName === 'FILE' || consumerName === 'STREAM') consumerName = 'ffmpeg'
+		let consumerName = params[0].toLowerCase()
+		if (consumerName === 'file' || consumerName === 'stream') consumerName = 'ffmpeg'
 		const consumerIndex = chanLay.layer ? chanLay.layer : -1
 		const deviceIndex = +params[1] || 0
 
@@ -194,7 +211,7 @@ export class BasicCmds implements CmdList {
 			const consumer = this.consumerRegistry.createConsumer(
 				chanLay.channel,
 				consumerIndex,
-				params.slice(2),
+				this.parseParams(params),
 				{ name: consumerName, deviceIndex: deviceIndex },
 				this.clJobs
 			)
@@ -215,7 +232,12 @@ export class BasicCmds implements CmdList {
 		const consumerIndex = chanLay.layer ? chanLay.layer : -1
 
 		try {
-			this.consumerRegistry.removeConsumer(chanLay.channel, channel, consumerIndex, params)
+			this.consumerRegistry.removeConsumer(
+				chanLay.channel,
+				channel,
+				consumerIndex,
+				this.parseParams(params)
+			)
 		} catch (err) {
 			console.log(
 				`Error removing consumer from configured channel ${chanLay.channel}: ${err.message}`

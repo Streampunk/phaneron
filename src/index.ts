@@ -43,19 +43,19 @@ class Config {
 					{ name: 'decklink', deviceIndex: 1, embeddedAudio: true },
 					{ name: 'screen', deviceIndex: 0 }
 				]
-			} //,
-			// {
-			// 	format: this.videoFormats.get('1080i5000'),
-			// 	devices: [{ name: 'decklink', deviceIndex: 2, embeddedAudio: true }]
-			// },
-			// {
-			// 	format: this.videoFormats.get('1080i5000'),
-			// 	devices: [{ name: 'decklink', deviceIndex: 3, embeddedAudio: true }]
-			// },
-			// {
-			// 	format: this.videoFormats.get('1080i5000'),
-			// 	devices: [{ name: 'decklink', deviceIndex: 4, embeddedAudio: true }]
-			// }
+			},
+			{
+				format: this.videoFormats.get('1080i5000'),
+				devices: []
+			},
+			{
+				format: this.videoFormats.get('1080i5000'),
+				devices: []
+			},
+			{
+				format: this.videoFormats.get('1080i5000'),
+				devices: []
+			}
 		]
 	}
 }

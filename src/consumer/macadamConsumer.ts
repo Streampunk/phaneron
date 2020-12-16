@@ -25,7 +25,7 @@ import * as Macadam from 'macadam'
 import { FromRGBA } from '../process/io'
 import { Writer } from '../process/v210'
 import { Frame, Filterer, filterer } from 'beamcoder'
-import { VideoFormat, DeviceConfig } from '../config'
+import { ConfigParams, VideoFormat, DeviceConfig } from '../config'
 import { ClJobs } from '../clJobQueue'
 
 interface DecklinkConfig extends DeviceConfig {
@@ -62,7 +62,7 @@ const bmdDisplayMode = new Map([
 export class MacadamConsumer implements Consumer {
 	private readonly clContext: nodenCLContext
 	private readonly chanID: string
-	private readonly params: string[]
+	private readonly params: ConfigParams
 	private readonly format: VideoFormat
 	private readonly device: DeviceConfig
 	private readonly clJobs: ClJobs
@@ -79,7 +79,7 @@ export class MacadamConsumer implements Consumer {
 	constructor(
 		context: nodenCLContext,
 		chanID: string,
-		params: string[],
+		params: ConfigParams,
 		format: VideoFormat,
 		device: DeviceConfig,
 		clJobs: ClJobs
@@ -95,7 +95,8 @@ export class MacadamConsumer implements Consumer {
 		this.audioTimebase = [1, this.format.audioSampleRate]
 		this.videoTimebase = [this.format.duration, this.format.timescale / this.format.fields]
 
-		if (this.params.length) console.log('Macadam consumer - unused params', this.params)
+		if (Object.keys(this.params).length > 1)
+			console.log('Macadam consumer - unused params', this.params)
 
 		const defaultConfig: DeviceConfig = { name: 'decklink', deviceIndex: 0 }
 		this.device = Object.assign(defaultConfig, { ...decklinkDefaults }, this.device)
@@ -295,7 +296,7 @@ export class MacadamConsumerFactory implements ConsumerFactory<MacadamConsumer> 
 
 	createConsumer(
 		chanID: string,
-		params: string[],
+		params: ConfigParams,
 		format: VideoFormat,
 		device: DeviceConfig,
 		clJobs: ClJobs

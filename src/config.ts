@@ -18,6 +18,10 @@
   14 Ormiscaig, Aultbea, Achnasheen, IV22 2JJ  U.K.
 */
 
+export interface ConfigParams {
+	[key: string]: string | number
+}
+
 export type VideoFormat = {
 	name: string
 	fields: number

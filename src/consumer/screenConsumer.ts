@@ -27,7 +27,7 @@ import cors from '@koa/cors'
 import { ConsumerFactory, Consumer } from './consumer'
 import { FromRGBA } from '../process/io'
 import { Writer } from '../process/rgba8'
-import { VideoFormat, DeviceConfig } from '../config'
+import { ConfigParams, VideoFormat, DeviceConfig } from '../config'
 import { ClJobs } from '../clJobQueue'
 
 interface AudioBuffer {
@@ -38,7 +38,7 @@ interface AudioBuffer {
 export class ScreenConsumer implements Consumer {
 	private readonly clContext: nodenCLContext
 	private readonly chanID: string
-	private readonly params: string[]
+	private readonly params: ConfigParams
 	private readonly format: VideoFormat
 	private readonly clJobs: ClJobs
 	private fromRGBA: FromRGBA | undefined
@@ -53,7 +53,7 @@ export class ScreenConsumer implements Consumer {
 	constructor(
 		context: nodenCLContext,
 		chanID: string,
-		params: string[],
+		params: ConfigParams,
 		format: VideoFormat,
 		clJobs: ClJobs
 	) {
@@ -74,7 +74,8 @@ export class ScreenConsumer implements Consumer {
 			}
 		})
 
-		if (this.params.length) console.log('Screen consumer - unused params', this.params)
+		if (Object.keys(this.params).length > 1)
+			console.log('Screen consumer - unused params', this.params)
 
 		this.lastWeb = Buffer.alloc(this.format.width * this.format.height * 4)
 		this.kapp = new Koa()
@@ -236,7 +237,7 @@ export class ScreenConsumerFactory implements ConsumerFactory<ScreenConsumer> {
 
 	createConsumer(
 		chanID: string,
-		params: string[],
+		params: ConfigParams,
 		format: VideoFormat,
 		_device: DeviceConfig,
 		clJobs: ClJobs

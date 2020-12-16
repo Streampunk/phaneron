@@ -25,7 +25,7 @@ import { FFmpegConsumerFactory } from './ffmpegConsumer'
 import { RedioPipe, RedioEnd } from 'redioactive'
 import { Frame } from 'beamcoder'
 import { Channel } from '../channel'
-import { VideoFormat, DeviceConfig, ConsumerConfig } from '../config'
+import { ConfigParams, VideoFormat, DeviceConfig, ConsumerConfig } from '../config'
 import { ClJobs } from '../clJobQueue'
 
 export interface Consumer {
@@ -36,7 +36,7 @@ export interface Consumer {
 export interface ConsumerFactory<T extends Consumer> {
 	createConsumer(
 		chanID: string,
-		params: string[],
+		params: ConfigParams,
 		format: VideoFormat,
 		device: DeviceConfig,
 		clJobs: ClJobs
@@ -63,7 +63,7 @@ export class ConsumerRegistry {
 	createConsumer(
 		chanNum: number,
 		consumerIndex: number,
-		params: string[],
+		params: ConfigParams,
 		device: DeviceConfig,
 		clJobs: ClJobs
 	): Consumer {
@@ -97,7 +97,7 @@ export class ConsumerRegistry {
 		chanNum: number,
 		_channel: Channel,
 		consumerIndex: number,
-		params: string[]
+		params: ConfigParams
 	): void {
 		const chanID = this.chanIDs.get(chanNum)
 		if (!chanID)
@@ -108,8 +108,8 @@ export class ConsumerRegistry {
 			// channel.removeConsumer(consumer)
 			// this.consumers.delete(consumerIndex)
 			throw new Error(`Remove consumer not implemented`)
-		} else if (params.length) {
-			console.log('Remove consumer with params', params)
+		} else if (Object.keys(params).length > 0) {
+			console.log('Remove consumer with options', params)
 			throw new Error(`Remove consumer by matching params not implemented`)
 		} else throw new Error(`Failed to remove consumer - no consumerIndex and no parameters`)
 	}
@@ -124,7 +124,7 @@ export class ConsumerRegistry {
 		this.formats.set(chanNum, config.format)
 
 		return config.devices.map((device) =>
-			this.createConsumer(chanNum, this.consumerIndex++, [], device, clJobs)
+			this.createConsumer(chanNum, this.consumerIndex++, {}, device, clJobs)
 		)
 	}
 }
