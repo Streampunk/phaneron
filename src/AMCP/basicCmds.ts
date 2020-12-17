@@ -24,6 +24,7 @@ import { Channel } from '../channel'
 import { ConsumerRegistry } from '../consumer/consumer'
 import { ClJobs } from '../clJobQueue'
 import { ConfigParams } from '../config'
+import { assetManager } from '../assets/assetManager'
 
 export class BasicCmds implements CmdList {
 	private readonly consumerRegistry: ConsumerRegistry
@@ -104,8 +105,10 @@ export class BasicCmds implements CmdList {
 		if (params.find((param, i) => { curParam = i; return param === 'SEEK'	}) !== undefined)
 			seek = +params[curParam + 1]
 
+		const url = await assetManager.getAsset(clip)
+
 		const loadParams: LoadParams = {
-			url: clip,
+			url: url,
 			layer: chanLay.layer,
 			channel: chanNum,
 			loop: loop,
