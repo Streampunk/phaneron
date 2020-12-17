@@ -318,6 +318,7 @@ export class FFmpegProducer implements Producer {
 		) => {
 			if (isValue(frames) && audFilterer) {
 				const ff = await audFilterer.filter(frames)
+				if (!ff[0]) return nil
 				const audMixFrames =
 					ff[0].frames.length > 0 ? ff[0].frames.map((f) => ({ frame: f, mute: false })) : nil
 				return audMixFrames
@@ -340,6 +341,7 @@ export class FFmpegProducer implements Producer {
 
 		const vidDecode: Valve<Packet[] | RedioEnd, Frame | RedioEnd> = async (packets) => {
 			if (isValue(packets)) {
+				if (!packets[0]) return nil
 				const frm = await (decoders.get(packets[0].stream_index) as Decoder).decode(packets[0])
 				return frm.frames.length > 0 ? frm.frames : nil
 			} else {
@@ -350,6 +352,7 @@ export class FFmpegProducer implements Producer {
 		const vidFilter: Valve<Frame | RedioEnd, Frame | RedioEnd> = async (decFrames) => {
 			if (isValue(decFrames)) {
 				const ff = await vidFilterer.filter([decFrames])
+				if (!ff[0]) return nil
 				return ff[0].frames.length > 0 ? ff[0].frames : nil
 			} else {
 				return decFrames
