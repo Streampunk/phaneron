@@ -410,7 +410,7 @@ balanced-match@^1.0.0:
   resolved "https://registry.yarnpkg.com/balanced-match/-/balanced-match-1.0.0.tgz#89b4d199ab2bee49de164ea02b89ce462d71b767"
   integrity sha1-ibTRmasr7kneFk6gK4nORi1xt2c=
 
-"beamcoder@git+https://github.com/Streampunk/redioactive.git#master", "redioactive@git+https://github.com/Streampunk/redioactive.git#master":
+"beamcoder@git+https://github.com/Streampunk/redioactive.git#master":
   version "0.0.11"
   resolved "git+https://github.com/Streampunk/redioactive.git#73c34921c998476e77b382bc937a5fb3641f0992"
 
@@ -1689,6 +1689,11 @@ redent@^3.0.0:
   dependencies:
     indent-string "^4.0.0"
     strip-indent "^3.0.0"
+
+redioactive@0.0.11:
+  version "0.0.11"
+  resolved "https://registry.yarnpkg.com/redioactive/-/redioactive-0.0.11.tgz#e4fd930640696766d4508fc4f2ac51d2a7adccf1"
+  integrity sha512-mMf1bHkooab8FKQalL0uEI5V3ZI6AnPm72Lh5Ll1I9l6tTptSf1G4qumVa40gCpZPo5i98u8mSiv3+cXNWwlJA==
 
 regexpp@^3.0.0, regexpp@^3.1.0:
   version "3.1.0"

@@ -22,7 +22,7 @@
     "macadam": "git+https://github.com/Streampunk/macadam.git#master",
     "naudiodon": "git+https://github.com/Streampunk/naudiodon.git#master",
     "nodencl": "git+https://github.com/Streampunk/nodencl.git#master",
-    "redioactive": "git+https://github.com/Streampunk/redioactive.git#master"
+    "redioactive": "0.0.11"
   },
   "devDependencies": {
     "@types/koa": "2.11.6",
