@@ -16,12 +16,12 @@
   },
   "dependencies": {
     "@koa/cors": "3",
-    "beamcoder": "^0.6.10",
+    "beamcoder": "git+https://github.com/Streampunk/redioactive.git#master",
     "koa": "^2.13.0",
-    "macadam": "^2.0.14",
-    "naudiodon": "^2.3.0",
-    "nodencl": "^1.3.1",
-    "redioactive": "0.0.11"
+    "macadam": "git+https://github.com/Streampunk/macadam.git#master",
+    "naudiodon": "git+https://github.com/Streampunk/naudiodon.git#master",
+    "nodencl": "git+https://github.com/Streampunk/nodencl.git#master",
+    "redioactive": "git+https://github.com/Streampunk/redioactive.git#master"
   },
   "devDependencies": {
     "@types/koa": "2.11.6",
