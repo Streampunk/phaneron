@@ -101,6 +101,10 @@ rl.on('SIGINT', () => {
 	process.kill(process.pid, 'SIGTERM')
 })
 
+rl.on('close', () => {
+	process.kill(process.pid, 'SIGTERM')
+})
+
 console.log('\nWelcome to Phaneron\n')
 
 const commands: Commands = new Commands()
