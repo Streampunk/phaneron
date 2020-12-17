@@ -410,13 +410,9 @@ balanced-match@^1.0.0:
   resolved "https://registry.yarnpkg.com/balanced-match/-/balanced-match-1.0.0.tgz#89b4d199ab2bee49de164ea02b89ce462d71b767"
   integrity sha1-ibTRmasr7kneFk6gK4nORi1xt2c=
 
-beamcoder@^0.6.10:
-  version "0.6.10"
-  resolved "https://registry.yarnpkg.com/beamcoder/-/beamcoder-0.6.10.tgz#30c02ab3838c1fe534a24d47ea03cab836637f29"
-  integrity sha512-xQPBpW19L9sR5C1Q14LELkjCnuk6xbjn+zi2+5fRhJpkHjAp2WJkqwYJseDumu8vTmslzPk3V1mtIZ19pFONyw==
-  dependencies:
-    bindings "^1.5.0"
-    segfault-handler "^1.3.0"
+"beamcoder@git+https://github.com/Streampunk/redioactive.git#master", "redioactive@git+https://github.com/Streampunk/redioactive.git#master":
+  version "0.0.11"
+  resolved "git+https://github.com/Streampunk/redioactive.git#73c34921c998476e77b382bc937a5fb3641f0992"
 
 bindings@^1.2.1, bindings@^1.5.0:
   version "1.5.0"
@@ -1282,10 +1278,9 @@ lru-cache@^6.0.0:
   dependencies:
     yallist "^4.0.0"
 
-macadam@^2.0.14:
+"macadam@git+https://github.com/Streampunk/macadam.git#master":
   version "2.0.14"
-  resolved "https://registry.yarnpkg.com/macadam/-/macadam-2.0.14.tgz#79af83cdd391ff978338db0d0b39f367c0ab5610"
-  integrity sha512-abUhRmvPo4UraIBJ5bfVBEpDSrL4TVmp8K9JflvXJ/myGhk/jMh7rCeiXob+v+G5HwO240zIx/p4dblsKq65Aw==
+  resolved "git+https://github.com/Streampunk/macadam.git#8469c256d65bc79cfeff8d685286447ae3635a39"
   dependencies:
     bindings "^1.5.0"
     highland "^2.13.5"
@@ -1427,10 +1422,9 @@ natural-compare@^1.4.0:
   resolved "https://registry.yarnpkg.com/natural-compare/-/natural-compare-1.4.0.tgz#4abebfeed7541f2c27acfb29bdbbd15c8d5ba4f7"
   integrity sha1-Sr6/7tdUHywnrPspvbvRXI1bpPc=
 
-naudiodon@^2.3.0:
+"naudiodon@git+https://github.com/Streampunk/naudiodon.git#master":
   version "2.3.0"
-  resolved "https://registry.yarnpkg.com/naudiodon/-/naudiodon-2.3.0.tgz#70841b5b451165998d83862a5d7b92f35a16cc1e"
-  integrity sha512-STA2+nL/dEIAlYDY/1OeXDwVSKXwJlUB0EXpUMTaO59a2WpymG/mknx+aR2I462hDy3IMopxw/cSWWcFNOXeHg==
+  resolved "git+https://github.com/Streampunk/naudiodon.git#463dead1c31696330a5be30967aef1cf770799bc"
   dependencies:
     bindings "^1.5.0"
     segfault-handler "^1.3.0"
@@ -1440,10 +1434,9 @@ negotiator@0.6.2:
   resolved "https://registry.yarnpkg.com/negotiator/-/negotiator-0.6.2.tgz#feacf7ccf525a77ae9634436a64883ffeca346fb"
   integrity sha512-hZXc7K2e+PgeI1eDBe/10Ard4ekbfrrqG8Ep+8Jmf4JID2bNg7NvCPOZN+kfF574pFQI7mum2AUqDidoKqcTOw==
 
-nodencl@^1.3.1:
+"nodencl@git+https://github.com/Streampunk/nodencl.git#master":
   version "1.3.1"
-  resolved "https://registry.yarnpkg.com/nodencl/-/nodencl-1.3.1.tgz#1d750dba63a7a136fc7bf582f6cb7c31352348ff"
-  integrity sha512-ktFon6Zt0SZlMd//SBIzIBYWrfDyxaYRn7fEAOxwLZynOgEhfP+Sq7Fwn4EUmWrA3vQoHzniQNustyJhG6PL/A==
+  resolved "git+https://github.com/Streampunk/nodencl.git#db217d6a464f0a9815899638ff35fb5aa1c32f52"
   dependencies:
     bindings "^1.5.0"
     segfault-handler "^1.3.0"
@@ -1696,11 +1689,6 @@ redent@^3.0.0:
   dependencies:
     indent-string "^4.0.0"
     strip-indent "^3.0.0"
-
-redioactive@0.0.11:
-  version "0.0.11"
-  resolved "https://registry.yarnpkg.com/redioactive/-/redioactive-0.0.11.tgz#e4fd930640696766d4508fc4f2ac51d2a7adccf1"
-  integrity sha512-mMf1bHkooab8FKQalL0uEI5V3ZI6AnPm72Lh5Ll1I9l6tTptSf1G4qumVa40gCpZPo5i98u8mSiv3+cXNWwlJA==
 
 regexpp@^3.0.0, regexpp@^3.1.0:
   version "3.1.0"
