@@ -8,6 +8,7 @@
   "license": "GPL-3.0",
   "private": false,
   "scripts": {
+    "buildstart": "yarn build && yarn start",
     "build": "trash dist && yarn build:main",
     "build:main": "tsc -p tsconfig.json",
     "lint": "eslint . --ext .ts",
