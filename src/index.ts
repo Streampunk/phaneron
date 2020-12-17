@@ -29,6 +29,7 @@ import { ConsumerRegistry } from './consumer/consumer'
 import { ProducerRegistry } from './producer/producer'
 import { ConsumerConfig, VideoFormats } from './config'
 import readline from 'readline'
+import fs from 'fs'
 
 class Config {
 	private readonly videoFormats: VideoFormats
@@ -133,5 +134,15 @@ initialiseOpenCL()
 	})
 	.then(() => start(commands))
 	.then(console.log, console.error)
+	.then(async () => {
+		if (fs.existsSync('startupAMCPCommands')) {
+			const startupFile = fs.readFileSync('startupAMCPCommands').toString().split('\n')
+			for (const command of startupFile) {
+				if (!command.match('^#')) {
+					await processCommand(command.match(/"[^"]+"|""|\S+/g))
+				}
+			}
+		}
+	})
 	.then(() => rl.prompt())
 	.catch(console.error)
