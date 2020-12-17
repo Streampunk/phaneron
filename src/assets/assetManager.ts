@@ -5,7 +5,7 @@ const MEDIA_DIR = 'media'
 
 class AssetManager {
 	public getAsset(clip: string): Promise<string> {
-		const files = fs.readdirSync(MEDIA_DIR)
+		const files = fs.existsSync(MEDIA_DIR) ? fs.readdirSync(MEDIA_DIR) : []
 
 		if (clip.match(/^(?!file).*:\/\//i)) {
 			return Promise.resolve(clip)
