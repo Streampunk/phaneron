@@ -1,76 +1,97 @@
-function mount(app, connectionManager, prefix = '') {
-	app.get(`${prefix}/connections`, (req, res) => {
-		res.send(connectionManager.getConnections())
-	})
+import Koa from 'koa'
+import * as _ from 'koa-route'
+import cors from '@koa/cors'
+import bodyParser from 'koa-body-parser'
+import { RTCPeerConnection } from 'wrtc'
+import ConnectionManager from './connections/connectionManager'
+import WebRTCConnection from './connections/webRTCConnection'
 
-	app.post(`${prefix}/connections`, async (req, res) => {
-		try {
-			const connection = await connectionManager.createConnection()
-			res.send(connection)
-		} catch (error) {
-			console.error(error)
-			res.sendStatus(500)
-		}
-	})
-
-	app.delete(`${prefix}/connections/:id`, (req, res) => {
-		const { id } = req.params
-		const connection = connectionManager.getConnection(id)
-		if (!connection) {
-			res.sendStatus(404)
-			return
-		}
-		connection.close()
-		res.send(connection)
-	})
-
-	app.get(`${prefix}/connections/:id`, (req, res) => {
-		const { id } = req.params
-		const connection = connectionManager.getConnection(id)
-		if (!connection) {
-			res.sendStatus(404)
-			return
-		}
-		res.send(connection)
-	})
-
-	app.get(`${prefix}/connections/:id/local-description`, (req, res) => {
-		const { id } = req.params
-		const connection = connectionManager.getConnection(id)
-		if (!connection) {
-			res.sendStatus(404)
-			return
-		}
-		res.send(connection.toJSON().localDescription)
-	})
-
-	app.get(`${prefix}/connections/:id/remote-description`, (req, res) => {
-		const { id } = req.params
-		const connection = connectionManager.getConnection(id)
-		if (!connection) {
-			res.sendStatus(404)
-			return
-		}
-		res.send(connection.toJSON().remoteDescription)
-	})
-
-	app.post(`${prefix}/connections/:id/remote-description`, async (req, res) => {
-		const { id } = req.params
-		const connection = connectionManager.getConnection(id)
-		if (!connection) {
-			res.sendStatus(404)
-			return
-		}
-		try {
-			await connection.applyAnswer(req.body)
-			res.send(connection.toJSON().remoteDescription)
-		} catch (error) {
-			res.sendStatus(400)
-		}
-	})
+function mount(
+	kapp: Koa<Koa.DefaultState, Koa.DefaultContext>,
+	connectionManager: ConnectionManager<WebRTCConnection<RTCPeerConnection>>,
+	prefix: string = ''
+) {
+	kapp.use(cors())
+	kapp.use(bodyParser())
+	kapp.use(_.get(`${prefix}/connections`, (ctx) => (ctx.body = connectionManager.getConnections())))
+	kapp.use(
+		_.post(`${prefix}/connections`, async (ctx) => {
+			try {
+				const connection = await connectionManager.createConnection()
+				ctx.body = connection
+			} catch (error) {
+				console.error(error)
+				ctx.status = 500
+			}
+		})
+	)
+	kapp.use(
+		_.delete(`${prefix}/connections/:id`, (ctx, params) => {
+			const { id } = params
+			const connection = connectionManager.getConnection(id)
+			if (!connection) {
+				ctx.status = 404
+				return
+			}
+			connection.close()
+			ctx.body = connection
+		})
+	)
+	kapp.use(
+		_.get(`${prefix}/connections/:id`, (ctx, params) => {
+			const { id } = params
+			const connection = connectionManager.getConnection(id)
+			if (!connection) {
+				ctx.status = 404
+				return
+			}
+			ctx.body = connection
+		})
+	)
+	kapp.use(
+		_.get(`${prefix}/connections/:id/local-description`, (ctx, params) => {
+			const { id } = params
+			const connection = connectionManager.getConnection(id)
+			if (!connection) {
+				ctx.status = 404
+				return
+			}
+			ctx.body = connection.toJSON().localDescription
+		})
+	)
+	kapp.use(
+		_.get(`${prefix}/connections/:id/remote-description`, (ctx, params) => {
+			const { id } = params
+			const connection = connectionManager.getConnection(id)
+			if (!connection) {
+				ctx.status = 404
+				return
+			}
+			ctx.body = connection.toJSON().remoteDescription
+		})
+	)
+	kapp.use(
+		_.post(`${prefix}/connections/:id/remote-description`, async (ctx, params) => {
+			const { id } = params
+			const connection = connectionManager.getConnection(id)
+			if (!connection) {
+				ctx.status = 404
+				return
+			}
+			try {
+				await connection.applyAnswer(ctx.request['body'] as RTCSessionDescriptionInit)
+				ctx.body = connection.toJSON().remoteDescription
+			} catch (error) {
+				ctx.status = 400
+			}
+		})
+	)
 }
 
-function connectionsApi(app, connectionManager) {
+function connectionsApi(
+	app: Koa<Koa.DefaultState, Koa.DefaultContext>,
+	connectionManager: ConnectionManager<WebRTCConnection<RTCPeerConnection>>
+) {
 	mount(app, connectionManager, '/v1')
 }
 
