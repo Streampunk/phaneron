@@ -63,7 +63,7 @@ class Config {
 
 const initialiseOpenCL = async (): Promise<nodenCLContext> => {
 	const platformIndex = 0
-	const deviceIndex = 1
+	const deviceIndex = 0
 	const clContext = new nodenCLContext({
 		platformIndex: platformIndex,
 		deviceIndex: deviceIndex,
