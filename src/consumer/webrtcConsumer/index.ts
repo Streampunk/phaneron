@@ -35,6 +35,7 @@ import {
 } from 'wrtc'
 import { PeerManager } from './peerManager'
 const { RTCVideoSource, rgbaToI420, RTCAudioSource } = WebRTCNonstandard
+import { v4 as uuidv4 } from 'uuid'
 
 interface AudioBuffer {
 	buffer: Buffer
@@ -44,6 +45,7 @@ interface AudioBuffer {
 export class WebRTCConsumer implements Consumer {
 	private readonly clContext: nodenCLContext
 	private readonly chanID: string
+	private readonly rtcUuid: string
 	private readonly params: ConfigParams
 	private readonly format: VideoFormat
 	private readonly clJobs: ClJobs
@@ -51,7 +53,6 @@ export class WebRTCConsumer implements Consumer {
 	private readonly audioOutChannels: number
 	private readonly audioTimebase: number[]
 	private readonly videoTimebase: number[]
-	// private audioOut: IoStreamWrite
 	private audFilterer: Filterer | undefined
 	private peerManager: PeerManager
 	// private rtcVideoSources: Map<
@@ -72,20 +73,13 @@ export class WebRTCConsumer implements Consumer {
 	) {
 		this.clContext = context
 		this.chanID = `${chanID} WebRTC`
+		this.rtcUuid = `${chanID}-${uuidv4()}`
 		this.params = params
 		this.format = format
 		this.clJobs = clJobs
 		this.audioOutChannels = 2
 		this.audioTimebase = [1, this.format.audioSampleRate]
 		this.videoTimebase = [this.format.duration, this.format.timescale]
-		// this.audioOut = AudioIO({
-		// 	outOptions: {
-		// 		channelCount: this.audioOutChannels,
-		// 		sampleFormat: SampleFormatFloat32,
-		// 		sampleRate: this.format.audioSampleRate,
-		// 		closeOnError: false
-		// 	}
-		// })
 
 		if (Object.keys(this.params).length > 1)
 			console.log('WebRTC consumer - unused params', this.params)
@@ -96,12 +90,15 @@ export class WebRTCConsumer implements Consumer {
 		this.rtcAudioTrack = this.rtcAudioSource.createTrack()
 
 		this.peerManager = PeerManager.singleton()
-		this.peerManager.on('newPeer', this.newPeer)
-		this.peerManager.on('peerClose', this.peerClose)
+		this.peerManager.registerSource({ id: this.rtcUuid, description: this.chanID, newPeer: this.newPeer, peerClose: this.peerClose})
+			
+		// this.peerManager.on('newPeer', this.newPeer)
+		// this.peerManager.on('peerClose', this.peerClose)
 	}
 
 	// TODO - hook this up to be called frm somewhere
 	async destroy(): Promise<void> {
+		this.peerManager.destroySource(this.rtcUuid)
 		this.rtcVideoTrack.stop()
 	}
 

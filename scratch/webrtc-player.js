@@ -30,7 +30,18 @@ class ConnectionClient {
         stereo
       } = options;
 
-      const response1 = await fetch(`${host}${prefix}/connections`, {
+      const rawConsumersList = await fetch(`${host}${prefix}/consumers`, {
+        method: 'GET'
+      });
+      const consumersList = await rawConsumersList.json();
+      
+      if (consumersList.length === 0) {
+        throw new Error('No consumers')
+      }
+
+      const streamId = consumersList[0].streamId
+
+      const response1 = await fetch(`${host}${prefix}/connections/${streamId}`, {
         method: 'POST'
       });
 
@@ -45,7 +56,7 @@ class ConnectionClient {
       // RTCPeerConnection is closed. In the future, we can subscribe to
       // "connectionstatechange" events.
       localPeerConnection.close = function() {
-        fetch(`${host}${prefix}/connections/${id}`, { method: 'delete' }).catch(() => {});
+        fetch(`${host}${prefix}/connections/${streamId}/${id}`, { method: 'delete' }).catch(() => {});
         return RTCPeerConnection.prototype.close.apply(this, arguments);
       };
 
@@ -61,7 +72,7 @@ class ConnectionClient {
         });
         await localPeerConnection.setLocalDescription(updatedAnswer);
 
-        await fetch(`${host}${prefix}/connections/${id}/remote-description`, {
+        await fetch(`${host}${prefix}/connections/${streamId}/${id}/remote-description`, {
           method: 'POST',
           body: JSON.stringify(localPeerConnection.localDescription),
           headers: {
@@ -82,7 +93,7 @@ function enableStereoOpus(sdp) {
   return sdp.replace(/a=fmtp:111/, 'a=fmtp:111 stereo=1\r\na=fmtp:111');
 }
 
-const connectionClient = new ConnectionClient({ host: 'http://localhost:3002', prefix: ''});
+const connectionClient = new ConnectionClient({ host: 'http://10.42.13.130:3002', prefix: ''});
 let peerConnection = null;
 async function startStream () {
     peerConnection = await connectionClient.createConnection({ beforeAnswer });
