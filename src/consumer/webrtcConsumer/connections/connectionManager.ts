@@ -45,7 +45,7 @@ export default class ConnectionManager<ConnectionType extends DefaultConnection>
 		this.createConnection = async () => {
 			const id = createId()
 			// @ts-ignore TypeScript doesn't seem to be able to figure out that Connection is a class
-			const connection = new Connection(id)
+			const connection = new Connection(id, options)
 
 			// 1. Add the "closed" listener.
 			function closedListener() {

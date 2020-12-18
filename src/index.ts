@@ -41,9 +41,9 @@ class Config {
 			{
 				format: this.videoFormats.get('1080i5000'),
 				devices: [
-					{ name: 'decklink', deviceIndex: 1, embeddedAudio: true },
-					{ name: 'webrtc', deviceIndex: 0 }
-					// { name: 'screen', deviceIndex: 0 }
+					// { name: 'decklink', deviceIndex: 1, embeddedAudio: true },
+					// { name: 'screen', deviceIndex: 0 },
+					{ name: 'webrtc', deviceIndex: 1 }
 				]
 			},
 			{
@@ -64,7 +64,7 @@ class Config {
 
 const initialiseOpenCL = async (): Promise<nodenCLContext> => {
 	const platformIndex = 0
-	const deviceIndex = 0
+	const deviceIndex = 1
 	const clContext = new nodenCLContext({
 		platformIndex: platformIndex,
 		deviceIndex: deviceIndex,
