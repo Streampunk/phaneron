@@ -1,18 +1,32 @@
 import Koa from 'koa'
 import * as _ from 'koa-route'
-import { ConnectionManager } from './connections/connectionManager'
-import { WebRTCConnection } from './connections/webRTCConnection'
+import { ConsumerInfoExt } from './peerManager'
 
 export default function mountConnectionsApi(
 	kapp: Koa<Koa.DefaultState, Koa.DefaultContext>,
-	connectionManager: ConnectionManager<WebRTCConnection>,
+	consumers: Map<string, ConsumerInfoExt>,
 	prefix: string = ''
 ) {
-	kapp.use(_.get(`${prefix}/connections`, (ctx) => (ctx.body = connectionManager.getConnections())))
+	kapp.use(_.get(`${prefix}/streams`, (ctx) => {
+		ctx.body = JSON.stringify(Array.from(consumers.values()).map(c => ({ streamId: c.id, description: c.description})))
+	}))
+	kapp.use(_.get(`${prefix}/streams/:consumerId/connections`, (ctx, consumerId: string) => {
+		const consumer = consumers.get(consumerId)
+		if (!consumer) {
+			ctx.status = 404
+			return
+		}
+		ctx.body = consumer.connectionManager.getConnections()
+	}))
 	kapp.use(
-		_.post(`${prefix}/connections`, async (ctx) => {
+		_.post(`${prefix}/streams/:consumerId/connections`, async (ctx, consumerId: string) => {
 			try {
-				const connection = await connectionManager.createConnection()
+				const consumer = consumers.get(consumerId)
+				if (!consumer) {
+					ctx.status = 404
+					return
+				}
+				const connection = await consumer.connectionManager.createConnection()
 				ctx.body = connection
 			} catch (error) {
 				console.error(error)
@@ -21,9 +35,13 @@ export default function mountConnectionsApi(
 		})
 	)
 	kapp.use(
-		_.delete(`${prefix}/connections/:id`, (ctx, params) => {
-			const { id } = params
-			const connection = connectionManager.getConnection(id)
+		_.delete(`${prefix}/streams/:consumerId/connections/:id`, (ctx, consumerId: string, id: string) => {
+			const consumer = consumers.get(consumerId)
+			if (!consumer) {
+				ctx.status = 404
+				return
+			}
+			const connection = consumer.connectionManager.getConnection(id)
 			if (!connection) {
 				ctx.status = 404
 				return
@@ -33,8 +51,13 @@ export default function mountConnectionsApi(
 		})
 	)
 	kapp.use(
-		_.get(`${prefix}/connections/:id`, (ctx, id) => {
-			const connection = connectionManager.getConnection(id)
+		_.get(`${prefix}/streams/:consumerId/connections/:id`, (ctx, consumerId: string, id: string) => {
+			const consumer = consumers.get(consumerId)
+			if (!consumer) {
+				ctx.status = 404
+				return
+			}
+			const connection = consumer.connectionManager.getConnection(id)
 			if (!connection) {
 				ctx.status = 404
 				return
@@ -43,8 +66,13 @@ export default function mountConnectionsApi(
 		})
 	)
 	kapp.use(
-		_.get(`${prefix}/connections/:id/local-description`, (ctx, id) => {
-			const connection = connectionManager.getConnection(id)
+		_.get(`${prefix}/streams/:consumerId/connections/:id/local-description`, (ctx, consumerId: string, id: string) => {
+			const consumer = consumers.get(consumerId)
+			if (!consumer) {
+				ctx.status = 404
+				return
+			}
+			const connection = consumer.connectionManager.getConnection(id)
 			if (!connection) {
 				ctx.status = 404
 				return
@@ -53,8 +81,13 @@ export default function mountConnectionsApi(
 		})
 	)
 	kapp.use(
-		_.get(`${prefix}/connections/:id/remote-description`, (ctx, id) => {
-			const connection = connectionManager.getConnection(id)
+		_.get(`${prefix}/streams/:consumerId/connections/:id/remote-description`, (ctx, consumerId: string, id: string) => {
+			const consumer = consumers.get(consumerId)
+			if (!consumer) {
+				ctx.status = 404
+				return
+			}
+			const connection = consumer.connectionManager.getConnection(id)
 			if (!connection) {
 				ctx.status = 404
 				return
@@ -63,8 +96,13 @@ export default function mountConnectionsApi(
 		})
 	)
 	kapp.use(
-		_.post(`${prefix}/connections/:id/remote-description`, async (ctx, id) => {
-			const connection = connectionManager.getConnection(id)
+		_.post(`${prefix}/streams/:consumerId/connections/:id/remote-description`, async (ctx, consumerId: string, id: string) => {
+			const consumer = consumers.get(consumerId)
+			if (!consumer) {
+				ctx.status = 404
+				return
+			}
+			const connection = consumer.connectionManager.getConnection(id)
 			if (!connection) {
 				ctx.status = 404
 				return
