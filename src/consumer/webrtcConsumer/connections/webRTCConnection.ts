@@ -93,12 +93,12 @@ export default class WebRTCConnection<
 	doOffer = async () => {
 		const offer = await this.peerConnection.createOffer()
 		await this.peerConnection.setLocalDescription(offer)
-		try {
-			await waitUntilIceGatheringStateComplete(this.peerConnection, this.options)
-		} catch (error) {
-			this.close()
-			throw error
-		}
+		// try {
+		//  await waitUntilIceGatheringStateComplete(this.peerConnection, this.options)
+		// } catch (error) {
+		// 	this.close()
+		// 	throw error
+		// }
 	}
 
 	applyAnswer = async (answer: RTCSessionDescriptionInit) => {
@@ -165,31 +165,31 @@ function disableTrickleIce(sdp: string) {
 	return sdp.replace(/\r\na=ice-options:trickle/g, '')
 }
 
-async function waitUntilIceGatheringStateComplete<
-	RTCPeerConnectionType extends DefaultRTCPeerConnection
->(peerConnection: RTCPeerConnectionType, options: IOptions<RTCPeerConnectionType>) {
-	if (peerConnection.iceGatheringState === 'complete') {
-		return
-	}
+// async function waitUntilIceGatheringStateComplete<
+// 	RTCPeerConnectionType extends DefaultRTCPeerConnection
+// >(peerConnection: RTCPeerConnectionType, options: IOptions<RTCPeerConnectionType>) {
+// 	if (peerConnection.iceGatheringState === 'complete') {
+// 		return
+// 	}
 
-	const { timeToHostCandidates } = options
+// 	const { timeToHostCandidates } = options
 
-	const promise = new Promise<void>((resolve, reject) => {
-		const timeout = options.setTimeout(() => {
-			peerConnection.removeEventListener('icecandidate', onIceCandidate)
-			reject(new Error('Timed out waiting for host candidates'))
-		}, timeToHostCandidates)
+// 	const promise = new Promise<void>((resolve, reject) => {
+// 		const timeout = options.setTimeout(() => {
+// 			peerConnection.removeEventListener('icecandidate', onIceCandidate)
+// 			reject(new Error('Timed out waiting for host candidates'))
+// 		}, timeToHostCandidates)
 
-		function onIceCandidate({ candidate }: { candidate: RTCIceCandidate }) {
-			if (!candidate) {
-				options.clearTimeout(timeout)
-				peerConnection.removeEventListener('icecandidate', onIceCandidate)
-				resolve()
-			}
-		}
+// 		function onIceCandidate({ candidate }: { candidate: RTCIceCandidate }) {
+// 			if (!candidate) {
+// 				options.clearTimeout(timeout)
+// 				peerConnection.removeEventListener('icecandidate', onIceCandidate)
+// 				resolve()
+// 			}
+// 		}
 
-		peerConnection.addEventListener('icecandidate', onIceCandidate)
-	})
+// 		peerConnection.addEventListener('icecandidate', onIceCandidate)
+// 	})
 
-	await promise
-}
+// 	await promise
+// }

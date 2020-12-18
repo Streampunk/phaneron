@@ -1,0 +1,34 @@
+<meta charset="UTF-8">
+<html>
+
+<head>
+	<script src="webrtc-player.js"></script>
+	<style>
+		.div-section {
+			margin-bottom: 8px;
+		}
+	</style>
+</head>
+
+<body>
+	<div class="div-section">
+		<table>
+			<tr style="display: none;">
+				<td>&nbsp;</td>
+			</tr>
+		</table>
+	</div>
+	<div class="div-section">
+		<video id="remoteVideo" autoplay playsinline controls style="height:480px;"></video>
+	</div>
+
+	<script type="text/javascript">
+		startStream();
+	</script>
+
+	<div>
+		<span id="sdpDataTag"></span>
+	</div>
+</body>
+
+</html>

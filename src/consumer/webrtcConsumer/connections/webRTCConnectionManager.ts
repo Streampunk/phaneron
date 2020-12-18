@@ -27,12 +27,4 @@ export class WebRtcConnectionManager<
 	getConnections = (): RTCPeerConnectionType[] => this.connectionManager.getConnections()
 
 	toJSON = () => this.getConnections().map((connection) => connection.toJSON())
-
-	static create(options: Partial<IWebRTCConnectionOptions<RTCPeerConnection>>) {
-		return new WebRtcConnectionManager({
-			Connection: function (id: ConnectionID) {
-				return new WebRTCConnection(id, options)
-			}
-		})
-	}
 }

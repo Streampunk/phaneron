@@ -1,18 +1,14 @@
 import Koa from 'koa'
 import * as _ from 'koa-route'
-import cors from '@koa/cors'
-import bodyParser from 'koa-bodyparser'
 import { RTCPeerConnection } from 'wrtc'
 import ConnectionManager from './connections/connectionManager'
 import WebRTCConnection from './connections/webRTCConnection'
 
-export default function mount(
+export default function mountConnectionsApi(
 	kapp: Koa<Koa.DefaultState, Koa.DefaultContext>,
 	connectionManager: ConnectionManager<WebRTCConnection<RTCPeerConnection>>,
 	prefix: string = ''
 ) {
-	kapp.use(cors())
-	kapp.use(bodyParser())
 	kapp.use(_.get(`${prefix}/connections`, (ctx) => (ctx.body = connectionManager.getConnections())))
 	kapp.use(
 		_.post(`${prefix}/connections`, async (ctx) => {
@@ -38,8 +34,7 @@ export default function mount(
 		})
 	)
 	kapp.use(
-		_.get(`${prefix}/connections/:id`, (ctx, params) => {
-			const { id } = params
+		_.get(`${prefix}/connections/:id`, (ctx, id) => {
 			const connection = connectionManager.getConnection(id)
 			if (!connection) {
 				ctx.status = 404
@@ -49,8 +44,7 @@ export default function mount(
 		})
 	)
 	kapp.use(
-		_.get(`${prefix}/connections/:id/local-description`, (ctx, params) => {
-			const { id } = params
+		_.get(`${prefix}/connections/:id/local-description`, (ctx, id) => {
 			const connection = connectionManager.getConnection(id)
 			if (!connection) {
 				ctx.status = 404
@@ -60,8 +54,7 @@ export default function mount(
 		})
 	)
 	kapp.use(
-		_.get(`${prefix}/connections/:id/remote-description`, (ctx, params) => {
-			const { id } = params
+		_.get(`${prefix}/connections/:id/remote-description`, (ctx, id) => {
 			const connection = connectionManager.getConnection(id)
 			if (!connection) {
 				ctx.status = 404
@@ -71,8 +64,7 @@ export default function mount(
 		})
 	)
 	kapp.use(
-		_.post(`${prefix}/connections/:id/remote-description`, async (ctx, params) => {
-			const { id } = params
+		_.post(`${prefix}/connections/:id/remote-description`, async (ctx, id) => {
 			const connection = connectionManager.getConnection(id)
 			if (!connection) {
 				ctx.status = 404
@@ -86,11 +78,4 @@ export default function mount(
 			}
 		})
 	)
-}
-
-export function connectionsApi(
-	app: Koa<Koa.DefaultState, Koa.DefaultContext>,
-	connectionManager: ConnectionManager<WebRTCConnection<RTCPeerConnection>>
-) {
-	mount(app, connectionManager, '/webRTCConnectionManager/v1')
 }

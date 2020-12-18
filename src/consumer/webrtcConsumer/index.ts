@@ -48,10 +48,12 @@ export class WebRTCConsumer implements Consumer {
 	// private audioOut: IoStreamWrite
 	private audFilterer: Filterer | undefined
 	private peerManager: PeerManager
-	private rtcVideoSources: Map<
-		RTCPeerConnection,
-		{ source: WebRTCNonstandard.RTCVideoSource; track: MediaStreamTrack }
-	> = new Map()
+	// private rtcVideoSources: Map<
+	// 	RTCPeerConnection,
+	// 	{ source: WebRTCNonstandard.RTCVideoSource; track: MediaStreamTrack }
+	// > = new Map()
+	private rtcVideoSource: RTCVideoSource
+	private rtcTrack: MediaStreamTrack
 
 	constructor(
 		context: nodenCLContext,
@@ -61,7 +63,7 @@ export class WebRTCConsumer implements Consumer {
 		clJobs: ClJobs
 	) {
 		this.clContext = context
-		this.chanID = `${chanID} screen`
+		this.chanID = `${chanID} WebRTC`
 		this.params = params
 		this.format = format
 		this.clJobs = clJobs
@@ -78,11 +80,19 @@ export class WebRTCConsumer implements Consumer {
 		// })
 
 		if (Object.keys(this.params).length > 1)
-			console.log('Screen consumer - unused params', this.params)
+			console.log('WebRTC consumer - unused params', this.params)
+
+		this.source = new RTCVideoSource()
+		this.track = this.source.createTrack()
 
 		this.peerManager = PeerManager.singleton()
 		this.peerManager.on('newPeer', this.newPeer)
 		this.peerManager.on('peerClose', this.peerClose)
+	}
+
+	// TODO - hook this up to be called frm somewhere
+	async destroy(): Promise<void> {
+		this.track.stop()
 	}
 
 	async initialise(): Promise<void> {
@@ -132,17 +142,17 @@ export class WebRTCConsumer implements Consumer {
 	}
 
 	newPeer = ({ peerConnection }: { peerConnection: RTCPeerConnection }) => {
-		const source = new RTCVideoSource()
-		const track = source.createTrack()
-		peerConnection.addTransceiver(track)
-		this.rtcVideoSources.set(peerConnection, { source, track })
+		// const source = new RTCVideoSource()
+		// const track = source.createTrack()
+		peerConnection.addTransceiver(this.track)
+		// this.rtcVideoSources.set(peerConnection, { source: this.source, track: this.track })
 	}
 	peerClose = ({ peerConnection }: { peerConnection: RTCPeerConnection }) => {
-		const descriptor = this.rtcVideoSources.get(peerConnection)
-		if (descriptor) {
-			descriptor.track.stop()
-			this.rtcVideoSources.delete(peerConnection)
-		}
+		// const descriptor = this.rtcVideoSources.get(peerConnection)
+		// if (descriptor) {
+		// 	// descriptor.track.stop()
+		// 	this.rtcVideoSources.delete(peerConnection)
+		// }
 	}
 
 	connect(
@@ -204,7 +214,7 @@ export class WebRTCConsumer implements Consumer {
 				const vtb = this.videoTimebase
 				const vts = (vidBuf.timestamp * vtb[0]) / vtb[1]
 				if (Math.abs(ats - vts) > 0.1)
-					console.log('Screen audio and video timestamp mismatch - aud:', ats, ' vid:', vts)
+					console.log('WebRTC audio and video timestamp mismatch - aud:', ats, ' vid:', vts)
 
 				const write = (_data: Buffer, cb: () => void) => {
 					// if (
@@ -234,7 +244,8 @@ export class WebRTCConsumer implements Consumer {
 						},
 						i420frame
 					)
-					this.rtcVideoSources.forEach((descriptor) => descriptor.source.onFrame(i420frame))
+
+					this.source.onFrame(i420frame)
 
 					write(audBuf.buffer, () => {
 						vidBuf.release()
