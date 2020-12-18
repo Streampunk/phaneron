@@ -13,16 +13,24 @@
     "build:main": "tsc -p tsconfig.json",
     "lint": "eslint . --ext .ts",
     "lint:fix": "yarn lint --fix",
-    "start": "UV_THREADPOOL_SIZE=32 node dist/index.js"
+    "start": "UV_THREADPOOL_SIZE=32 node dist/index.js",
+    "build-start": "yarn build && yarn start"
   },
   "dependencies": {
     "@koa/cors": "3",
+    "@types/koa-route": "^3.2.4",
+    "@types/uuid": "^8.3.0",
+    "@types/webrtc": "^0.0.26",
     "beamcoder": "git+https://github.com/Streampunk/redioactive.git#master",
     "koa": "^2.13.0",
+    "koa-body-parser": "^1.1.2",
+    "koa-route": "^3.2.0",
     "macadam": "git+https://github.com/Streampunk/macadam.git#master",
     "naudiodon": "git+https://github.com/Streampunk/naudiodon.git#master",
     "nodencl": "git+https://github.com/Streampunk/nodencl.git#master",
-    "redioactive": "0.0.11"
+    "redioactive": "0.0.11",
+    "uuid": "^8.3.2",
+    "wrtc": "^0.4.6"
   },
   "devDependencies": {
     "@types/koa": "2.11.6",
