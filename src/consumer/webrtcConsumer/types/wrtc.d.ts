@@ -466,12 +466,25 @@ declare module 'wrtc' {
 		readonly channel: RTCDataChannel
 	}
 
-	class RTCVideoSink extends EventTarget {
-		constructor(track: MediaStreamTrack)
-		stop(): void
-		readonly stopped: boolean
-		addEventListener(type: 'frame', handler: EventHandlerNonNull): void
-		removeEventListener(type: 'frame', handler: EventHandlerNonNull): void
+	namespace nonstandard {
+		class RTCVideoSink extends EventTarget {
+			constructor(track: MediaStreamTrack)
+			stop(): void
+			readonly stopped: boolean
+			addEventListener(type: 'frame', handler: EventHandlerNonNull): void
+			removeEventListener(type: 'frame', handler: EventHandlerNonNull): void
+		}
+
+		class RTCVideoSource {
+			constructor()
+			readonly isScreencast: boolean
+			readonly needsDenoising?: boolean
+			createTrack(): MediaStreamTrack
+			onFrame(frame: RTCVideoFrame): void
+		}
+
+		function i420ToRgba(i420Frame: RTCVideoFrame, rgbaFrame: RTCVideoFrame): void
+		function rgbaToI420(rgbaFrame: RTCVideoFrame, i420Frame: RTCVideoFrame): void
 	}
 
 	interface RTCVideoFrame {
@@ -479,14 +492,6 @@ declare module 'wrtc' {
 		height: number
 		data: Uint8ClampedArray
 		rotation?: 0 | 90 | 180 | 270
-	}
-
-	class RTCVideoSource {
-		constructor()
-		readonly isScreencast: boolean
-		readonly needsDenoising?: boolean
-		createTrack(): MediaStreamTrack
-		onFrame(frame: RTCVideoFrame): void
 	}
 
 	// https://www.w3.org/TR/webrtc/#idl-def-rtcpeerconnection

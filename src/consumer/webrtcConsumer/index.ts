@@ -21,13 +21,14 @@
 import { clContext as nodenCLContext, OpenCLBuffer } from 'nodencl'
 import { RedioPipe, RedioEnd, nil, isValue, Valve, Spout } from 'redioactive'
 import { Frame, Filterer, filterer } from 'beamcoder'
-import Koa from 'koa'
-import cors from '@koa/cors'
 import { ConsumerFactory, Consumer } from '../consumer'
 import { FromRGBA } from '../../process/io'
 import { Writer } from '../../process/rgba8'
 import { ConfigParams, VideoFormat, DeviceConfig } from '../../config'
 import { ClJobs } from '../../clJobQueue'
+import { MediaStreamTrack, nonstandard as WebRTCNonstandard, RTCPeerConnection } from 'wrtc'
+import { PeerManager } from './peerManager'
+const { RTCVideoSource, rgbaToI420 } = WebRTCNonstandard
 
 interface AudioBuffer {
 	buffer: Buffer
@@ -46,8 +47,11 @@ export class WebRTCConsumer implements Consumer {
 	private readonly videoTimebase: number[]
 	// private audioOut: IoStreamWrite
 	private audFilterer: Filterer | undefined
-	private readonly kapp: Koa<Koa.DefaultState, Koa.DefaultContext>
-	private readonly lastWeb: Buffer
+	private peerManager: PeerManager
+	private rtcVideoSources: Map<
+		RTCPeerConnection,
+		{ source: WebRTCNonstandard.RTCVideoSource; track: MediaStreamTrack }
+	> = new Map()
 
 	constructor(
 		context: nodenCLContext,
@@ -76,13 +80,9 @@ export class WebRTCConsumer implements Consumer {
 		if (Object.keys(this.params).length > 1)
 			console.log('Screen consumer - unused params', this.params)
 
-		this.lastWeb = Buffer.alloc(this.format.width * this.format.height * 4)
-		this.kapp = new Koa()
-		this.kapp.use(cors())
-		this.kapp.use(async (ctx) => (ctx.body = this.lastWeb))
-
-		const server = this.kapp.listen(3001)
-		process.on('SIGHUP', server.close)
+		this.peerManager = PeerManager.singleton()
+		this.peerManager.on('newPeer', this.newPeer)
+		this.peerManager.on('peerClose', this.peerClose)
 	}
 
 	async initialise(): Promise<void> {
@@ -127,8 +127,22 @@ export class WebRTCConsumer implements Consumer {
 		)
 		await this.fromRGBA.init()
 
-		console.log('Created Screen consumer')
+		console.log('Created WebRTC consumer')
 		return Promise.resolve()
+	}
+
+	newPeer = ({ peerConnection }: { peerConnection: RTCPeerConnection }) => {
+		const source = new RTCVideoSource()
+		const track = source.createTrack()
+		peerConnection.addTransceiver(track)
+		this.rtcVideoSources.set(peerConnection, { source, track })
+	}
+	peerClose = ({ peerConnection }: { peerConnection: RTCPeerConnection }) => {
+		const descriptor = this.rtcVideoSources.get(peerConnection)
+		if (descriptor) {
+			descriptor.track.stop()
+			this.rtcVideoSources.delete(peerConnection)
+		}
 	}
 
 	connect(
@@ -192,7 +206,7 @@ export class WebRTCConsumer implements Consumer {
 				if (Math.abs(ats - vts) > 0.1)
 					console.log('Screen audio and video timestamp mismatch - aud:', ats, ' vid:', vts)
 
-				const write = (data: Buffer, cb: () => void) => {
+				const write = (_data: Buffer, cb: () => void) => {
 					// if (
 					// !this.audioOut.write(data, (err: Error | null | undefined) => {
 					// 	if (err) console.log('Write Error:', err)
@@ -205,7 +219,23 @@ export class WebRTCConsumer implements Consumer {
 				}
 
 				return new Promise((resolve) => {
-					vidBuf.copy(this.lastWeb)
+					const frame = Buffer.alloc(this.format.width * this.format.height * 4)
+					vidBuf.copy(frame)
+					const i420frame = {
+						width: this.format.width,
+						height: this.format.height,
+						data: new Uint8ClampedArray(1.5 * this.format.width * this.format.height)
+					}
+					rgbaToI420(
+						{
+							width: this.format.width,
+							height: this.format.height,
+							data: new Uint8ClampedArray(frame)
+						},
+						i420frame
+					)
+					this.rtcVideoSources.forEach((descriptor) => descriptor.source.onFrame(i420frame))
+
 					write(audBuf.buffer, () => {
 						vidBuf.release()
 						resolve()

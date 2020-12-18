@@ -1,12 +1,12 @@
 import Koa from 'koa'
 import * as _ from 'koa-route'
 import cors from '@koa/cors'
-import bodyParser from 'koa-body-parser'
+import bodyParser from 'koa-bodyparser'
 import { RTCPeerConnection } from 'wrtc'
 import ConnectionManager from './connections/connectionManager'
 import WebRTCConnection from './connections/webRTCConnection'
 
-function mount(
+export default function mount(
 	kapp: Koa<Koa.DefaultState, Koa.DefaultContext>,
 	connectionManager: ConnectionManager<WebRTCConnection<RTCPeerConnection>>,
 	prefix: string = ''
@@ -79,7 +79,7 @@ function mount(
 				return
 			}
 			try {
-				await connection.applyAnswer(ctx.request['body'] as RTCSessionDescriptionInit)
+				await connection.applyAnswer(ctx.request.body as RTCSessionDescriptionInit)
 				ctx.body = connection.toJSON().remoteDescription
 			} catch (error) {
 				ctx.status = 400
@@ -88,12 +88,9 @@ function mount(
 	)
 }
 
-function connectionsApi(
+export function connectionsApi(
 	app: Koa<Koa.DefaultState, Koa.DefaultContext>,
 	connectionManager: ConnectionManager<WebRTCConnection<RTCPeerConnection>>
 ) {
-	mount(app, connectionManager, '/v1')
+	mount(app, connectionManager, '/webRTCConnectionManager/v1')
 }
-
-module.exports = connectionsApi
-module.exports.mount = mount
