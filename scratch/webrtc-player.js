@@ -30,7 +30,7 @@ class ConnectionClient {
         stereo
       } = options;
 
-      const rawConsumersList = await fetch(`${host}${prefix}/consumers`, {
+      const rawConsumersList = await fetch(`${host}${prefix}/streams`, {
         method: 'GET'
       });
       const consumersList = await rawConsumersList.json();
@@ -41,7 +41,7 @@ class ConnectionClient {
 
       const streamId = consumersList[0].streamId
 
-      const response1 = await fetch(`${host}${prefix}/connections/${streamId}`, {
+      const response1 = await fetch(`${host}${prefix}/streams/${streamId}/connections`, {
         method: 'POST'
       });
 
@@ -56,7 +56,7 @@ class ConnectionClient {
       // RTCPeerConnection is closed. In the future, we can subscribe to
       // "connectionstatechange" events.
       localPeerConnection.close = function() {
-        fetch(`${host}${prefix}/connections/${streamId}/${id}`, { method: 'delete' }).catch(() => {});
+        fetch(`${host}${prefix}/streams/${streamId}/connections/${id}`, { method: 'delete' }).catch(() => {});
         return RTCPeerConnection.prototype.close.apply(this, arguments);
       };
 
@@ -72,7 +72,7 @@ class ConnectionClient {
         });
         await localPeerConnection.setLocalDescription(updatedAnswer);
 
-        await fetch(`${host}${prefix}/connections/${streamId}/${id}/remote-description`, {
+        await fetch(`${host}${prefix}/streams/${streamId}/connections/${id}/remote-description`, {
           method: 'POST',
           body: JSON.stringify(localPeerConnection.localDescription),
           headers: {

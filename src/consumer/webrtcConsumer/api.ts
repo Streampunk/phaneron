@@ -7,10 +7,10 @@ export default function mountConnectionsApi(
 	consumers: Map<string, ConsumerInfoExt>,
 	prefix: string = ''
 ) {
-	kapp.use(_.get(`${prefix}/consumers`, (ctx) => {
+	kapp.use(_.get(`${prefix}/streams`, (ctx) => {
 		ctx.body = JSON.stringify(Array.from(consumers.values()).map(c => ({ streamId: c.id, description: c.description})))
 	}))
-	kapp.use(_.get(`${prefix}/connections/:consumerId`, (ctx, consumerId: string) => {
+	kapp.use(_.get(`${prefix}/streams/:consumerId/connections`, (ctx, consumerId: string) => {
 		const consumer = consumers.get(consumerId)
 		if (!consumer) {
 			ctx.status = 404
@@ -19,7 +19,7 @@ export default function mountConnectionsApi(
 		ctx.body = consumer.connectionManager.getConnections()
 	}))
 	kapp.use(
-		_.post(`${prefix}/connections/:consumerId`, async (ctx, consumerId: string) => {
+		_.post(`${prefix}/streams/:consumerId/connections`, async (ctx, consumerId: string) => {
 			try {
 				const consumer = consumers.get(consumerId)
 				if (!consumer) {
@@ -35,7 +35,7 @@ export default function mountConnectionsApi(
 		})
 	)
 	kapp.use(
-		_.delete(`${prefix}/connections/:consumerId/:id`, (ctx, consumerId: string, id: string) => {
+		_.delete(`${prefix}/streams/:consumerId/connections/:id`, (ctx, consumerId: string, id: string) => {
 			const consumer = consumers.get(consumerId)
 			if (!consumer) {
 				ctx.status = 404
@@ -51,7 +51,7 @@ export default function mountConnectionsApi(
 		})
 	)
 	kapp.use(
-		_.get(`${prefix}/connections/:consumerId/:id`, (ctx, consumerId: string, id: string) => {
+		_.get(`${prefix}/streams/:consumerId/connections/:id`, (ctx, consumerId: string, id: string) => {
 			const consumer = consumers.get(consumerId)
 			if (!consumer) {
 				ctx.status = 404
@@ -66,7 +66,7 @@ export default function mountConnectionsApi(
 		})
 	)
 	kapp.use(
-		_.get(`${prefix}/connections/:consumerId/:id/local-description`, (ctx, consumerId: string, id: string) => {
+		_.get(`${prefix}/streams/:consumerId/connections/:id/local-description`, (ctx, consumerId: string, id: string) => {
 			const consumer = consumers.get(consumerId)
 			if (!consumer) {
 				ctx.status = 404
@@ -81,7 +81,7 @@ export default function mountConnectionsApi(
 		})
 	)
 	kapp.use(
-		_.get(`${prefix}/connections/:consumerId/:id/remote-description`, (ctx, consumerId: string, id: string) => {
+		_.get(`${prefix}/streams/:consumerId/connections/:id/remote-description`, (ctx, consumerId: string, id: string) => {
 			const consumer = consumers.get(consumerId)
 			if (!consumer) {
 				ctx.status = 404
@@ -96,7 +96,7 @@ export default function mountConnectionsApi(
 		})
 	)
 	kapp.use(
-		_.post(`${prefix}/connections/:consumerId/:id/remote-description`, async (ctx, consumerId: string, id: string) => {
+		_.post(`${prefix}/streams/:consumerId/connections/:id/remote-description`, async (ctx, consumerId: string, id: string) => {
 			const consumer = consumers.get(consumerId)
 			if (!consumer) {
 				ctx.status = 404
