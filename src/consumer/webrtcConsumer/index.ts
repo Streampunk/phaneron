@@ -29,7 +29,7 @@ import { ClJobs } from '../../clJobQueue'
 import {
 	MediaStreamTrack,
 	nonstandard as WebRTCNonstandard,
-	// RTCAudioData,
+	RTCAudioData,
 	RTCPeerConnection,
 	RTCVideoFrame
 } from 'wrtc'
@@ -112,7 +112,7 @@ export class WebRTCConsumer implements Consumer {
 		// !!! Needs more work to handle 59.94 frame rates !!!
 		const samplesPerFrame =
 			(this.format.audioSampleRate * this.format.duration) / this.format.timescale
-		const outSampleFormat = 'flt'
+		const outSampleFormat = 's16'
 
 		this.audFilterer = await filterer({
 			filterType: 'audio',
@@ -264,28 +264,26 @@ export class WebRTCConsumer implements Consumer {
 					// 	floatBuffer,
 					// 	(i * floatBuffer.length) / 4,
 					// 	floatBuffer.length / 4
-					// ),
 
-					// const floatBuffer = new Float32Array(audBuf.buffer)
-					// console.log(`LEN1: ${audBuf.buffer.length}`) // This length is x2 what we expect 🤔
-					// console.log(`LEN2: ${floatBuffer.length}`)
-					// console.log(`CHANNELS: ${this.format.audioChannels}`)
-					// console.log(`FRAMES: ${this.format.audioSampleRate / 100}`)
-					// console.log(`RATE: ${this.format.audioSampleRate}`)
-					// for (let i = 0; i < 4; i++) {
-					// 	const audioBuffer: RTCAudioData = {
-					// 		samples: Int16Array.from(
-					// 			floatBuffer.slice((i * floatBuffer.length) / 4, floatBuffer.length / 4)
-					// 		),
-					// 		sampleRate: this.format.audioSampleRate,
-					// 		// // bitsPerSample default is 16
-					// 		// bitsPerSample?: number
-					// 		channelCount: this.format.audioChannels,
-					// 		// number of frames
-					// 		numberOfFrames: this.format.audioSampleRate / 100
-					// 	}
-					// 	this.rtcAudioSource.onData(audioBuffer)
-					// }
+					const samples =
+						(this.format.audioSampleRate * this.format.duration) / this.format.timescale
+					console.log(`SAMPLES: ${samples}`)
+					console.log(`CHANNELS: ${this.format.audioChannels}`)
+					console.log(`BUFFER: ${audBuf.buffer.length}`)
+					for (let i = 0; i < 4; i++) {
+						const start = (i * audBuf.buffer.length) / 4
+						const end = start + audBuf.buffer.length / 4
+						const audioBuffer: RTCAudioData = {
+							samples: Int16Array.from(audBuf.buffer.slice(start, end)),
+							sampleRate: this.format.audioSampleRate,
+							// // bitsPerSample default is 16
+							// bitsPerSample?: number
+							channelCount: this.audioOutChannels,
+							// number of frames
+							numberOfFrames: this.format.audioSampleRate / 100
+						}
+						this.rtcAudioSource.onData(audioBuffer)
+					}
 
 					resolve()
 
