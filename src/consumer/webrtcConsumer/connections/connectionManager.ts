@@ -42,7 +42,7 @@ export default class ConnectionManager<ConnectionType extends DefaultConnection>
 			connections.delete(connection.id)
 		}
 
-		this.createConnection = () => {
+		this.createConnection = async () => {
 			const id = createId()
 			// @ts-ignore TypeScript doesn't seem to be able to figure out that Connection is a class
 			const connection = new Connection(id)
@@ -69,7 +69,7 @@ export default class ConnectionManager<ConnectionType extends DefaultConnection>
 		}
 	}
 
-	createConnection: () => ConnectionType
+	createConnection: () => Promise<ConnectionType>
 	getConnection: (id: ConnectionID) => ConnectionType | null
 	getConnections: () => ConnectionType[]
 

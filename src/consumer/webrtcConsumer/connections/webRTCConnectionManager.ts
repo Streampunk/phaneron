@@ -17,7 +17,7 @@ export class WebRtcConnectionManager<
 	}
 
 	createConnection = async () => {
-		const connection = this.connectionManager.createConnection()
+		const connection = await this.connectionManager.createConnection()
 		await connection.doOffer()
 		return connection
 	}
@@ -36,5 +36,3 @@ export class WebRtcConnectionManager<
 		})
 	}
 }
-
-module.exports = WebRtcConnectionManager
