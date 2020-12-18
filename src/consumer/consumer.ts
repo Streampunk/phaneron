@@ -27,6 +27,7 @@ import { Frame } from 'beamcoder'
 import { Channel } from '../channel'
 import { ConfigParams, VideoFormat, DeviceConfig, ConsumerConfig } from '../config'
 import { ClJobs } from '../clJobQueue'
+import { WebRTCConsumerFactory } from './webrtcConsumer'
 
 export interface Consumer {
 	initialise(): Promise<void>
@@ -55,6 +56,7 @@ export class ConsumerRegistry {
 		this.consumerFactories.set('decklink', new MacadamConsumerFactory(clContext))
 		this.consumerFactories.set('screen', new ScreenConsumerFactory(clContext))
 		this.consumerFactories.set('ffmpeg', new FFmpegConsumerFactory(clContext))
+		this.consumerFactories.set('webrtc', new WebRTCConsumerFactory(clContext))
 		this.consumers = new Map()
 		this.chanIDs = new Map()
 		this.formats = new Map()
