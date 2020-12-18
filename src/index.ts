@@ -41,7 +41,7 @@ class Config {
 				format: this.videoFormats.get('1080i5000'),
 				devices: [
 					{ name: 'decklink', deviceIndex: 1, embeddedAudio: true },
-					{ name: 'screen', deviceIndex: 0 }
+					// { name: 'screen', deviceIndex: 0 }
 				]
 			},
 			{
