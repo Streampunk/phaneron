@@ -2,24 +2,29 @@ import { EventEmitter } from 'events'
 import Koa from 'koa'
 import cors from '@koa/cors'
 import bodyParser from 'koa-bodyparser'
+import { v4 as uuidv4 } from 'uuid'
 
 import connectionManagerApi from './api'
 import { RTCPeerConnection } from 'wrtc'
 import { WebRtcConnectionManager } from './connections/webRTCConnectionManager'
-import WebRTCConnection from './connections/webRTCConnection'
+import { WebRTCConnection } from './connections/webRTCConnection'
 
 let peerManagerSingleton: PeerManager
 
 export class PeerManager extends EventEmitter {
-	private connectionManager: WebRtcConnectionManager<WebRTCConnection<RTCPeerConnection>>
+	private connectionManager: WebRtcConnectionManager<WebRTCConnection>
 	private kapp: Koa<Koa.DefaultState, Koa.DefaultContext>
 	// private allPeerConnections: RTCPeerConnection[] = []
 
 	constructor() {
 		super()
 		this.connectionManager = new WebRtcConnectionManager({
-			Connection: WebRTCConnection,
-			beforeOffer: this.beforeOffer
+			createConnection: (id, baseOptions) =>
+				new WebRTCConnection(id, {
+					beforeOffer: this.beforeOffer,
+					...baseOptions
+				}),
+			generateId: uuidv4
 		})
 		this.kapp = new Koa()
 		this.kapp.use(cors())

@@ -6,46 +6,40 @@ const TIME_TO_CONNECTED = 10000
 const TIME_TO_HOST_CANDIDATES = 3000 // NOTE(mroberts): Too long.
 const TIME_TO_RECONNECTED = 10000
 
-export interface IOptions<T extends DefaultRTCPeerConnection> {
-	RTCPeerConnection: T
-	beforeOffer: (peerConnection: T) => void
-	clearTimeout: (timeoutId: NodeJS.Timeout | null) => void
+export interface IWebRTCConnectionOptions {
+	createRTCPeerConnection: (config: RTCConfiguration) => DefaultRTCPeerConnection
+	beforeOffer: (peerConnection: DefaultRTCPeerConnection) => void
+	clearTimeout: (timeoutId: NodeJS.Timeout) => void
 	setTimeout: (callback: (...args: any[]) => void, ms: number, ...args: any[]) => NodeJS.Timeout
 	timeToConnected: number
 	timeToHostCandidates: number
 	timeToReconnected: number
 }
 
-export default class WebRTCConnection<
-	RTCPeerConnectionType extends DefaultRTCPeerConnection
-> extends Connection {
-	private peerConnection: RTCPeerConnectionType
-	private options: IOptions<RTCPeerConnectionType>
+export class WebRTCConnection extends Connection {
+	private peerConnection: DefaultRTCPeerConnection
+	private options: IWebRTCConnectionOptions
 	private connectionTimer: NodeJS.Timeout | null = null
 	private reconnectionTimer: NodeJS.Timeout | null = null
 
-	constructor(id: ConnectionID, options: Partial<IOptions<RTCPeerConnectionType>> = {}) {
-		super(id)
+	constructor(id: ConnectionID, options0: Partial<IWebRTCConnectionOptions> = {}) {
+		super(id, options0)
 
-		this.options = options = {
-			RTCPeerConnection: DefaultRTCPeerConnection,
+		this.options = {
+			createRTCPeerConnection: (config: RTCConfiguration) => new DefaultRTCPeerConnection(config),
 			beforeOffer() {},
 			clearTimeout,
 			setTimeout,
 			timeToConnected: TIME_TO_CONNECTED,
 			timeToHostCandidates: TIME_TO_HOST_CANDIDATES,
 			timeToReconnected: TIME_TO_RECONNECTED,
-			...options
-		} as IOptions<RTCPeerConnectionType>
+			...options0
+		}
 
-		const {
-			RTCPeerConnection,
-			beforeOffer,
-			timeToConnected
-		} = options as IOptions<RTCPeerConnectionType>
+		const { createRTCPeerConnection, beforeOffer, timeToConnected } = this.options
 
-		// @ts-ignore
-		const peerConnection: RTCPeerConnectionType = (this.peerConnection = new RTCPeerConnection({
+		const peerConnection = (this.peerConnection = createRTCPeerConnection({
+			// @ts-ignore
 			sdpSemantics: 'unified-plan'
 		}))
 
@@ -75,8 +69,10 @@ export default class WebRTCConnection<
 				clearTimeout(this.connectionTimer)
 				this.connectionTimer = null
 			}
-			clearTimeout(this.reconnectionTimer)
-			this.reconnectionTimer = null
+			if (this.reconnectionTimer) {
+				clearTimeout(this.reconnectionTimer)
+				this.reconnectionTimer = null
+			}
 		} else if (
 			peerConnection.iceConnectionState === 'disconnected' ||
 			peerConnection.iceConnectionState === 'failed'
