@@ -26,9 +26,15 @@ import { FromRGBA } from '../../process/io'
 import { Writer } from '../../process/rgba8'
 import { ConfigParams, VideoFormat, DeviceConfig } from '../../config'
 import { ClJobs } from '../../clJobQueue'
-import { MediaStreamTrack, nonstandard as WebRTCNonstandard, RTCPeerConnection } from 'wrtc'
+import {
+	MediaStreamTrack,
+	nonstandard as WebRTCNonstandard,
+	// RTCAudioData,
+	RTCPeerConnection,
+	RTCVideoFrame
+} from 'wrtc'
 import { PeerManager } from './peerManager'
-const { RTCVideoSource, rgbaToI420 } = WebRTCNonstandard
+const { RTCVideoSource, rgbaToI420, RTCAudioSource } = WebRTCNonstandard
 
 interface AudioBuffer {
 	buffer: Buffer
@@ -52,8 +58,10 @@ export class WebRTCConsumer implements Consumer {
 	// 	RTCPeerConnection,
 	// 	{ source: WebRTCNonstandard.RTCVideoSource; track: MediaStreamTrack }
 	// > = new Map()
-	private rtcVideoSource: RTCVideoSource
-	private rtcTrack: MediaStreamTrack
+	private rtcVideoSource: WebRTCNonstandard.RTCVideoSource
+	private rtcVideoTrack: MediaStreamTrack
+	private rtcAudioSource: WebRTCNonstandard.RTCAudioSource
+	private rtcAudioTrack: MediaStreamTrack
 
 	constructor(
 		context: nodenCLContext,
@@ -82,8 +90,10 @@ export class WebRTCConsumer implements Consumer {
 		if (Object.keys(this.params).length > 1)
 			console.log('WebRTC consumer - unused params', this.params)
 
-		this.source = new RTCVideoSource()
-		this.track = this.source.createTrack()
+		this.rtcVideoSource = new RTCVideoSource()
+		this.rtcVideoTrack = this.rtcVideoSource.createTrack()
+		this.rtcAudioSource = new RTCAudioSource()
+		this.rtcAudioTrack = this.rtcAudioSource.createTrack()
 
 		this.peerManager = PeerManager.singleton()
 		this.peerManager.on('newPeer', this.newPeer)
@@ -92,7 +102,7 @@ export class WebRTCConsumer implements Consumer {
 
 	// TODO - hook this up to be called frm somewhere
 	async destroy(): Promise<void> {
-		this.track.stop()
+		this.rtcVideoTrack.stop()
 	}
 
 	async initialise(): Promise<void> {
@@ -144,10 +154,11 @@ export class WebRTCConsumer implements Consumer {
 	newPeer = ({ peerConnection }: { peerConnection: RTCPeerConnection }) => {
 		// const source = new RTCVideoSource()
 		// const track = source.createTrack()
-		peerConnection.addTransceiver(this.track)
-		// this.rtcVideoSources.set(peerConnection, { source: this.source, track: this.track })
+		peerConnection.addTransceiver(this.rtcVideoTrack)
+		peerConnection.addTransceiver(this.rtcAudioTrack)
+		// this.rtcVideoSources.set(peerConnection, { source: this.rtcVideoSource, track: this.rtcVideoTrack })
 	}
-	peerClose = ({ peerConnection }: { peerConnection: RTCPeerConnection }) => {
+	peerClose = ({}: { peerConnection: RTCPeerConnection }) => {
 		// const descriptor = this.rtcVideoSources.get(peerConnection)
 		// if (descriptor) {
 		// 	// descriptor.track.stop()
@@ -216,22 +227,24 @@ export class WebRTCConsumer implements Consumer {
 				if (Math.abs(ats - vts) > 0.1)
 					console.log('WebRTC audio and video timestamp mismatch - aud:', ats, ' vid:', vts)
 
-				const write = (_data: Buffer, cb: () => void) => {
-					// if (
-					// !this.audioOut.write(data, (err: Error | null | undefined) => {
-					// 	if (err) console.log('Write Error:', err)
-					// })
-					// ) {
-					// this.audioOut.once('drain', cb)
-					// } else {
-					process.nextTick(cb)
-					// }
-				}
+				// const write = (_data: Buffer, cb: () => void) => {
+				// 	// if (
+				// 	// !this.audioOut.write(data, (err: Error | null | undefined) => {
+				// 	// 	if (err) console.log('Write Error:', err)
+				// 	// })
+				// 	// ) {
+				// 	// this.audioOut.once('drain', cb)
+				// 	// } else {
+				// 	process.nextTick(cb)
+				// 	// }
+				// }
 
 				return new Promise((resolve) => {
 					const frame = Buffer.alloc(this.format.width * this.format.height * 4)
 					vidBuf.copy(frame)
-					const i420frame = {
+					vidBuf.release()
+
+					const i420frame: RTCVideoFrame = {
 						width: this.format.width,
 						height: this.format.height,
 						data: new Uint8ClampedArray(1.5 * this.format.width * this.format.height)
@@ -245,12 +258,41 @@ export class WebRTCConsumer implements Consumer {
 						i420frame
 					)
 
-					this.source.onFrame(i420frame)
+					this.rtcVideoSource.onFrame(i420frame)
 
-					write(audBuf.buffer, () => {
-						vidBuf.release()
-						resolve()
-					})
+					// new Int16Array(
+					// 	floatBuffer,
+					// 	(i * floatBuffer.length) / 4,
+					// 	floatBuffer.length / 4
+					// ),
+
+					// const floatBuffer = new Float32Array(audBuf.buffer)
+					// console.log(`LEN1: ${audBuf.buffer.length}`) // This length is x2 what we expect 🤔
+					// console.log(`LEN2: ${floatBuffer.length}`)
+					// console.log(`CHANNELS: ${this.format.audioChannels}`)
+					// console.log(`FRAMES: ${this.format.audioSampleRate / 100}`)
+					// console.log(`RATE: ${this.format.audioSampleRate}`)
+					// for (let i = 0; i < 4; i++) {
+					// 	const audioBuffer: RTCAudioData = {
+					// 		samples: Int16Array.from(
+					// 			floatBuffer.slice((i * floatBuffer.length) / 4, floatBuffer.length / 4)
+					// 		),
+					// 		sampleRate: this.format.audioSampleRate,
+					// 		// // bitsPerSample default is 16
+					// 		// bitsPerSample?: number
+					// 		channelCount: this.format.audioChannels,
+					// 		// number of frames
+					// 		numberOfFrames: this.format.audioSampleRate / 100
+					// 	}
+					// 	this.rtcAudioSource.onData(audioBuffer)
+					// }
+
+					resolve()
+
+					// write(audBuf.buffer, () => {
+					// 	vidBuf.release()
+					// 	resolve()
+					// })
 				})
 			} else {
 				// this.clContext.logBuffers()

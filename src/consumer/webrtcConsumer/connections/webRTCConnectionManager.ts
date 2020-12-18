@@ -1,19 +1,11 @@
-import { RTCPeerConnection } from 'wrtc'
-import ConnectionManager, { ConnectionID } from './connectionManager'
-import WebRTCConnection, { IOptions as IWebRTCConnectionOptions } from './webRTCConnection'
+import { ConnectionID, IConnectionManagerOptions, ConnectionManager } from './connectionManager'
+import { WebRTCConnection } from './webRTCConnection'
 
-export class WebRtcConnectionManager<
-	RTCPeerConnectionType extends WebRTCConnection<RTCPeerConnection>
-> {
+export class WebRtcConnectionManager<RTCPeerConnectionType extends WebRTCConnection> {
 	private connectionManager: ConnectionManager<RTCPeerConnectionType>
 
-	constructor(options = {}) {
-		options = {
-			Connection: WebRTCConnection,
-			...options
-		}
-
-		this.connectionManager = new ConnectionManager(options)
+	constructor(options: IConnectionManagerOptions<RTCPeerConnectionType>) {
+		this.connectionManager = new ConnectionManager<RTCPeerConnectionType>(options)
 	}
 
 	createConnection = async () => {

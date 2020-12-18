@@ -8,7 +8,7 @@ export default class Connection extends EventEmitter {
 	id: string
 	state: 'open' | 'closed'
 
-	constructor(id: string) {
+	constructor(id: string, _options: {}) {
 		super()
 		this.id = id
 		this.state = 'open'

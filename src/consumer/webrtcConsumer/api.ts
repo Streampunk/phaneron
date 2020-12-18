@@ -1,12 +1,11 @@
 import Koa from 'koa'
 import * as _ from 'koa-route'
-import { RTCPeerConnection } from 'wrtc'
-import ConnectionManager from './connections/connectionManager'
-import WebRTCConnection from './connections/webRTCConnection'
+import { ConnectionManager } from './connections/connectionManager'
+import { WebRTCConnection } from './connections/webRTCConnection'
 
 export default function mountConnectionsApi(
 	kapp: Koa<Koa.DefaultState, Koa.DefaultContext>,
-	connectionManager: ConnectionManager<WebRTCConnection<RTCPeerConnection>>,
+	connectionManager: ConnectionManager<WebRTCConnection>,
 	prefix: string = ''
 ) {
 	kapp.use(_.get(`${prefix}/connections`, (ctx) => (ctx.body = connectionManager.getConnections())))

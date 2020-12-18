@@ -483,6 +483,20 @@ declare module 'wrtc' {
 			onFrame(frame: RTCVideoFrame): void
 		}
 
+		class RTCAudioSink extends EventTarget {
+			constructor(track: MediaStreamTrack)
+			stop(): void
+			readonly stopped: boolean
+			addEventListener(type: 'data', handler: EventHandlerNonNull): void
+			removeEventListener(type: 'data', handler: EventHandlerNonNull): void
+		}
+
+		class RTCAudioSource {
+			constructor()
+			createTrack(): MediaStreamTrack
+			onData(frame: RTCAudioData): void
+		}
+
 		function i420ToRgba(i420Frame: RTCVideoFrame, rgbaFrame: RTCVideoFrame): void
 		function rgbaToI420(rgbaFrame: RTCVideoFrame, i420Frame: RTCVideoFrame): void
 	}
@@ -492,6 +506,17 @@ declare module 'wrtc' {
 		height: number
 		data: Uint8ClampedArray
 		rotation?: 0 | 90 | 180 | 270
+	}
+
+	interface RTCAudioData {
+		samples: Int16Array
+		sampleRate: number
+		// bitsPerSample default is 16
+		bitsPerSample?: number
+		// channelCount default is 1
+		channelCount?: number
+		// number of frames
+		numberOfFrames: number
 	}
 
 	// https://www.w3.org/TR/webrtc/#idl-def-rtcpeerconnection
