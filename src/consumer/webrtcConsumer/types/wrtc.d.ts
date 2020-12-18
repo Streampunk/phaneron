@@ -91,6 +91,7 @@ declare module 'wrtc' {
 		//oninactive: EventListener;
 		//onaddtrack: (event: MediaStreamTrackEvent) => any;
 		//onremovetrack: (event: MediaStreamTrackEvent) => any;
+		constructor(options: { id: string }): this
 
 		clone(): MediaStream
 		stop(): void
@@ -463,6 +464,29 @@ declare module 'wrtc' {
 	// https://www.w3.org/TR/webrtc/#h-rtcdatachannelevent
 	interface RTCDataChannelEvent extends Event {
 		readonly channel: RTCDataChannel
+	}
+
+	class RTCVideoSink extends EventTarget {
+		constructor(track: MediaStreamTrack)
+		stop(): void
+		readonly stopped: boolean
+		addEventListener(type: 'frame', handler: EventHandlerNonNull): void
+		removeEventListener(type: 'frame', handler: EventHandlerNonNull): void
+	}
+
+	interface RTCVideoFrame {
+		width: number
+		height: number
+		data: Uint8ClampedArray
+		rotation?: 0 | 90 | 180 | 270
+	}
+
+	class RTCVideoSource {
+		constructor()
+		readonly isScreencast: boolean
+		readonly needsDenoising?: boolean
+		createTrack(): MediaStreamTrack
+		onFrame(frame: RTCVideoFrame): void
 	}
 
 	// https://www.w3.org/TR/webrtc/#idl-def-rtcpeerconnection
