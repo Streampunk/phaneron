@@ -16,7 +16,9 @@
   },
   "dependencies": {
     "@koa/cors": "3",
+    "apollo-server": "^2.19.0",
     "beamcoder": "^0.6.10",
+    "graphql": "^15.4.0",
     "koa": "^2.13.0",
     "macadam": "^2.0.14",
     "naudiodon": "^2.3.0",

@@ -71,6 +71,10 @@ export class VideoFormats {
 		if (!format) throw new Error(`Video format ${name} not found`)
 		return format
 	}
+
+	list(): VideoFormat[] {
+		return Array.from(this.formats.values())
+	}
 }
 
 export interface DeviceConfig {

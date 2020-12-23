@@ -20,7 +20,8 @@
 
 import { clContext as nodenCLContext } from 'nodencl'
 import { ClProcessJobs } from './clJobQueue'
-import { start, processCommand } from './AMCP/server'
+import { start as amcpStart, processCommand } from './AMCP/server'
+import { start as graphQLStart } from './GraphQL/server'
 import { Commands } from './AMCP/commands'
 import { Channel } from './channel'
 import { BasicCmds } from './AMCP/basicCmds'
@@ -102,16 +103,17 @@ rl.on('SIGINT', () => {
 
 console.log('\nWelcome to Phaneron\n')
 
+const channels: Channel[] = []
+
 const commands: Commands = new Commands()
 initialiseOpenCL()
 	.then(async (clContext) => {
+		const config = new Config()
 		const consReg = new ConsumerRegistry(clContext)
 		const prodReg = new ProducerRegistry(clContext)
 
 		const clProcessJobs = new ClProcessJobs(clContext)
 		const clJobs = clProcessJobs.getJobs()
-		const config = new Config()
-		const channels: Channel[] = []
 
 		config.consumers.forEach((consumerConfig, i) => {
 			try {
@@ -131,7 +133,9 @@ initialiseOpenCL()
 
 		// setInterval(() => clContext.logBuffers(), 2000)
 	})
-	.then(() => start(commands))
+	.then(() => graphQLStart(channels))
+	.then(console.log, console.error)
+	.then(() => amcpStart(commands))
 	.then(console.log, console.error)
 	.then(() => rl.prompt())
 	.catch(console.error)
