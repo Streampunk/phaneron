@@ -25,7 +25,7 @@ import { VideoFormat } from '../config'
 import { FFmpegProducerFactory } from './ffmpegProducer'
 import { MacadamProducerFactory } from './macadamProducer'
 import { RedioPipe, RedioEnd } from 'redioactive'
-import { AudioMixFrame } from '../mixer'
+import { AudioMixFrame } from './mixer'
 
 export interface Producer {
 	initialise(consumerFormat: VideoFormat): void

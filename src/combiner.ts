@@ -98,7 +98,7 @@ export class Combiner {
 				{
 					name: 'out0:a',
 					sampleRate: sampleRate,
-					sampleFormat: 'flt',
+					sampleFormat: 'fltp',
 					channelLayout: audLayout
 				}
 			],
@@ -276,7 +276,7 @@ export class Combiner {
 				name: `in${i}:a`,
 				timeBase: [1, sampleRate],
 				sampleRate: sampleRate,
-				sampleFormat: 'flt',
+				sampleFormat: 'fltp',
 				channelLayout: `${numAudChannels}c`
 			})
 		}
@@ -288,11 +288,11 @@ export class Combiner {
 				{
 					name: 'out0:a',
 					sampleRate: sampleRate,
-					sampleFormat: 'flt',
+					sampleFormat: 'fltp',
 					channelLayout: audLayout
 				}
 			],
-			filterSpec: `${inStr} amix=inputs=${filtLayers}:duration=shortest [out0:a]`
+			filterSpec: `${inStr}amix=inputs=${filtLayers}:duration=shortest[out0:a]`
 		})
 		// console.log('\nCombine audio:\n', this.audCombineFilterer.graph.dump())
 	}

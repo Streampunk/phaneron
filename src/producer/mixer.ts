@@ -20,14 +20,14 @@
 
 import { clContext as nodenCLContext, OpenCLBuffer } from 'nodencl'
 import { RedioPipe, RedioEnd, isValue, Valve, nil } from 'redioactive'
-import { Frame, Filterer, filterer } from 'beamcoder'
-import { VideoFormat } from './config'
-import { ClJobs } from './clJobQueue'
-import ImageProcess from './process/imageProcess'
-import Transform from './process/transform'
+import { Frame, Filterer, filterer /*, FilterContext*/ } from 'beamcoder'
+import { VideoFormat } from '../config'
+import { ClJobs } from '../clJobQueue'
+import ImageProcess from '../process/imageProcess'
+import Transform from '../process/transform'
 
 export interface AudioMixFrame {
-	frame: Frame
+	frames: Frame[][]
 	mute: boolean
 }
 
@@ -43,9 +43,55 @@ interface FillParams {
 	yScale: number
 }
 
+// const getFilters = (filterer: Filterer): string[] => {
+// 	const filters: string[] = []
+// 	filterer.graph.filters.forEach((f) => filters.push(f.name))
+// 	return filters
+// }
+
+// type optionSpec = {
+// 	name: string
+// 	optionType: string
+// 	readonly: boolean
+// 	value: string | undefined
+// }
+
+// type optionSpecs = Map<string, optionSpec[] | undefined>
+
+// const getFilterParams = (filter: FilterContext): optionSpecs => {
+// 	const specs: optionSpecs = new Map()
+// 	const priv_class = filter.filter.priv_class
+// 	if (priv_class) {
+// 		const optionsKeys = Object.keys(priv_class.options)
+// 		const options: optionSpec[] = []
+// 		optionsKeys.forEach((k) => {
+// 			const opt = priv_class.options[k]
+// 			if (filter.priv) {
+// 				options.push({
+// 					name: opt.name,
+// 					optionType: opt.option_type,
+// 					readonly: opt.flags.READONLY,
+// 					value: filter.priv[opt.name]
+// 				})
+// 			} else {
+// 				console.log(`No entry found for parameter '${k}' in filter '${filter.name}'`)
+// 				const opt = priv_class.options[k]
+// 				options.push({
+// 					name: opt.name,
+// 					optionType: opt.option_type,
+// 					readonly: opt.flags.READONLY,
+// 					value: undefined
+// 				})
+// 			}
+// 		})
+// 		specs.set(filter.name, options)
+// 	}
+// 	return specs
+// }
+
 export class Mixer {
 	private readonly clContext: nodenCLContext
-	private readonly srcFormat: VideoFormat
+	private readonly consumerFormat: VideoFormat
 	private readonly clJobs: ClJobs
 	private transform: ImageProcess | null
 	private mixAudio: RedioPipe<Frame | RedioEnd> | undefined
@@ -56,15 +102,16 @@ export class Mixer {
 	anchorParams: AnchorParams = { x: 0, y: 0 }
 	rotation = 0
 	fillParams: FillParams = { xOffset: 0, yOffset: 0, xScale: 1, yScale: 1 }
+	srcLevels: number[] = []
 	volume = 1.0
 
-	constructor(clContext: nodenCLContext, srcFormat: VideoFormat, clJobs: ClJobs) {
+	constructor(clContext: nodenCLContext, consumerFormat: VideoFormat, clJobs: ClJobs) {
 		this.clContext = clContext
-		this.srcFormat = srcFormat
+		this.consumerFormat = consumerFormat
 		this.clJobs = clJobs
 		this.transform = new ImageProcess(
 			this.clContext,
-			new Transform(this.clContext, this.srcFormat.width, this.srcFormat.height),
+			new Transform(this.clContext, this.consumerFormat.width, this.consumerFormat.height),
 			clJobs
 		)
 	}
@@ -73,44 +120,76 @@ export class Mixer {
 		sourceID: string,
 		srcAudio: RedioPipe<AudioMixFrame | RedioEnd>,
 		srcVideo: RedioPipe<OpenCLBuffer | RedioEnd>,
-		consumerFormat: VideoFormat
+		srcFormat: VideoFormat
 	): Promise<void> {
-		const sampleRate = this.srcFormat.audioSampleRate
-		const numAudChannels = this.srcFormat.audioChannels
-		const audLayout = `${numAudChannels}c`
+		const srcSampleRate = srcFormat.audioSampleRate
+		const srcAudChannels = srcFormat.audioChannels
+
+		const dstSampleRate = this.consumerFormat.audioSampleRate
+		const dstAudChannels = this.consumerFormat.audioChannels
+		const dstAudLayout = `${dstAudChannels}c`
+
+		let filtSpec = ''
+		for (let c = 0; c < srcAudChannels; ++c) {
+			this.srcLevels.push(1.0)
+			const panSpec = `pan=${dstAudLayout}|c${c % dstAudChannels}=${this.srcLevels[c]}*c0`
+			filtSpec +=
+				(c === 0 ? '' : ';\n') +
+				`[in${c}:a]highpass=mix=0, adelay=delays='', acompressor=threshold=1:mix=0, aformat=sample_fmts=fltp, ${panSpec}[c${c}:a]`
+		}
+		filtSpec += ';\n'
+		for (let c = 0; c < srcAudChannels; ++c) filtSpec += `[c${c}:a]`
+		filtSpec += `amix=inputs=${srcAudChannels}:duration=shortest:weights=`
+		for (let c = 0; c < srcAudChannels; ++c)
+			filtSpec += (c === 0 ? '' : ' ') + (c < dstAudChannels ? '1' : '0')
+		filtSpec += `, volume=1.0:eval=frame:precision=float[out0:a]`
+		// console.log(filtSpec)
+
+		const inParams = []
+		for (let s = 0; s < srcAudChannels; ++s)
+			inParams.push({
+				name: `in${s}:a`,
+				timeBase: [1, srcSampleRate],
+				sampleRate: srcSampleRate,
+				sampleFormat: 'fltp',
+				channelLayout: '1c'
+			})
+
 		this.audMixFilterer = await filterer({
 			filterType: 'audio',
-			inputParams: [
-				{
-					name: 'in0:a',
-					timeBase: [1, sampleRate],
-					sampleRate: sampleRate,
-					sampleFormat: 'flt',
-					channelLayout: audLayout
-				}
-			],
+			inputParams: inParams,
 			outputParams: [
 				{
 					name: 'out0:a',
-					sampleRate: sampleRate,
-					sampleFormat: 'flt',
-					channelLayout: audLayout
+					sampleRate: dstSampleRate,
+					sampleFormat: 'fltp',
+					channelLayout: dstAudLayout
 				}
 			],
-			filterSpec: `[in0:a] volume=1.0:eval=frame:precision=float [out0:a]`
+			filterSpec: filtSpec
 		})
-		// console.log('\nMixer audio:\n', this.audMixFilterer.graph.dump())
+		// console.log('\nChannel audio:\n', this.audMixFilterer.graph.dump())
+
+		// console.log(getFilters(this.audMixFilterer))
+		// const filtContexts = this.audMixFilterer.graph.filters.filter(
+		// 	(filt) => filt.filter.name === 'pan'
+		// )
+		// filtContexts.forEach((c) => console.log(getFilterParams(c)))
 
 		const audMixFilter: Valve<AudioMixFrame | RedioEnd, Frame | RedioEnd> = async (frame) => {
 			if (isValue(frame)) {
-				if (this.audMixFilterer) {
-					if (frame.mute != this.muted) {
-						this.muted = frame.mute
-						this.setVolume(this.volume, this.muted)
-					}
-					const ff = await this.audMixFilterer.filter([{ name: 'in0:a', frames: [frame.frame] }])
-					return ff[0].frames.length > 0 ? ff[0].frames : nil
-				} else return [frame.frame]
+				if (!this.audMixFilterer) return nil
+				if (frame.mute != this.muted) {
+					this.muted = frame.mute
+					this.setVolume(this.volume, this.muted)
+				}
+
+				const inSpec: { name: string; frames: Frame[] }[] = []
+				frame.frames.forEach((f, i) => {
+					inSpec.push({ name: `in${i}:a`, frames: f })
+				})
+				const ff = await this.audMixFilterer.filter(inSpec)
+				return ff[0] && ff[0].frames.length > 0 ? ff[0].frames : nil
 			} else {
 				this.audMixFilterer = null
 				return frame
@@ -118,9 +197,9 @@ export class Mixer {
 		}
 
 		await this.transform?.init()
-		const numBytesRGBA = consumerFormat.width * consumerFormat.height * 4 * 4
-		const srcXscale = consumerFormat.squareWidth / this.srcFormat.squareWidth
-		const srcYscale = consumerFormat.squareHeight / this.srcFormat.squareHeight
+		const numBytesRGBA = this.consumerFormat.width * this.consumerFormat.height * 4 * 4
+		const srcXscale = this.consumerFormat.squareWidth / srcFormat.squareWidth
+		const srcYscale = this.consumerFormat.squareHeight / srcFormat.squareHeight
 
 		const mixVidValve: Valve<OpenCLBuffer | RedioEnd, OpenCLBuffer | RedioEnd> = async (frame) => {
 			if (isValue(frame)) {
@@ -129,8 +208,8 @@ export class Mixer {
 					'readwrite',
 					'coarse',
 					{
-						width: consumerFormat.width,
-						height: consumerFormat.height
+						width: this.consumerFormat.width,
+						height: this.consumerFormat.height
 					},
 					'transform'
 				)

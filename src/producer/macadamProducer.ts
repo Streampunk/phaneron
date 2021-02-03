@@ -29,7 +29,7 @@ import * as Macadam from 'macadam'
 import { ToRGBA } from '../process/io'
 import { Reader as v210Reader } from '../process/v210'
 import Yadif from '../process/yadif'
-import { AudioMixFrame } from '../mixer'
+import { AudioMixFrame } from './mixer'
 
 export class MacadamProducer implements Producer {
 	private readonly sourceID: string
@@ -75,6 +75,22 @@ export class MacadamProducer implements Producer {
 				pixelFormat: Macadam.bmdFormat10BitYUV
 			})
 
+			let filtStr = ''
+			filtStr += `[in${0}:a]asetnsamples=n=1024:p=1, channelsplit=channel_layout=${numAudChannels}c`
+			for (let s = 0; s < numAudChannels; ++s) filtStr += `[c${s}:a]`
+			for (let s = 0; s < numAudChannels; ++s)
+				filtStr += `;\n[c${s}:a]aformat=channel_layouts=1c[out${s}:a]`
+			console.log(filtStr)
+
+			const outParams = []
+			for (let s = 0; s < numAudChannels; ++s)
+				outParams.push({
+					name: `out${s}:a`,
+					sampleRate: consumerFormat.audioSampleRate,
+					sampleFormat: 'fltp',
+					channelLayout: '1c'
+				})
+
 			this.audFilterer = await filterer({
 				filterType: 'audio',
 				inputParams: [
@@ -86,15 +102,8 @@ export class MacadamProducer implements Producer {
 						channelLayout: audLayout
 					}
 				],
-				outputParams: [
-					{
-						name: 'out0:a',
-						sampleRate: consumerFormat.audioSampleRate,
-						sampleFormat: 'flt',
-						channelLayout: audLayout
-					}
-				],
-				filterSpec: `[in0:a] asetnsamples=n=1024:p=1 [out0:a]`
+				outputParams: outParams,
+				filterSpec: filtStr
 			})
 			// console.log('\nMacadam producer audio:\n', this.audFilterer.graph.dump())
 
@@ -148,9 +157,9 @@ export class MacadamProducer implements Producer {
 					data: [captureFrame.audio.data]
 				})
 				const ff = await this.audFilterer.filter([{ name: 'in0:a', frames: [ffFrame] }])
-				const audMixFrames =
-					ff[0].frames.length > 0 ? ff[0].frames.map((f) => ({ frame: f, mute: false })) : nil
-				return audMixFrames
+				if (ff.reduce((acc, f) => acc && f.frames && f.frames.length > 0, true)) {
+					return { frames: ff.map((f) => f.frames), mute: false }
+				} else return nil
 			} else {
 				return captureFrame as RedioEnd
 			}

@@ -22,7 +22,7 @@ import { clContext as nodenCLContext, OpenCLBuffer } from 'nodencl'
 import { RedioPipe, RedioEnd } from 'redioactive'
 import { Frame } from 'beamcoder'
 import { Producer } from './producer/producer'
-import { Mixer } from './mixer'
+import { Mixer } from './producer/mixer'
 import { VideoFormat } from './config'
 import { ClJobs } from './clJobQueue'
 
