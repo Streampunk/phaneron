@@ -52,6 +52,8 @@ export class MacadamProducer implements Producer {
 		this.clContext = context
 		this.clJobs = clJobs
 		this.format = new VideoFormats().get('1080p5000') // default
+
+		if (this.params.preview) this.paused = true
 	}
 
 	async initialise(consumerFormat: VideoFormat): Promise<void> {

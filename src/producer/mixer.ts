@@ -236,6 +236,8 @@ export class Mixer {
 
 				return xfDest
 			} else {
+				this.clJobs.clearQueue(sourceID)
+				this.transform?.finish()
 				this.transform = null
 				return frame
 			}

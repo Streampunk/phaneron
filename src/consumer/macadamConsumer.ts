@@ -235,6 +235,7 @@ export class MacadamConsumer implements Consumer {
 				else this.vidField = 0
 				return this.vidField === 1 ? nil : this.clDests[0]
 			} else {
+				this.clJobs.clearQueue(this.chanID)
 				return frame
 			}
 		}

@@ -181,6 +181,7 @@ export class FFmpegConsumer implements Consumer {
 				await this.clJobs.runQueue({ source: this.chanID, timestamp: frame.timestamp })
 				return clDests
 			} else {
+				this.clJobs.clearQueue(this.chanID)
 				return frame
 			}
 		}

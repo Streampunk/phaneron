@@ -29,6 +29,7 @@ export interface LoadParams {
 	layer: number
 	channel?: number
 	loop?: boolean
+	preview?: boolean
 	autoPlay?: boolean
 	seek?: number
 }

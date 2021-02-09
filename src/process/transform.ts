@@ -175,10 +175,15 @@ export default class Transform extends ProcessImpl {
 		}
 		this.curParams = params
 
+		this.matrixBuffer?.addRef()
 		return Promise.resolve({
 			input: params.input,
 			transformMatrix: this.matrixBuffer,
 			output: params.output
 		})
+	}
+
+	releaseRefs(): void {
+		this.matrixBuffer?.release()
 	}
 }

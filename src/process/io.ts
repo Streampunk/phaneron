@@ -101,6 +101,10 @@ export class ToRGBA {
 			() => sources.forEach((s) => s.release())
 		)
 	}
+
+	finish(): void {
+		this.loader.releaseRefs()
+	}
 }
 
 export class FromRGBA {
@@ -161,5 +165,9 @@ export class FromRGBA {
 		for (let o = 0; o < outputs.length; ++o)
 			await outputs[o].hostAccess('readonly', clQueue ? clQueue : 0)
 		return Promise.resolve()
+	}
+
+	finish(): void {
+		this.saver.releaseRefs()
 	}
 }

@@ -69,6 +69,8 @@ export class FFmpegProducer implements Producer {
 		this.clContext = context
 		this.clJobs = clJobs
 		this.format = new VideoFormats().get('1080p5000') // default
+
+		if (this.loadParams.preview) this.paused = true
 	}
 
 	async initialise(consumerFormat: VideoFormat): Promise<void> {
@@ -287,7 +289,7 @@ export class FFmpegProducer implements Producer {
 						const result = audioPackets.slice(0)
 						audioPackets.splice(0)
 						return result
-					} else return []
+					} else return nil
 				} else return nil
 			} else {
 				return packet
@@ -309,7 +311,6 @@ export class FFmpegProducer implements Producer {
 			frames
 		) => {
 			if (isValue(frames) && audFilterer) {
-				if (frames.length === 0) return nil
 				const ff = await audFilterer.filter(frames)
 				if (ff.reduce((acc, f) => acc && f.frames && f.frames.length > 0, true)) {
 					return { frames: ff.map((f) => f.frames), mute: false }
@@ -331,7 +332,7 @@ export class FFmpegProducer implements Producer {
 						const result = videoPackets.slice(0)
 						videoPackets.splice(0)
 						return result
-					} else return []
+					} else return nil
 				} else return nil
 			} else {
 				return packet
@@ -340,7 +341,6 @@ export class FFmpegProducer implements Producer {
 
 		const vidDecode: Valve<Packet[] | RedioEnd, Frame | RedioEnd> = async (packets) => {
 			if (isValue(packets)) {
-				if (packets.length === 0) return nil
 				const frm = await (decoders.get(packets[0].stream_index) as Decoder).decode(packets[0])
 				return frm.frames.length > 0 ? frm.frames : nil
 			} else {
@@ -381,6 +381,7 @@ export class FFmpegProducer implements Producer {
 				convert.processFrame(this.sourceID, clSources, clDest)
 				return clDest
 			} else {
+				toRGBA?.finish()
 				toRGBA = null
 				return clSources
 			}
@@ -390,7 +391,7 @@ export class FFmpegProducer implements Producer {
 			if (isValue(frame)) {
 				const yadifDests: OpenCLBuffer[] = []
 				await yadif?.processFrame(frame, yadifDests, this.sourceID)
-				return yadifDests.length > 1 ? yadifDests : nil
+				return yadifDests.length > 0 ? yadifDests : nil
 			} else {
 				yadif?.release()
 				yadif = null
@@ -411,18 +412,18 @@ export class FFmpegProducer implements Producer {
 			audioChannels: numAudChannels
 		}
 
-		const ffPackets = redio(demux, { bufferSizeMax: 10 })
+		const ffPackets = redio(demux, { bufferSizeMax: 32 })
 
 		let audSrc: RedioPipe<RedioEnd | AudioMixFrame> | undefined
 		if (audioStreams.length) {
 			audSrc = ffPackets
-				.fork()
+				.fork({ bufferSizeMax: 2 })
 				.valve(audPacketFilter)
 				.valve(audDecode)
 				.valve(audFilter, { oneToMany: true })
 		} else {
 			// eslint-disable-next-line prettier/prettier
-			audSrc = redio(silence, { bufferSizeMax: 10 })
+			audSrc = redio(silence, { bufferSizeMax: 2 })
 				.valve(audFilter, { oneToMany: true })
 		}
 		this.audSource = audSrc.pause((frame) => {
@@ -431,7 +432,7 @@ export class FFmpegProducer implements Producer {
 		})
 
 		this.vidSource = ffPackets
-			.fork()
+			.fork({ bufferSizeMax: 2 })
 			.valve(vidPacketFilter)
 			.valve(vidDecode, { oneToMany: true })
 			.valve(vidFilter, { oneToMany: true })

@@ -71,7 +71,7 @@ export class Loader extends Packer {
 			'readonly',
 			'coarse',
 			undefined,
-			'gammaLut'
+			'loader gammaLut'
 		)
 		await this.gammaLut.hostAccess('writeonly')
 		Buffer.from(this.gammaArray.buffer).copy(this.gammaLut)
@@ -82,7 +82,7 @@ export class Loader extends Packer {
 				'readonly',
 				'none',
 				undefined,
-				'colMatrix'
+				'loader colMatrix'
 			)
 			await this.colMatrix.hostAccess('writeonly')
 			Buffer.from(this.colMatrixArray.buffer).copy(this.colMatrix)
@@ -93,21 +93,37 @@ export class Loader extends Packer {
 			'readonly',
 			'none',
 			undefined,
-			'gamutMatrix'
+			'loader gamutMatrix'
 		)
 		await this.gamutMatrix.hostAccess('writeonly')
 		Buffer.from(this.gamutMatrixArray.buffer).copy(this.gamutMatrix)
 	}
 
+	addRefs(): void {
+		this.gammaLut?.addRef()
+		this.colMatrix?.addRef()
+		this.gamutMatrix?.addRef()
+	}
+
+	releaseRefs(): void {
+		this.gammaLut?.release()
+		this.colMatrix?.release()
+		this.gamutMatrix?.release()
+	}
+
 	run(params: KernelParams, id: JobID, cb: JobCB): void {
 		if (this.program === null) throw new Error('Loader.run failed with no program available')
 
+		this.addRefs()
 		const kernelParams = this.packImpl.getKernelParams(params)
 		kernelParams.gammaLut = this.gammaLut
 		kernelParams.gamutMatrix = this.gamutMatrix
 		if (this.colMatrix) kernelParams.colMatrix = this.colMatrix
 
-		this.clJobs.add(id, this.packImpl.getName(), this.program, kernelParams, cb)
+		this.clJobs.add(id, this.packImpl.getName(), this.program, kernelParams, () => {
+			this.releaseRefs()
+			cb()
+		})
 	}
 }
 
@@ -141,7 +157,7 @@ export class Saver extends Packer {
 			'readonly',
 			'coarse',
 			undefined,
-			'gammaLut'
+			'saver gammaLut'
 		)
 		await this.gammaLut.hostAccess('writeonly')
 
@@ -152,20 +168,34 @@ export class Saver extends Packer {
 				'readonly',
 				'none',
 				undefined,
-				'colMatrix'
+				'saver colMatrix'
 			)
 			await this.colMatrix.hostAccess('writeonly')
 			Buffer.from(this.colMatrixArray.buffer).copy(this.colMatrix)
 		}
 	}
 
+	addRefs(): void {
+		this.gammaLut?.addRef()
+		this.colMatrix?.addRef()
+	}
+
+	releaseRefs(): void {
+		this.gammaLut?.release()
+		this.colMatrix?.release()
+	}
+
 	run(params: KernelParams, id: JobID, cb: JobCB): void {
 		if (this.program === null) throw new Error('Saver.run failed with no program available')
 
+		this.addRefs()
 		const kernelParams = this.packImpl.getKernelParams(params)
 		kernelParams.gammaLut = this.gammaLut
 		if (this.colMatrix) kernelParams.colMatrix = this.colMatrix
 
-		this.clJobs.add(id, this.packImpl.getName(), this.program, kernelParams, cb)
+		this.clJobs.add(id, this.packImpl.getName(), this.program, kernelParams, () => {
+			this.releaseRefs()
+			cb()
+		})
 	}
 }

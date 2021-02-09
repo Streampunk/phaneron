@@ -97,4 +97,8 @@ export default class Combine extends ProcessImpl {
 
 		return Promise.resolve(kernelParams)
 	}
+
+	releaseRefs(): void {
+		return
+	}
 }

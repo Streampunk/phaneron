@@ -72,6 +72,8 @@ export class Layer {
 			this.background = null
 			this.autoPlay = false
 		}
+
+		this.foreground?.setPaused(false)
 	}
 
 	pause(): void {

@@ -241,6 +241,7 @@ export class Combiner {
 				}
 			} else {
 				if (this.vidCombiner) {
+					this.clJobs.clearQueue(this.chanID)
 					console.log('combinerVid release')
 					black.release()
 					this.vidCombiner = undefined

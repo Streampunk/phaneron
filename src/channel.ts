@@ -86,7 +86,7 @@ export class Channel {
 		this.combiner.removeConsumer()
 	}
 
-	async loadSource(params: LoadParams, preview = false): Promise<boolean> {
+	async loadSource(params: LoadParams): Promise<boolean> {
 		this.clear(params.layer)
 
 		let producer: Producer | null = null
@@ -107,7 +107,7 @@ export class Channel {
 		}
 
 		const layer = new Layer(this.clContext, this.consumerConfig.format, this.clJobs)
-		await layer.load(producer as Producer, preview, params.autoPlay as boolean)
+		await layer.load(producer, params.preview ? true : false, params.autoPlay ? true : false)
 		this.combiner.setLayer(params.layer, layer)
 
 		return true

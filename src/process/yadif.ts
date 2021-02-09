@@ -37,11 +37,8 @@ export default class Yadif {
 	private readonly sendField: boolean
 	private readonly skipSpatial: boolean
 	private yadifCl: ImageProcess | null = null
-	private prev: OpenCLBuffer | null = null
-	private cur: OpenCLBuffer | null = null
-	private next: OpenCLBuffer | null = null
+	private in: OpenCLBuffer[] = []
 	private out: OpenCLBuffer | null = null
-	private framePending = false
 
 	constructor(
 		clContext: nodenCLContext,
@@ -74,7 +71,7 @@ export default class Yadif {
 		await this.yadifCl.init()
 	}
 
-	private async makeOutput(): Promise<void> {
+	private async makeOutput(isSecond: boolean): Promise<void> {
 		const numBytesRGBA = this.width * this.height * 4 * 4
 		this.out = await this.clContext.createBuffer(
 			numBytesRGBA,
@@ -84,35 +81,33 @@ export default class Yadif {
 				width: this.width,
 				height: this.height
 			},
-			'yadif'
+			`yadif ${isSecond ? '2' : '1'}`
 		)
 	}
 
-	private async runYadif(isSecond: boolean, input: OpenCLBuffer, sourceID: string): Promise<void> {
+	private async runYadif(isSecond: boolean, sourceID: string): Promise<void> {
 		if (!this.yadifCl) throw new Error('Yadif needs to be initialised')
 
-		if (isSecond) await this.makeOutput()
+		// make a copy of in array for async release
+		const srcs = this.in.slice(0)
+		srcs.forEach((s) => s.addRef())
+
 		const out = this.out as OpenCLBuffer
-		out.timestamp = this.cur ? this.cur.timestamp + (isSecond ? 1 : 0) : 0
+		out.timestamp = srcs[1].timestamp + (isSecond ? 1 : 0)
 
 		await this.yadifCl.run(
 			{
-				prev: this.prev,
-				cur: this.cur,
-				next: this.next,
+				prev: srcs[0],
+				cur: srcs[1],
+				next: srcs[2],
 				parity: (this.config.tff ? 1 : 0) ^ (!isSecond ? 1 : 0),
 				tff: this.config.tff,
 				skipSpatial: this.skipSpatial,
 				output: out
 			},
 			{ source: sourceID, timestamp: out.timestamp },
-			() => {
-				if (!isSecond) input.release()
-			}
+			() => srcs.forEach((s) => s.release())
 		)
-
-		this.framePending = this.sendField && !isSecond
-		return
 	}
 
 	async processFrame(
@@ -120,39 +115,34 @@ export default class Yadif {
 		outputs: Array<OpenCLBuffer>,
 		sourceID: string
 	): Promise<void> {
-		if (this.framePending) {
-			await this.runYadif(true, input, sourceID)
-			outputs.push(this.out as OpenCLBuffer)
-		}
-
-		input.addRef()
-		if (this.prev) this.prev.release()
-		this.prev = this.cur
-		this.cur = this.next
-		this.next = input
-
-		if (!this.cur) {
-			this.cur = this.next
-			this.next.addRef()
-		}
-		if (!this.prev) return
-
 		if (!this.interlaced) {
-			this.out = this.cur
-			this.cur.addRef()
-			this.prev.release()
-			outputs.push(this.out as OpenCLBuffer)
+			outputs.push(input)
 			return
 		}
 
-		await this.makeOutput()
-		await this.runYadif(false, input, sourceID)
+		this.in.push(input)
+		if (this.in.length < 3) {
+			// complete any processing queued for input so the sources are released
+			await this.clJobs.runQueue({ source: sourceID, timestamp: input.timestamp })
+			return
+		}
+		if (this.in.length > 3) {
+			const old = this.in.shift()
+			old?.release()
+		}
+
+		await this.makeOutput(false)
+		await this.runYadif(false, sourceID)
 		outputs.push(this.out as OpenCLBuffer)
+
+		if (this.sendField) {
+			await this.makeOutput(true)
+			await this.runYadif(true, sourceID)
+			outputs.push(this.out as OpenCLBuffer)
+		}
 	}
 
 	release(): void {
-		if (this.prev) this.prev.release()
-		if (this.cur) this.cur.release()
-		if (this.next) this.next.release()
+		this.in.forEach((i) => i.release())
 	}
 }
