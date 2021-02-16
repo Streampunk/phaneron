@@ -114,9 +114,7 @@ export class BasicCmds implements CmdList {
 			seek: seek
 		}
 
-		const bgOK = channel.loadSource(loadParams)
-
-		return bgOK
+		return channel.loadSource(loadParams)
 	}
 
 	/**
@@ -133,6 +131,7 @@ export class BasicCmds implements CmdList {
 		const clip = params[0]
 		let chanNum = 0
 		if (clip === 'DECKLINK') chanNum = +params[curParam + 1]
+
 		let seek = 0
 		// eslint-disable-next-line prettier/prettier
 		if (params.find((param, i) => { curParam = i; return param === 'SEEK'	}) !== undefined)
@@ -147,9 +146,8 @@ export class BasicCmds implements CmdList {
 			autoPlay: false,
 			seek: seek
 		}
-		const bgOK = channel.loadSource(loadParams)
 
-		return bgOK
+		return channel.loadSource(loadParams)
 	}
 
 	/**
@@ -165,9 +163,7 @@ export class BasicCmds implements CmdList {
 
 		if (params.length !== 0) await this.loadbg(chanLay, params)
 
-		const fgOK = channel.play(chanLay.layer)
-
-		return fgOK
+		return channel.play(chanLay.layer)
 	}
 
 	/**

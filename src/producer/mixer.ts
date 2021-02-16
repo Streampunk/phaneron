@@ -18,6 +18,7 @@
   14 Ormiscaig, Aultbea, Achnasheen, IV22 2JJ  U.K.
 */
 
+import { EventEmitter } from 'events'
 import { clContext as nodenCLContext, OpenCLBuffer } from 'nodencl'
 import { RedioPipe, RedioEnd, isValue, Valve, nil } from 'redioactive'
 import { Frame, Filterer, filterer /*, FilterContext*/ } from 'beamcoder'
@@ -31,16 +32,30 @@ export interface AudioMixFrame {
 	mute: boolean
 }
 
-interface AnchorParams {
+export interface AnchorParams {
 	x: number
 	y: number
 }
 
-interface FillParams {
+export interface FillParams {
 	xOffset: number
 	yOffset: number
 	xScale: number
 	yScale: number
+}
+
+export type MixerParams = {
+	anchor: AnchorParams
+	rotation: number
+	fill: FillParams
+	volume: number
+}
+
+export const MixerDefaults: MixerParams = {
+	anchor: { x: 0, y: 0 },
+	rotation: 0,
+	fill: { xOffset: 0, yOffset: 0, xScale: 1, yScale: 1 },
+	volume: 1
 }
 
 // const getFilters = (filterer: Filterer): string[] => {
@@ -93,22 +108,23 @@ export class Mixer {
 	private readonly clContext: nodenCLContext
 	private readonly consumerFormat: VideoFormat
 	private readonly clJobs: ClJobs
+	private readonly doneEvent: EventEmitter
 	private transform: ImageProcess | null
 	private mixAudio: RedioPipe<Frame | RedioEnd> | undefined
 	private mixVideo: RedioPipe<OpenCLBuffer | RedioEnd> | undefined
 	private audMixFilterer: Filterer | null = null
+	private mixParams = MixerDefaults
+	private srcLevels: number[] = []
 	private muted = false
-
-	anchorParams: AnchorParams = { x: 0, y: 0 }
-	rotation = 0
-	fillParams: FillParams = { xOffset: 0, yOffset: 0, xScale: 1, yScale: 1 }
-	srcLevels: number[] = []
-	volume = 1.0
+	private running = true
+	private audDone = false
+	private vidDone = false
 
 	constructor(clContext: nodenCLContext, consumerFormat: VideoFormat, clJobs: ClJobs) {
 		this.clContext = clContext
 		this.consumerFormat = consumerFormat
 		this.clJobs = clJobs
+		this.doneEvent = new EventEmitter()
 		this.transform = new ImageProcess(
 			this.clContext,
 			new Transform(this.clContext, this.consumerFormat.width, this.consumerFormat.height),
@@ -178,10 +194,11 @@ export class Mixer {
 
 		const audMixFilter: Valve<AudioMixFrame | RedioEnd, Frame | RedioEnd> = async (frame) => {
 			if (isValue(frame)) {
+				if (!this.running) return nil
 				if (!this.audMixFilterer) return nil
 				if (frame.mute != this.muted) {
 					this.muted = frame.mute
-					this.setVolume(this.volume, this.muted)
+					this.setVolume(this.mixParams.volume, this.muted)
 				}
 
 				const inSpec: { name: string; frames: Frame[] }[] = []
@@ -192,6 +209,8 @@ export class Mixer {
 				return ff[0] && ff[0].frames.length > 0 ? ff[0].frames : nil
 			} else {
 				this.audMixFilterer = null
+				this.audDone = true
+				if (this.audDone && this.vidDone) this.doneEvent.emit('done')
 				return frame
 			}
 		}
@@ -203,6 +222,10 @@ export class Mixer {
 
 		const mixVidValve: Valve<OpenCLBuffer | RedioEnd, OpenCLBuffer | RedioEnd> = async (frame) => {
 			if (isValue(frame)) {
+				if (!this.running) {
+					frame.release()
+					return nil
+				}
 				const xfDest = await this.clContext.createBuffer(
 					numBytesRGBA,
 					'readwrite',
@@ -220,13 +243,13 @@ export class Mixer {
 						input: frame,
 						flipH: false,
 						flipV: false,
-						anchorX: this.anchorParams.x - 0.5,
-						anchorY: this.anchorParams.y - 0.5,
-						scaleX: srcXscale * this.fillParams.xScale,
-						scaleY: srcYscale * this.fillParams.yScale,
-						rotate: -this.rotation / 360.0,
-						offsetX: -this.fillParams.xOffset,
-						offsetY: -this.fillParams.yOffset,
+						anchorX: this.mixParams.anchor.x - 0.5,
+						anchorY: this.mixParams.anchor.y - 0.5,
+						scaleX: srcXscale * this.mixParams.fill.xScale,
+						scaleY: srcYscale * this.mixParams.fill.yScale,
+						rotate: -this.mixParams.rotation / 360.0,
+						offsetX: -this.mixParams.fill.xOffset,
+						offsetY: -this.mixParams.fill.yOffset,
 						output: xfDest
 					},
 					{ source: sourceID, timestamp: frame.timestamp },
@@ -239,6 +262,8 @@ export class Mixer {
 				this.clJobs.clearQueue(sourceID)
 				this.transform?.finish()
 				this.transform = null
+				this.vidDone = true
+				if (this.audDone && this.vidDone) this.doneEvent.emit('done')
 				return frame
 			}
 		}
@@ -252,26 +277,23 @@ export class Mixer {
 			.valve(mixVidValve)
 	}
 
-	setAnchor(x: number, y: number): boolean {
-		this.anchorParams = { x: x, y: y }
-		return true
+	async release(): Promise<void> {
+		return new Promise((resolve) => {
+			this.doneEvent.once('done', resolve)
+			this.running = false
+		})
 	}
 
-	setRotation(angle: number): boolean {
-		this.rotation = angle
-		return true
-	}
-
-	setFill(xPos: number, yPos: number, xScale: number, yScale: number): boolean {
-		this.fillParams = { xOffset: xPos, yOffset: yPos, xScale: xScale, yScale: yScale }
-		return true
+	setMixParams(mixParams: MixerParams): void {
+		this.mixParams = mixParams
+		this.setVolume(this.mixParams.volume)
 	}
 
 	setVolume(volume: number, mute?: boolean): boolean {
-		this.volume = volume
+		this.mixParams.volume = volume
 		const volFilter = this.audMixFilterer?.graph.filters.find((f) => f.filter.name === 'volume')
 		if (volFilter && volFilter.priv)
-			volFilter.priv = { volume: mute ? '0.0' : this.volume.toString() }
+			volFilter.priv = { volume: mute ? '0.0' : this.mixParams.volume.toString() }
 		return true
 	}
 

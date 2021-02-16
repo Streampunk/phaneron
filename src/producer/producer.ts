@@ -18,27 +18,25 @@
   14 Ormiscaig, Aultbea, Achnasheen, IV22 2JJ  U.K.
 */
 
-import { clContext as nodenCLContext, OpenCLBuffer } from 'nodencl'
+import { clContext as nodenCLContext } from 'nodencl'
+// import { Frame } from 'beamcoder'
 import { ClJobs } from '../clJobQueue'
 import { LoadParams } from '../chanLayer'
 import { VideoFormat } from '../config'
 import { FFmpegProducerFactory } from './ffmpegProducer'
 import { MacadamProducerFactory } from './macadamProducer'
-import { RedioPipe, RedioEnd } from 'redioactive'
-import { AudioMixFrame } from './mixer'
+// import { RedioPipe, RedioEnd } from 'redioactive'
+import { Mixer } from './mixer'
 
 export interface Producer {
-	initialise(consumerFormat: VideoFormat): void
-	getSourceID(): string
-	getFormat(): VideoFormat
-	getSourceAudio(): RedioPipe<AudioMixFrame | RedioEnd> | undefined
-	getSourceVideo(): RedioPipe<OpenCLBuffer | RedioEnd> | undefined
+	initialise(): void
+	getMixer(): Mixer
 	setPaused(pause: boolean): void
-	release(): void
+	release(): Promise<void>
 }
 
 export interface ProducerFactory<T extends Producer> {
-	createProducer(id: number, params: LoadParams, clJobs: ClJobs): T
+	createProducer(id: number, params: LoadParams, clJobs: ClJobs, consumerFormat: VideoFormat): T
 }
 
 export class InvalidProducerError extends Error {
@@ -68,8 +66,8 @@ export class ProducerRegistry {
 		let producerErr = ''
 		for (const f of this.producerFactories) {
 			try {
-				const producer = f.createProducer(this.producerID, params, clJobs)
-				await producer.initialise(consumerFormat)
+				const producer = f.createProducer(this.producerID, params, clJobs, consumerFormat)
+				await producer.initialise()
 				this.producerID++
 				return producer
 			} catch (err) {

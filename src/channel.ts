@@ -35,6 +35,7 @@ export class Channel {
 	private readonly clJobs: ClJobs
 	private readonly combiner: Combiner
 	private readonly consumers: Consumer[]
+	private readonly layers: Map<number, Layer>
 
 	constructor(
 		clContext: nodenCLContext,
@@ -57,6 +58,7 @@ export class Channel {
 			this.consumerConfig,
 			this.clJobs
 		)
+		this.layers = new Map<number, Layer>()
 	}
 
 	async initialise(): Promise<void> {
@@ -87,8 +89,6 @@ export class Channel {
 	}
 
 	async loadSource(params: LoadParams): Promise<boolean> {
-		this.clear(params.layer)
-
 		let producer: Producer | null = null
 		let error = ''
 		try {
@@ -106,71 +106,82 @@ export class Channel {
 			return false
 		}
 
-		const layer = new Layer(this.clContext, this.consumerConfig.format, this.clJobs)
-		await layer.load(producer, params.preview ? true : false, params.autoPlay ? true : false)
-		this.combiner.setLayer(params.layer, layer)
+		let layer = this.layers.get(params.layer)
+		if (!layer) {
+			layer = new Layer()
+			this.layers.set(params.layer, layer)
+		}
 
-		return true
+		return layer.load(producer, params.preview ? true : false, params.autoPlay ? true : false, () =>
+			this.combiner.updateLayers(this.layers)
+		)
 	}
 
-	play(layerNum: number): boolean {
-		const layer = this.combiner.getLayer(layerNum)
-		layer?.play()
+	async play(layerNum: number): Promise<boolean> {
+		const layer = this.layers.get(layerNum)
+		await layer?.play()
 		return layer !== undefined
 	}
 
 	pause(layerNum: number): boolean {
-		const layer = this.combiner.getLayer(layerNum)
+		const layer = this.layers.get(layerNum)
 		layer?.pause()
 		return layer !== undefined
 	}
 
 	resume(layerNum: number): boolean {
-		const layer = this.combiner.getLayer(layerNum)
+		const layer = this.layers.get(layerNum)
 		layer?.resume()
 		return layer !== undefined
 	}
 
-	stop(layerNum: number): boolean {
-		const layer = this.combiner.getLayer(layerNum)
-		let result = layer !== undefined
-		if (layer) {
-			layer.stop()
-			result &&= this.combiner.delLayer(layerNum)
-		}
-		return result
+	async stop(layerNum: number): Promise<boolean> {
+		const layer = this.layers.get(layerNum)
+		await layer?.stop()
+		return layer !== undefined
 	}
 
-	clear(layerNum: number): boolean {
+	async clear(layerNum: number): Promise<boolean> {
 		let result = true
-		if (layerNum === 0) this.combiner.clearLayers()
-		else {
-			result = this.stop(layerNum)
-			result &&= this.combiner.delLayer(layerNum)
+		if (layerNum === 0) {
+			const layerNums: number[] = []
+			const layerIter = this.layers.keys()
+			let next = layerIter.next()
+			while (!next.done) {
+				layerNums.push(next.value)
+				next = layerIter.next()
+			}
+			await Promise.all(layerNums.map((n) => this.stop(n)))
+			layerNums.map((n) => this.layers.delete(n))
+		} else {
+			result = await this.stop(layerNum)
+			this.layers.delete(layerNum)
 		}
+
+		this.combiner.updateLayers(this.layers)
 		return result
 	}
 
 	anchor(layerNum: number, params: string[]): boolean {
-		const layer = this.combiner.getLayer(layerNum)
+		const layer = this.layers.get(layerNum)
 		layer?.anchor(params)
 		return layer !== undefined
 	}
 
 	rotation(layerNum: number, params: string[]): boolean {
-		const layer = this.combiner.getLayer(layerNum)
+		const layer = this.layers.get(layerNum)
 		layer?.rotation(params)
 		return layer !== undefined
 	}
 
 	fill(layerNum: number, params: string[]): boolean {
-		const layer = this.combiner.getLayer(layerNum)
+		const layer = this.layers.get(layerNum)
 		layer?.fill(params)
 		return layer !== undefined
 	}
 
 	volume(layerNum: number, params: string[]): boolean {
-		const layer = this.combiner.getLayer(layerNum)
+		const layer = this.layers.get(layerNum)
 		layer?.volume(params)
 		return layer !== undefined
 	}

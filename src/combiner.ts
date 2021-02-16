@@ -33,7 +33,6 @@ export class Combiner {
 	private readonly chanID: string
 	private readonly consumerFormat: VideoFormat
 	private readonly clJobs: ClJobs
-	private layers: Map<number, Layer>
 	private lastNumAudLayers = 0
 	private lastNumVidLayers = 2
 	private numConsumers = 0
@@ -64,7 +63,6 @@ export class Combiner {
 		this.chanID = `${chanID} combine`
 		this.consumerFormat = consumerFormat
 		this.clJobs = clJobs
-		this.layers = new Map<number, Layer>()
 	}
 
 	async initialise(): Promise<void> {
@@ -237,12 +235,13 @@ export class Combiner {
 					await this.clJobs.runQueue({ source: this.chanID, timestamp: timestamp })
 					return combineDest
 				} else {
+					console.log('combine vid end')
 					return end
 				}
 			} else {
+				console.log('combine vid frames end')
 				if (this.vidCombiner) {
 					this.clJobs.clearQueue(this.chanID)
-					console.log('combinerVid release')
 					black.release()
 					this.vidCombiner = undefined
 				}
@@ -260,7 +259,7 @@ export class Combiner {
 			.zipEach(this.vidLayerPipes)
 			.valve(this.combineVidValve)
 
-		this.update()
+		this.updateLayers(new Map<number, Layer>())
 	}
 
 	async makeCombineAudFilterer(numLayers: number): Promise<void> {
@@ -307,9 +306,9 @@ export class Combiner {
 		await this.vidCombiner.init()
 	}
 
-	update(): void {
+	updateLayers(layers: Map<number, Layer>): void {
 		const layerNums: number[] = []
-		const layerIter = this.layers.keys()
+		const layerIter = layers.keys()
 		let next = layerIter.next()
 		while (!next.done) {
 			layerNums.push(next.value)
@@ -321,7 +320,7 @@ export class Combiner {
 		this.audLayerPipes.splice(0)
 		this.vidLayerPipes.splice(0)
 		layerNums.forEach((l) => {
-			const layer = this.layers.get(l) as Layer
+			const layer = layers.get(l) as Layer
 			this.audLayerPipes.push(layer.getAudioPipe() as RedioPipe<Frame | RedioEnd>)
 			this.vidLayerPipes.push(layer.getVideoPipe() as RedioPipe<OpenCLBuffer | RedioEnd>)
 		})
@@ -333,26 +332,6 @@ export class Combiner {
 
 	removeConsumer(): void {
 		this.numConsumers--
-	}
-
-	setLayer(layerNum: number, layer: Layer): void {
-		this.layers.set(layerNum, layer)
-		this.update()
-	}
-
-	delLayer(layerNum: number): boolean {
-		const result = this.layers.delete(layerNum)
-		this.update()
-		return result
-	}
-
-	getLayer(layerNum: number): Layer | undefined {
-		return this.layers.get(layerNum)
-	}
-
-	clearLayers(): void {
-		this.layers.clear()
-		this.update()
 	}
 
 	getAudioPipe(): RedioPipe<Frame | RedioEnd> | undefined {

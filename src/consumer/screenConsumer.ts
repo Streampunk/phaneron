@@ -102,7 +102,7 @@ export class ScreenConsumer implements Consumer {
 					name: 'in0:a',
 					timeBase: this.audioTimebase,
 					sampleRate: sampleRate,
-					sampleFormat: 'flt',
+					sampleFormat: 'fltp',
 					channelLayout: audInLayout
 				}
 			],
