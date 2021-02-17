@@ -48,8 +48,12 @@ export class Layer {
 		this.autoPlay = autoPlay
 		this.updateCombiner = updateCombiner
 
-		if (this.autoPlay && !this.foreground) {
-			this.play()
+		if (this.autoPlay) {
+			if (this.foreground) {
+				this.foreground.getMixer().addDoneCb(() => this.play())
+			} else {
+				this.play()
+			}
 		} else if (preview) {
 			await this.foreground?.release()
 			this.foreground = this.background

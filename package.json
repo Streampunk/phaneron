@@ -1,6 +1,6 @@
 {
   "name": "phaneron",
-  "version": "0.0.7-develop",
+  "version": "0.0.8-develop",
   "description": "Clustered, accelerated and cloud-fit video server, pre-assembled and in kit form.",
   "main": "dist/index.js",
   "repository": "https://github.com/Streampunk/phaneron.git",
@@ -21,7 +21,7 @@
     "macadam": "^2.0.14",
     "naudiodon": "^2.3.4",
     "nodencl": "^1.3.1",
-    "redioactive": "0.0.15"
+    "redioactive": "0.0.16"
   },
   "devDependencies": {
     "@types/koa": "2.11.6",

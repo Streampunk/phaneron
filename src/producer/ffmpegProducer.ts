@@ -415,6 +415,7 @@ export class FFmpegProducer implements Producer {
 			} else {
 				yadif?.release()
 				yadif = null
+				this.running = false
 				return frame
 			}
 		}

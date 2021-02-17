@@ -210,7 +210,10 @@ export class Mixer {
 			} else {
 				this.audMixFilterer = null
 				this.audDone = true
-				if (this.audDone && this.vidDone) this.doneEvent.emit('done')
+				if (this.audDone && this.vidDone) {
+					this.running = false
+					this.doneEvent.emit('done')
+				}
 				return frame
 			}
 		}
@@ -263,7 +266,10 @@ export class Mixer {
 				this.transform?.finish()
 				this.transform = null
 				this.vidDone = true
-				if (this.audDone && this.vidDone) this.doneEvent.emit('done')
+				if (this.audDone && this.vidDone) {
+					this.running = false
+					this.doneEvent.emit('done')
+				}
 				return frame
 			}
 		}
@@ -277,10 +283,17 @@ export class Mixer {
 			.valve(mixVidValve)
 	}
 
+	addDoneCb(cb: () => void): void {
+		this.doneEvent.once('done', cb)
+	}
+
 	async release(): Promise<void> {
 		return new Promise((resolve) => {
-			this.doneEvent.once('done', resolve)
-			this.running = false
+			if (!this.running) resolve()
+			else {
+				this.doneEvent.once('done', resolve)
+				this.running = false
+			}
 		})
 	}
 
