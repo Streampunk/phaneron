@@ -62,4 +62,8 @@ export default class Mix extends ProcessImpl {
 			output: params.output
 		})
 	}
+
+	releaseRefs(): void {
+		return
+	}
 }

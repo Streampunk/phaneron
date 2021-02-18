@@ -83,6 +83,15 @@ export class ClJobs {
 			this.delete(id)
 		})
 	}
+
+	clearQueue(src: string): void {
+		this.jobs.forEach((jobs, key) => {
+			if (key.startsWith(src)) {
+				// run the callbacks so sources are released
+				jobs.forEach((j) => j.cb())
+			}
+		})
+	}
 }
 
 export class ClProcessJobs {

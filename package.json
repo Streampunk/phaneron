@@ -1,6 +1,6 @@
 {
   "name": "phaneron",
-  "version": "0.0.4-develop",
+  "version": "0.0.8-develop",
   "description": "Clustered, accelerated and cloud-fit video server, pre-assembled and in kit form.",
   "main": "dist/index.js",
   "repository": "https://github.com/Streampunk/phaneron.git",
@@ -36,15 +36,15 @@
   "devDependencies": {
     "@types/koa": "2.11.6",
     "@types/koa__cors": "3.0.2",
-    "@types/node": "^14.14.11",
-    "@typescript-eslint/eslint-plugin": "^4.9.1",
-    "@typescript-eslint/parser": "^4.9.1",
-    "eslint": "^7.15.0",
-    "eslint-config-prettier": "^7.0.0",
-    "eslint-plugin-prettier": "^3.2.0",
+    "@types/node": "^14.14.28",
+    "@typescript-eslint/eslint-plugin": "^4.15.1",
+    "@typescript-eslint/parser": "^4.15.1",
+    "eslint": "^7.20.0",
+    "eslint-config-prettier": "^7.2.0",
+    "eslint-plugin-prettier": "^3.3.1",
     "prettier": "^2.2.1",
     "trash-cli": "^4.0.0",
     "ts-node": "^9.1.1",
-    "typescript": "^4.1.2"
+    "typescript": "^4.1.5"
   }
 }

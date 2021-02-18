@@ -121,6 +121,7 @@ export default class Resize extends ProcessImpl {
 		if (offsetY && !(offsetY >= -1.0 && offsetY <= 1.0))
 			throw 'resize offsetX must be between -1.0 and +1.0'
 
+		this.flipVals?.addRef()
 		return Promise.resolve({
 			input: params.input,
 			scale: params.scale || 1.0,
@@ -129,5 +130,9 @@ export default class Resize extends ProcessImpl {
 			flip: this.flipVals,
 			output: params.output
 		})
+	}
+
+	releaseRefs(): void {
+		this.flipVals?.release()
 	}
 }

@@ -50,6 +50,7 @@ export abstract class ProcessImpl {
 	}
 
 	abstract getKernelParams(params: KernelParams): Promise<KernelParams>
+	abstract releaseRefs(): void
 }
 
 export default class ImageProcess {
@@ -75,6 +76,13 @@ export default class ImageProcess {
 	async run(params: KernelParams, id: JobID, cb: JobCB): Promise<void> {
 		if (this.program == null) throw new Error('Loader.run failed with no program available')
 		const kernelParams = await this.processImpl.getKernelParams(params)
-		this.clJobs.add(id, this.processImpl.getName(), this.program, kernelParams, cb)
+		this.clJobs.add(id, this.processImpl.getName(), this.program, kernelParams, () => {
+			this.processImpl.releaseRefs()
+			cb()
+		})
+	}
+
+	finish(): void {
+		this.processImpl.releaseRefs()
 	}
 }

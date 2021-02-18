@@ -35,7 +35,7 @@ import {
 import redio, { RedioPipe, nil, end, isValue, RedioEnd, Generator, Valve } from 'redioactive'
 import { ClJobs } from '../clJobQueue'
 import { LoadParams } from '../chanLayer'
-import { VideoFormat, VideoFormats } from '../config'
+import { VideoFormat } from '../config'
 import { ToRGBA } from '../process/io'
 import { Reader as yuv422p10Reader } from '../process/yuv422p10'
 import { Reader as yuv422p8Reader } from '../process/yuv422p8'
@@ -44,7 +44,7 @@ import { Reader as rgba8Reader } from '../process/rgba8'
 import { Reader as bgra8Reader } from '../process/bgra8'
 import Yadif from '../process/yadif'
 import { PackImpl } from '../process/packer'
-import { AudioMixFrame } from '../mixer'
+import { Mixer, AudioMixFrame } from './mixer'
 
 interface AudioChannel {
 	name: string
@@ -56,22 +56,30 @@ export class FFmpegProducer implements Producer {
 	private readonly loadParams: LoadParams
 	private readonly clContext: nodenCLContext
 	private readonly clJobs: ClJobs
+	private readonly consumerFormat: VideoFormat
+	private readonly mixer: Mixer
 	private demuxer: Demuxer | null = null
-	private format: VideoFormat
 	private audSource: RedioPipe<AudioMixFrame | RedioEnd> | undefined
 	private vidSource: RedioPipe<OpenCLBuffer | RedioEnd> | undefined
 	private running = true
-	private paused = false
+	private paused = true
 
-	constructor(id: number, loadParams: LoadParams, context: nodenCLContext, clJobs: ClJobs) {
+	constructor(
+		id: number,
+		loadParams: LoadParams,
+		context: nodenCLContext,
+		clJobs: ClJobs,
+		consumerFormat: VideoFormat
+	) {
 		this.sourceID = `P${id} FFmpeg ${loadParams.url} L${loadParams.layer}`
 		this.loadParams = loadParams
 		this.clContext = context
 		this.clJobs = clJobs
-		this.format = new VideoFormats().get('1080p5000') // default
+		this.consumerFormat = consumerFormat
+		this.mixer = new Mixer(this.clContext, this.consumerFormat, this.clJobs)
 	}
 
-	async initialise(consumerFormat: VideoFormat): Promise<void> {
+	async initialise(): Promise<void> {
 		try {
 			this.demuxer = await demuxer(this.loadParams.url)
 		} catch (err) {
@@ -85,14 +93,19 @@ export class FFmpegProducer implements Producer {
 		const audioIndexes: number[] = []
 		const videoIndexes: number[] = []
 		const decoders: Map<number, Decoder> = new Map()
-		const numAudChannels = 8
 		const numVidChannels = 1
+		const audioPackets: Packet[] = []
+		const videoPackets: Packet[] = []
+		let monoStreams = true
+
 		this.demuxer.streams.forEach((s) => {
-			if (s.codecpar.codec_type === 'audio' && audioStreams.length < numAudChannels) {
+			if (s.codecpar.codec_type === 'audio' && monoStreams) {
+				// allow mxf-style mono channel per stream or a single stream of multiple channels
 				s.discard = 'default'
 				audioStreams.push(s)
 				audioIndexes.push(s.index)
 				decoders.set(s.index, decoder({ demuxer: this.demuxer as Demuxer, stream_index: s.index }))
+				monoStreams &&= s.codecpar.channel_layout === 'mono'
 			} else if (s.codecpar.codec_type === 'video' && videoStreams.length < numVidChannels) {
 				s.discard = 'default'
 				videoStreams.push(s)
@@ -105,46 +118,59 @@ export class FFmpegProducer implements Producer {
 
 		let silentFrame: Frame | null = null
 		let audFilterer: Filterer | null = null
-		const audLayout = `${numAudChannels}c`
-		// If the file has multiple audio streams each marked as mono then set the channel layout to give them a default position
-		const allMono = audioStreams.every((s) => s.codecpar.channel_layout === 'mono')
-		const audChanNames = ['FL', 'FR', 'FC', 'SL', 'SR', 'LFE', 'BL', 'BR']
 		const audStream = audioStreams[0]
+		let numAudChannels = 0
+
 		if (audStream) {
-			let inStr = ''
 			const inParams = audioStreams.map((_s, i) => {
-				inStr += `[in${i}:a]`
 				return {
 					name: `in${i}:a`,
 					timeBase: audStream.time_base,
 					sampleRate: audStream.codecpar.sample_rate,
 					sampleFormat: audStream.codecpar.format,
-					channelLayout: allMono ? audChanNames[i] : audStream.codecpar.channel_layout
+					channelLayout: monoStreams ? '1c' : audStream.codecpar.channel_layout
 				}
 			})
+
+			let filtStr = ''
+			if (monoStreams) {
+				numAudChannels = audioStreams.length
+				for (let c = 0; c < numAudChannels; ++c)
+					filtStr += (c === 0 ? '' : ';\n') + `[in${c}:a]asetnsamples=n=1024:p=1[out${c}:a]`
+			} else {
+				numAudChannels = audStream.codecpar.channels
+				filtStr += `[in${0}:a]asetnsamples=n=1024:p=1, channelsplit=channel_layout=${numAudChannels}c`
+				for (let s = 0; s < numAudChannels; ++s) filtStr += `[c${s}:a]`
+				for (let s = 0; s < numAudChannels; ++s)
+					filtStr += `;\n[c${s}:a]aformat=channel_layouts=1c[out${s}:a]`
+			}
+			// console.log(filtStr)
+
+			const outParams = []
+			for (let s = 0; s < numAudChannels; ++s)
+				outParams.push({
+					name: `out${s}:a`,
+					sampleRate: this.consumerFormat.audioSampleRate,
+					sampleFormat: 'fltp',
+					channelLayout: '1c'
+				})
 
 			audFilterer = await filterer({
 				filterType: 'audio',
 				inputParams: inParams,
-				outputParams: [
-					{
-						name: 'out0:a',
-						sampleRate: 48000,
-						sampleFormat: 'flt',
-						channelLayout: audLayout
-					}
-				],
-				filterSpec: `${inStr} amerge=inputs=${audioStreams.length}, asetnsamples=n=1024:p=1 [out0:a]`
+				outputParams: outParams,
+				filterSpec: filtStr
 			})
 		} else {
+			numAudChannels = 1
 			silentFrame = frame({
 				nb_samples: 1024,
 				format: 's32',
 				pts: 0,
-				sample_rate: 48000,
-				channels: numAudChannels,
-				channel_layout: audLayout,
-				data: [Buffer.alloc(1024 * numAudChannels * 4)]
+				sample_rate: this.consumerFormat.audioSampleRate,
+				channels: 1,
+				channel_layout: '1c',
+				data: [Buffer.alloc(1024 * 4)]
 			})
 
 			audFilterer = await filterer({
@@ -152,18 +178,18 @@ export class FFmpegProducer implements Producer {
 				inputParams: [
 					{
 						name: 'in0:a',
-						timeBase: [1, 48000],
-						sampleRate: 48000,
+						timeBase: [1, this.consumerFormat.audioSampleRate],
+						sampleRate: this.consumerFormat.audioSampleRate,
 						sampleFormat: 's32',
-						channelLayout: audLayout
+						channelLayout: '1c'
 					}
 				],
 				outputParams: [
 					{
 						name: 'out0:a',
-						sampleRate: 48000,
-						sampleFormat: 'flt',
-						channelLayout: audLayout
+						sampleRate: this.consumerFormat.audioSampleRate,
+						sampleFormat: 'fltp',
+						channelLayout: '1c'
 					}
 				],
 				filterSpec: '[in0:a] asetpts=N/SR/TB [out0:a]'
@@ -215,7 +241,7 @@ export class FFmpegProducer implements Producer {
 		}
 		toRGBA = new ToRGBA(this.clContext, '709', '709', readImpl, this.clJobs)
 		await toRGBA.init()
-		const chanTb = [consumerFormat.duration, consumerFormat.timescale]
+		const chanTb = [this.consumerFormat.duration, this.consumerFormat.timescale]
 		const vidFilterer = await filterer({
 			filterType: 'video',
 			inputParams: [
@@ -251,59 +277,35 @@ export class FFmpegProducer implements Producer {
 		)
 		await yadif.init()
 
-		const demux: Generator<Packet[] | RedioEnd> = async () => {
-			let result: Packet[] | RedioEnd = end
-			let doneSet = false
-
-			let lastAudTimestamp: number | undefined = undefined
-			let lastVidTimestamp: number | undefined = undefined
-			const packets: Packet[] = []
-			let doBreak = false
-
+		const demux: Generator<Packet | RedioEnd> = async () => {
+			let packet: Packet | RedioEnd = end
 			if (this.demuxer && this.running) {
-				do {
-					const packet = await this.demuxer.read()
-					if (packet) {
-						if (audioIndexes.includes(packet.stream_index)) {
-							if (!lastAudTimestamp) lastAudTimestamp = packet.pts
-							else if (packet.pts !== lastAudTimestamp) doBreak = true
-							packets.push(packet)
-						} else if (videoIndexes.includes(packet.stream_index)) {
-							if (!lastVidTimestamp) lastVidTimestamp = packet.pts
-							else if (packet.pts !== lastVidTimestamp) doBreak = true
-							packets.push(packet)
-						}
-
-						if (doBreak || packets.length === audioStreams.length + videoStreams.length) {
-							if (doBreak)
-								console.log(
-									`Timestamp mismatch - sending ${packets.length} packets, ${
-										audioStreams.length + videoStreams.length
-									} expected`
-								)
-							doneSet = true
-							result = packets
-						}
-					} else {
-						doneSet = true
-						result = end
-					}
-				} while (!doneSet)
-			} else this.demuxer = null
-
-			return result
+				packet = await this.demuxer.read()
+			} else {
+				this.demuxer = null
+			}
+			return packet ? packet : end
 		}
 
-		const audPacketFilter: Valve<Packet[] | RedioEnd, Packet[] | RedioEnd> = async (packets) => {
-			if (isValue(packets)) {
-				return packets.filter((p) => audioIndexes.includes(p.stream_index))
+		const audPacketFilter: Valve<Packet | RedioEnd, Packet[] | RedioEnd> = async (packet) => {
+			if (isValue(packet)) {
+				if (!this.running) return nil
+				if (audioIndexes.includes(packet.stream_index)) {
+					audioPackets.push(packet)
+					if (audioPackets.length === audioStreams.length) {
+						const result = audioPackets.slice(0)
+						audioPackets.splice(0)
+						return result
+					} else return nil
+				} else return nil
 			} else {
-				return packets
+				return packet
 			}
 		}
 
 		const audDecode: Valve<Packet[] | RedioEnd, AudioChannel[] | RedioEnd> = async (packets) => {
 			if (isValue(packets)) {
+				if (!this.running) return nil
 				const frames = await Promise.all(
 					packets.map((p) => (decoders.get(p.stream_index) as Decoder).decode(p))
 				)
@@ -317,31 +319,38 @@ export class FFmpegProducer implements Producer {
 			frames
 		) => {
 			if (isValue(frames) && audFilterer) {
+				if (!this.running) return nil
 				const ff = await audFilterer.filter(frames)
-				if (!ff[0]) return nil
-				const audMixFrames =
-					ff[0].frames.length > 0 ? ff[0].frames.map((f) => ({ frame: f, mute: false })) : nil
-				return audMixFrames
+				if (ff.reduce((acc, f) => acc && f.frames && f.frames.length > 0, true)) {
+					return { frames: ff.map((f) => f.frames), mute: false }
+				} else return nil
 			} else {
 				return frames as RedioEnd
 			}
 		}
 
-		const silence: Generator<AudioChannel[] | RedioEnd> = async () => [
-			{ name: 'in0:a', frames: [silentFrame] }
-		]
+		const silence: Generator<AudioChannel[] | RedioEnd> = async () =>
+			this.running ? [{ name: 'in0:a', frames: [silentFrame] }] : end
 
-		const vidPacketFilter: Valve<Packet[] | RedioEnd, Packet[] | RedioEnd> = async (packets) => {
-			if (isValue(packets)) {
-				return packets.filter((p) => videoIndexes.includes(p.stream_index))
+		const vidPacketFilter: Valve<Packet | RedioEnd, Packet[] | RedioEnd> = async (packet) => {
+			if (isValue(packet)) {
+				if (!this.running) return nil
+				if (videoIndexes.includes(packet.stream_index)) {
+					videoPackets.push(packet)
+					if (videoPackets.length === videoStreams.length) {
+						const result = videoPackets.slice(0)
+						videoPackets.splice(0)
+						return result
+					} else return nil
+				} else return nil
 			} else {
-				return packets
+				return packet
 			}
 		}
 
 		const vidDecode: Valve<Packet[] | RedioEnd, Frame | RedioEnd> = async (packets) => {
 			if (isValue(packets)) {
-				if (!packets[0]) return nil
+				if (!this.running) return nil
 				const frm = await (decoders.get(packets[0].stream_index) as Decoder).decode(packets[0])
 				return frm.frames.length > 0 ? frm.frames : nil
 			} else {
@@ -349,18 +358,20 @@ export class FFmpegProducer implements Producer {
 			}
 		}
 
-		const vidFilter: Valve<Frame | RedioEnd, Frame | RedioEnd> = async (decFrames) => {
-			if (isValue(decFrames)) {
-				const ff = await vidFilterer.filter([decFrames])
+		const vidFilter: Valve<Frame | RedioEnd, Frame | RedioEnd> = async (decFrame) => {
+			if (isValue(decFrame)) {
+				if (!this.running) return nil
+				const ff = await vidFilterer.filter([decFrame])
 				if (!ff[0]) return nil
 				return ff[0].frames.length > 0 ? ff[0].frames : nil
 			} else {
-				return decFrames
+				return decFrame
 			}
 		}
 
 		const vidLoader: Valve<Frame | RedioEnd, OpenCLBuffer[] | RedioEnd> = async (frame) => {
 			if (isValue(frame)) {
+				if (!this.running) return nil
 				const convert = toRGBA as ToRGBA
 				const clSources = await convert.createSources()
 				clSources.forEach((s) => (s.timestamp = progressive ? frame.pts : frame.pts * 2))
@@ -376,12 +387,17 @@ export class FFmpegProducer implements Producer {
 			clSources
 		) => {
 			if (isValue(clSources)) {
+				if (!this.running) {
+					clSources.forEach((s) => s.release())
+					return nil
+				}
 				const convert = toRGBA as ToRGBA
 				const clDest = await convert.createDest({ width: width, height: height })
 				clDest.timestamp = clSources[0].timestamp
 				convert.processFrame(this.sourceID, clSources, clDest)
 				return clDest
 			} else {
+				toRGBA?.finish()
 				toRGBA = null
 				return clSources
 			}
@@ -389,17 +405,22 @@ export class FFmpegProducer implements Producer {
 
 		const vidDeint: Valve<OpenCLBuffer | RedioEnd, OpenCLBuffer | RedioEnd> = async (frame) => {
 			if (isValue(frame)) {
+				if (!this.running) {
+					frame.release()
+					return nil
+				}
 				const yadifDests: OpenCLBuffer[] = []
 				await yadif?.processFrame(frame, yadifDests, this.sourceID)
-				return yadifDests.length > 1 ? yadifDests : nil
+				return yadifDests.length > 0 ? yadifDests : nil
 			} else {
 				yadif?.release()
 				yadif = null
+				this.running = false
 				return frame
 			}
 		}
 
-		this.format = {
+		const srcFormat = {
 			name: 'ffmpeg',
 			fields: 1,
 			width: width,
@@ -412,27 +433,31 @@ export class FFmpegProducer implements Producer {
 			audioChannels: numAudChannels
 		}
 
-		const ffPackets = redio(demux, { bufferSizeMax: 10 })
+		const ffPackets = redio(demux, { bufferSizeMax: this.demuxer.streams.length * 2 })
 
 		let audSrc: RedioPipe<RedioEnd | AudioMixFrame> | undefined
 		if (audioStreams.length) {
 			audSrc = ffPackets
-				.fork()
+				.fork({ bufferSizeMax: 2 })
 				.valve(audPacketFilter)
 				.valve(audDecode)
 				.valve(audFilter, { oneToMany: true })
 		} else {
 			// eslint-disable-next-line prettier/prettier
-			audSrc = redio(silence, { bufferSizeMax: 10 })
+			audSrc = redio(silence, { bufferSizeMax: 2 })
 				.valve(audFilter, { oneToMany: true })
 		}
 		this.audSource = audSrc.pause((frame) => {
+			if (!this.running) {
+				frame = nil
+				return false
+			}
 			if (this.paused && isValue(frame)) (frame as AudioMixFrame).mute = true
 			return this.paused
 		})
 
 		this.vidSource = ffPackets
-			.fork()
+			.fork({ bufferSizeMax: 2 })
 			.valve(vidPacketFilter)
 			.valve(vidDecode, { oneToMany: true })
 			.valve(vidFilter, { oneToMany: true })
@@ -440,35 +465,30 @@ export class FFmpegProducer implements Producer {
 			.valve(vidProcess)
 			.valve(vidDeint, { oneToMany: true })
 			.pause((frame) => {
+				if (!this.running) {
+					frame = nil
+					return false
+				}
 				if (this.paused && isValue(frame)) (frame as OpenCLBuffer).addRef()
 				return this.paused
 			})
 
+		await this.mixer.init(this.sourceID, this.audSource, this.vidSource, srcFormat)
+
 		console.log(`Created FFmpeg producer for path ${this.loadParams.url}`)
 	}
 
-	getSourceID(): string {
-		return this.sourceID
-	}
-
-	getFormat(): VideoFormat {
-		return this.format
-	}
-
-	getSourceAudio(): RedioPipe<AudioMixFrame | RedioEnd> | undefined {
-		return this.audSource
-	}
-
-	getSourceVideo(): RedioPipe<OpenCLBuffer | RedioEnd> | undefined {
-		return this.vidSource
+	getMixer(): Mixer {
+		return this.mixer
 	}
 
 	setPaused(pause: boolean): void {
 		this.paused = pause
 	}
 
-	release(): void {
+	async release(): Promise<void> {
 		this.running = false
+		return this.mixer.release()
 	}
 }
 
@@ -479,7 +499,12 @@ export class FFmpegProducerFactory implements ProducerFactory<FFmpegProducer> {
 		this.clContext = clContext
 	}
 
-	createProducer(id: number, loadParams: LoadParams, clJobs: ClJobs): FFmpegProducer {
-		return new FFmpegProducer(id, loadParams, this.clContext, clJobs)
+	createProducer(
+		id: number,
+		loadParams: LoadParams,
+		clJobs: ClJobs,
+		consumerFormat: VideoFormat
+	): FFmpegProducer {
+		return new FFmpegProducer(id, loadParams, this.clContext, clJobs, consumerFormat)
 	}
 }

@@ -102,7 +102,7 @@ export class ScreenConsumer implements Consumer {
 					name: 'in0:a',
 					timeBase: this.audioTimebase,
 					sampleRate: sampleRate,
-					sampleFormat: 'flt',
+					sampleFormat: 'fltp',
 					channelLayout: audInLayout
 				}
 			],
@@ -159,6 +159,7 @@ export class ScreenConsumer implements Consumer {
 				await this.clJobs.runQueue({ source: this.chanID, timestamp: frame.timestamp })
 				return clDests[0]
 			} else {
+				this.clJobs.clearQueue(this.chanID)
 				return frame
 			}
 		}

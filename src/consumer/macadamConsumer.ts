@@ -91,7 +91,7 @@ export class MacadamConsumer implements Consumer {
 		this.chanID = `${chanID} decklink-${this.device.deviceIndex - 1}`
 		this.clJobs = clJobs
 		this.vidField = 0
-		this.audioChannels = 8
+		this.audioChannels = this.format.audioChannels
 		this.audioTimebase = [1, this.format.audioSampleRate]
 		this.videoTimebase = [this.format.duration, this.format.timescale / this.format.fields]
 
@@ -140,7 +140,7 @@ export class MacadamConsumer implements Consumer {
 					name: 'in0:a',
 					timeBase: this.audioTimebase,
 					sampleRate: sampleRate,
-					sampleFormat: 'flt',
+					sampleFormat: 'fltp',
 					channelLayout: audLayout
 				}
 			],
@@ -235,6 +235,7 @@ export class MacadamConsumer implements Consumer {
 				else this.vidField = 0
 				return this.vidField === 1 ? nil : this.clDests[0]
 			} else {
+				this.clJobs.clearQueue(this.chanID)
 				return frame
 			}
 		}

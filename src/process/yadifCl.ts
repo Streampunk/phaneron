@@ -187,4 +187,8 @@ export default class YadifCL extends ProcessImpl {
 			output: params.output
 		})
 	}
+
+	releaseRefs(): void {
+		return
+	}
 }
