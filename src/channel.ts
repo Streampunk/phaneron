@@ -24,7 +24,7 @@ import { Producer, ProducerRegistry } from './producer/producer'
 import { ConsumerConfig } from './config'
 import { Layer } from './layer'
 import { ConsumerRegistry, Consumer } from './consumer/consumer'
-import { Combiner } from './combiner'
+import { CombineLayer, Combiner } from './combiner'
 import { ClJobs } from './clJobQueue'
 
 export class Channel {
@@ -88,6 +88,30 @@ export class Channel {
 		this.combiner.removeConsumer()
 	}
 
+	updateLayers(): void {
+		const layerNums: number[] = []
+		const layerIter = this.layers.keys()
+		let next = layerIter.next()
+		while (!next.done) {
+			layerNums.push(next.value)
+			next = layerIter.next()
+		}
+		// sort layers from low to high for combining bottom to top
+		layerNums.sort((a, b) => a - b)
+
+		const combineLayers: CombineLayer[] = []
+		layerNums.forEach((l) => {
+			const layer = this.layers.get(l)
+			if (layer) {
+				const audPipe = layer.getAudioPipe()
+				const vidPipe = layer.getVideoPipe()
+				if (audPipe && vidPipe) combineLayers.push(new CombineLayer(layer, audPipe, vidPipe))
+			}
+		})
+
+		this.combiner.updateLayers(combineLayers)
+	}
+
 	async loadSource(params: LoadParams): Promise<boolean> {
 		let producer: Producer | null = null
 		let error = ''
@@ -113,7 +137,7 @@ export class Channel {
 		}
 
 		return layer.load(producer, params.preview ? true : false, params.autoPlay ? true : false, () =>
-			this.combiner.updateLayers(this.layers)
+			this.updateLayers()
 		)
 	}
 
@@ -158,7 +182,7 @@ export class Channel {
 			this.layers.delete(layerNum)
 		}
 
-		this.combiner.updateLayers(this.layers)
+		this.updateLayers()
 		return result
 	}
 

@@ -1,6 +1,6 @@
 {
   "name": "phaneron",
-  "version": "0.0.8-develop",
+  "version": "0.0.9-develop",
   "description": "Clustered, accelerated and cloud-fit video server, pre-assembled and in kit form.",
   "main": "dist/index.js",
   "repository": "https://github.com/Streampunk/phaneron.git",

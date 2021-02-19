@@ -18,7 +18,6 @@
   14 Ormiscaig, Aultbea, Achnasheen, IV22 2JJ  U.K.
 */
 
-import { EventEmitter } from 'events'
 import { clContext as nodenCLContext, OpenCLBuffer } from 'nodencl'
 import { RedioPipe, RedioEnd, isValue, Valve, nil } from 'redioactive'
 import { Frame, Filterer, filterer /*, FilterContext*/ } from 'beamcoder'
@@ -108,7 +107,6 @@ export class Mixer {
 	private readonly clContext: nodenCLContext
 	private readonly consumerFormat: VideoFormat
 	private readonly clJobs: ClJobs
-	private readonly doneEvent: EventEmitter
 	private transform: ImageProcess | null
 	private mixAudio: RedioPipe<Frame | RedioEnd> | undefined
 	private mixVideo: RedioPipe<OpenCLBuffer | RedioEnd> | undefined
@@ -124,7 +122,6 @@ export class Mixer {
 		this.clContext = clContext
 		this.consumerFormat = consumerFormat
 		this.clJobs = clJobs
-		this.doneEvent = new EventEmitter()
 		this.transform = new ImageProcess(
 			this.clContext,
 			new Transform(this.clContext, this.consumerFormat.width, this.consumerFormat.height),
@@ -210,10 +207,7 @@ export class Mixer {
 			} else {
 				this.audMixFilterer = null
 				this.audDone = true
-				if (this.audDone && this.vidDone) {
-					this.running = false
-					this.doneEvent.emit('done')
-				}
+				if (this.audDone && this.vidDone) this.running = false
 				return frame
 			}
 		}
@@ -266,10 +260,7 @@ export class Mixer {
 				this.transform?.finish()
 				this.transform = null
 				this.vidDone = true
-				if (this.audDone && this.vidDone) {
-					this.running = false
-					this.doneEvent.emit('done')
-				}
+				if (this.audDone && this.vidDone) this.running = false
 				return frame
 			}
 		}
@@ -283,18 +274,8 @@ export class Mixer {
 			.valve(mixVidValve)
 	}
 
-	addDoneCb(cb: () => void): void {
-		this.doneEvent.once('done', cb)
-	}
-
-	async release(): Promise<void> {
-		return new Promise((resolve) => {
-			if (!this.running) resolve()
-			else {
-				this.doneEvent.once('done', resolve)
-				this.running = false
-			}
-		})
+	release(): void {
+		this.running = false
 	}
 
 	setMixParams(mixParams: MixerParams): void {

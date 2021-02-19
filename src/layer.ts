@@ -18,6 +18,7 @@
   14 Ormiscaig, Aultbea, Achnasheen, IV22 2JJ  U.K.
 */
 
+import { EventEmitter, once } from 'events'
 import { OpenCLBuffer } from 'nodencl'
 import { RedioPipe, RedioEnd } from 'redioactive'
 import { Frame } from 'beamcoder'
@@ -25,15 +26,17 @@ import { Producer } from './producer/producer'
 import { MixerDefaults } from './producer/mixer'
 
 export class Layer {
+	private readonly endEvent: EventEmitter
 	private mixerParams = MixerDefaults
 	private background: Producer | null
 	private foreground: Producer | null
-	private updateCombiner: () => void
+	private channelUpdate: () => void
 	private autoPlay = false
 
 	constructor() {
+		this.endEvent = new EventEmitter()
 		// eslint-disable-next-line @typescript-eslint/no-empty-function
-		this.updateCombiner = () => {}
+		this.channelUpdate = () => {}
 		this.background = null
 		this.foreground = null
 	}
@@ -42,23 +45,29 @@ export class Layer {
 		producer: Producer,
 		preview: boolean,
 		autoPlay: boolean,
-		updateCombiner: () => void
+		channelUpdate: () => void
 	): Promise<boolean> {
 		this.background = producer
 		this.autoPlay = autoPlay
-		this.updateCombiner = updateCombiner
+		this.channelUpdate = channelUpdate
 
 		if (this.autoPlay) {
 			if (this.foreground) {
-				this.foreground.getMixer().addDoneCb(() => this.play())
+				this.endEvent.once('end', () => {
+					this.foreground = null
+					this.play()
+				})
 			} else {
 				this.play()
 			}
 		} else if (preview) {
-			await this.foreground?.release()
+			if (this.foreground) {
+				this.foreground.release()
+				await once(this.endEvent, 'end')
+			}
 			this.foreground = this.background
 			this.background = null
-			this.updateCombiner()
+			this.channelUpdate()
 		}
 		console.log(`Layer load: preview ${preview}, autoPlay ${this.autoPlay}`)
 		return true
@@ -66,11 +75,14 @@ export class Layer {
 
 	async play(): Promise<void> {
 		if (this.background) {
-			await this.foreground?.release()
+			if (this.foreground) {
+				this.foreground.release()
+				await once(this.endEvent, 'end')
+			}
 			this.foreground = this.background
 			this.background = null
 			this.autoPlay = false
-			this.updateCombiner()
+			this.channelUpdate()
 		}
 
 		this.foreground?.setPaused(false)
@@ -85,7 +97,10 @@ export class Layer {
 	}
 
 	async stop(): Promise<void> {
-		await this.foreground?.release()
+		if (this.foreground) {
+			this.foreground.release()
+			await once(this.endEvent, 'end')
+		}
 		this.foreground = null
 		this.autoPlay = false
 	}
@@ -142,5 +157,8 @@ export class Layer {
 	getVideoPipe(): RedioPipe<OpenCLBuffer | RedioEnd> | undefined {
 		const mixer = this.foreground ? this.foreground.getMixer() : this.background?.getMixer()
 		return mixer?.getVideoPipe()
+	}
+	getEndEvent(): EventEmitter {
+		return this.endEvent
 	}
 }

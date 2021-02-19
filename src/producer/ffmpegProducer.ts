@@ -486,9 +486,9 @@ export class FFmpegProducer implements Producer {
 		this.paused = pause
 	}
 
-	async release(): Promise<void> {
+	release(): void {
 		this.running = false
-		return this.mixer.release()
+		this.mixer.release()
 	}
 }
 

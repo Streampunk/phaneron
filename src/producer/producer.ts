@@ -32,7 +32,7 @@ export interface Producer {
 	initialise(): void
 	getMixer(): Mixer
 	setPaused(pause: boolean): void
-	release(): Promise<void>
+	release(): void
 }
 
 export interface ProducerFactory<T extends Producer> {

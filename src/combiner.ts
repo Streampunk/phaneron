@@ -18,6 +18,7 @@
   14 Ormiscaig, Aultbea, Achnasheen, IV22 2JJ  U.K.
 */
 
+import { EventEmitter } from 'events'
 import { clContext as nodenCLContext } from 'nodencl'
 import { Layer } from './layer'
 import redio, { RedioPipe, RedioEnd, isValue, Valve, nil, end } from 'redioactive'
@@ -27,6 +28,66 @@ import { VideoFormat } from './config'
 import { ClJobs } from './clJobQueue'
 import ImageProcess from './process/imageProcess'
 import Combine from './process/combine'
+
+export class CombineLayer {
+	private readonly layer: Layer
+	private readonly audioPipe: RedioPipe<Frame | RedioEnd>
+	private readonly videoPipe: RedioPipe<OpenCLBuffer | RedioEnd>
+	private readonly endEvent: EventEmitter
+	private audioStarted = false
+	private videoStarted = false
+	private audioEnd = false
+	private videoEnd = false
+
+	constructor(
+		layer: Layer,
+		audPipe: RedioPipe<Frame | RedioEnd>,
+		vidPipe: RedioPipe<OpenCLBuffer | RedioEnd>
+	) {
+		this.layer = layer
+		this.audioPipe = audPipe
+		this.videoPipe = vidPipe
+		this.endEvent = layer.getEndEvent()
+	}
+
+	getLayer(): Layer {
+		return this.layer
+	}
+
+	getAudioPipe(): RedioPipe<Frame | RedioEnd> {
+		return this.audioPipe
+	}
+
+	getVideoPipe(): RedioPipe<OpenCLBuffer | RedioEnd> {
+		return this.videoPipe
+	}
+
+	checkAudio(frame: Frame | RedioEnd): boolean {
+		let result = true
+		if (isValue(frame)) this.audioStarted = true
+		else {
+			if (this.audioStarted && !this.audioEnd) {
+				this.audioEnd = true
+				if (this.audioEnd && this.videoEnd) this.endEvent.emit('end')
+			}
+			result = false
+		}
+		return result
+	}
+
+	checkVideo(frame: OpenCLBuffer | RedioEnd): boolean {
+		let result = true
+		if (isValue(frame)) this.videoStarted = true
+		else {
+			if (this.videoStarted && !this.videoEnd) {
+				this.videoEnd = true
+				if (this.audioEnd && this.videoEnd) this.endEvent.emit('end')
+			}
+			result = false
+		}
+		return result
+	}
+}
 
 export class Combiner {
 	private readonly clContext: nodenCLContext
@@ -40,6 +101,7 @@ export class Combiner {
 	private vidCombiner: ImageProcess | undefined
 	private audioPipe: RedioPipe<Frame | RedioEnd> | undefined
 	private videoPipe: RedioPipe<OpenCLBuffer | RedioEnd> | undefined
+	private combineLayers: CombineLayer[] = []
 	private audLayerPipes: RedioPipe<Frame | RedioEnd>[] = []
 	private vidLayerPipes: RedioPipe<OpenCLBuffer | RedioEnd>[] = []
 
@@ -142,10 +204,9 @@ export class Combiner {
 			[Frame | RedioEnd, ...(Frame | RedioEnd)[]]
 		> = async (frames) => {
 			if (isValue(frames)) {
-				return frames.filter((f, i) => i === 0 || isValue(f)) as [
-					Frame | RedioEnd,
-					...(Frame | RedioEnd)[]
-				]
+				return frames.filter((f, i) =>
+					i > 0 ? this.combineLayers[i - 1].checkAudio(f) : true
+				) as [Frame | RedioEnd, ...(Frame | RedioEnd)[]]
 			} else {
 				return frames
 			}
@@ -202,10 +263,9 @@ export class Combiner {
 			[OpenCLBuffer | RedioEnd, ...(OpenCLBuffer | RedioEnd)[]]
 		> = async (frames) => {
 			if (isValue(frames)) {
-				return frames.filter((f, i) => i === 0 || isValue(f)) as [
-					OpenCLBuffer | RedioEnd,
-					...(OpenCLBuffer | RedioEnd)[]
-				]
+				return frames.filter((f, i) =>
+					i > 0 ? this.combineLayers[i - 1].checkVideo(f) : true
+				) as [OpenCLBuffer | RedioEnd, ...(OpenCLBuffer | RedioEnd)[]]
 			} else {
 				return frames
 			}
@@ -222,10 +282,10 @@ export class Combiner {
 				if (!isValue(frames[0])) return end
 				const timestamp = frames[0].timestamp++
 
-				const combineLayers = numLayers < 2 ? 2 : numLayers
-				if (this.lastNumVidLayers !== combineLayers) {
-					await this.makeVidCombiner(combineLayers)
-					this.lastNumVidLayers = combineLayers
+				const numCombineLayers = numLayers < 2 ? 2 : numLayers
+				if (this.lastNumVidLayers !== numCombineLayers) {
+					await this.makeVidCombiner(numCombineLayers)
+					this.lastNumVidLayers = numCombineLayers
 				}
 
 				if (numLayers === 0) {
@@ -286,8 +346,6 @@ export class Combiner {
 			.zipEach(this.vidLayerPipes)
 			.valve(vidEndValve)
 			.valve(combineVidValve)
-
-		this.updateLayers(new Map<number, Layer>())
 	}
 
 	async makeAudCombiner(numLayers: number): Promise<void> {
@@ -334,23 +392,13 @@ export class Combiner {
 		await this.vidCombiner.init()
 	}
 
-	updateLayers(layers: Map<number, Layer>): void {
-		const layerNums: number[] = []
-		const layerIter = layers.keys()
-		let next = layerIter.next()
-		while (!next.done) {
-			layerNums.push(next.value)
-			next = layerIter.next()
-		}
-		// sort layers from low to high for combining bottom to top
-		layerNums.sort((a, b) => a - b)
-
+	updateLayers(layers: CombineLayer[]): void {
+		this.combineLayers = layers.slice(0)
 		this.audLayerPipes.splice(0)
 		this.vidLayerPipes.splice(0)
-		layerNums.forEach((l) => {
-			const layer = layers.get(l) as Layer
-			this.audLayerPipes.push(layer.getAudioPipe() as RedioPipe<Frame | RedioEnd>)
-			this.vidLayerPipes.push(layer.getVideoPipe() as RedioPipe<OpenCLBuffer | RedioEnd>)
+		layers.forEach((l) => {
+			this.audLayerPipes.push(l.getAudioPipe())
+			this.vidLayerPipes.push(l.getVideoPipe())
 		})
 	}
 
