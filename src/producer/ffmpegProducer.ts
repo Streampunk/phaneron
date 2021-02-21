@@ -39,6 +39,7 @@ import { VideoFormat, VideoFormats } from '../config'
 import { ToRGBA } from '../process/io'
 import { Reader as yuv422p10Reader } from '../process/yuv422p10'
 import { Reader as yuv422p8Reader } from '../process/yuv422p8'
+import { Reader as yuv420p8Reader } from '../process/yuv420p8'
 import { Reader as v210Reader } from '../process/v210'
 import { Reader as rgba8Reader } from '../process/rgba8'
 import { Reader as bgra8Reader } from '../process/bgra8'
@@ -182,6 +183,10 @@ export class FFmpegProducer implements Producer {
 			case 'yuv422p':
 				console.log('Using native yuv422p8 loader')
 				readImpl = new yuv422p8Reader(width, height)
+				break
+			case 'yuv420p':
+				console.log('Using native yuv420p8 loader')
+				readImpl = new yuv420p8Reader(width, height)
 				break
 			case 'yuv422p10le':
 				console.log('Using native yuv422p10 loader')
