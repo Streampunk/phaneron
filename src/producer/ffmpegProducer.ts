@@ -39,6 +39,7 @@ import { VideoFormat } from '../config'
 import { ToRGBA } from '../process/io'
 import { Reader as yuv422p10Reader } from '../process/yuv422p10'
 import { Reader as yuv422p8Reader } from '../process/yuv422p8'
+import { Reader as yuv420pReader } from '../process/yuv420p'
 import { Reader as v210Reader } from '../process/v210'
 import { Reader as rgba8Reader } from '../process/rgba8'
 import { Reader as bgra8Reader } from '../process/bgra8'
@@ -205,6 +206,10 @@ export class FFmpegProducer implements Producer {
 		let filterOutputFormat = vidStream.codecpar.format
 		let readImpl: PackImpl
 		switch (vidStream.codecpar.format) {
+			case 'yuv420p':
+				console.log('Using native yuv420p loader')
+				readImpl = new yuv420pReader(width, height)
+				break
 			case 'yuv422p':
 				console.log('Using native yuv422p8 loader')
 				readImpl = new yuv422p8Reader(width, height)
