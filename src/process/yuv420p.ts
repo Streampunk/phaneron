@@ -1,80 +1,79 @@
 /*
-  Phaneron - Clustered, accelerated and cloud-fit video server, pre-assembled and in kit form.
-  Copyright (C) 2020 Streampunk Media Ltd.
+	Phaneron - Clustered, accelerated and cloud-fit video server, pre-assembled and in kit form.
+	Copyright (C) 2020 Streampunk Media Ltd.
 
-  This program is free software: you can redistribute it and/or modify
-  it under the terms of the GNU General Public License as published by
-  the Free Software Foundation, either version 3 of the License, or
-  (at your option) any later version.
+	This program is free software: you can redistribute it and/or modify
+	it under the terms of the GNU General Public License as published by
+	the Free Software Foundation, either version 3 of the License, or
+	(at your option) any later version.
 
-  This program is distributed in the hope that it will be useful,
-  but WITHOUT ANY WARRANTY; without even the implied warranty of
-  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-  GNU General Public License for more details.
+	This program is distributed in the hope that it will be useful,
+	but WITHOUT ANY WARRANTY; without even the implied warranty of
+	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+	GNU General Public License for more details.
 
-  You should have received a copy of the GNU General Public License
-  along with this program.  If not, see <https://www.gnu.org/licenses/>.
-  https://www.streampunk.media/ mailto:furnace@streampunk.media
-  14 Ormiscaig, Aultbea, Achnasheen, IV22 2JJ  U.K.
+	You should have received a copy of the GNU General Public License
+	along with this program.  If not, see <https://www.gnu.org/licenses/>.
+	https://www.streampunk.media/ mailto:furnace@streampunk.media
+	14 Ormiscaig, Aultbea, Achnasheen, IV22 2JJ  U.K.
 */
 
 import { PackImpl, Interlace } from './packer'
 import { KernelParams, OpenCLBuffer } from 'nodencl'
 
 const yuv420pKernel = `
-  __kernel void read(__global uchar8* restrict inputY,
-                     __global uchar4* restrict inputU,
-                     __global uchar4* restrict inputV,
+	__kernel void read(__global uchar8* restrict inputY,
+										 __global uchar4* restrict inputU,
+										 __global uchar4* restrict inputV,
 										 __global float4* restrict output,
-                     __private unsigned int width,
-                     __constant float4* restrict colMatrix,
-                     __global float* restrict gammaLut,
-                     __constant float4* restrict gamutMatrix) {
+										 __private unsigned int width,
+										 __constant float4* restrict colMatrix,
+										 __global float* restrict gammaLut,
+										 __constant float4* restrict gamutMatrix) {
 		bool lastItemOnLine = get_local_id(0) == get_local_size(0) - 1;
 
-    // 64 output pixels per workItem = 8 input luma uchar8s per work item, 8 each u & v uchar4s per work item
-    uint numPixels = lastItemOnLine && (0 != width % 8) ? width % 64 : 64;
-    uint numLoops = numPixels / 8;
-    uint remain = numPixels % 8;
+		// 64 output pixels per workItem = 8 input luma uchar8s per work item, 8 each u & v uchar4s per work item
+		uint numPixels = lastItemOnLine && (0 != width % 64) ? width % 64 : 64;
+		uint numLoops = numPixels / 8;
+		uint remain = numPixels % 8;
 
+		uint pitchReads = (width + 7) / 8;
 		uint inOffY[2];
-		inOffY[0] = 8 * (get_local_id(0) + get_group_id(0) * get_local_size(0) * 2);
-		inOffY[1] = inOffY[0] + 8 * get_local_size(0);
-		uint inOffUV = 8 * get_global_id(0);
+		inOffY[0] = 8 * get_local_id(0) + pitchReads * get_group_id(0) * 2;
+		inOffY[1] = inOffY[0] + pitchReads;
+		uint inOffUV = 8 * get_local_id(0) + pitchReads * get_group_id(0);
 
 		uint outOff[2];
-    outOff[0] = 64 * (get_local_id(0) + get_group_id(0) * get_local_size(0) * 2);
-    outOff[1] = outOff[0] + 64 * get_local_size(0);
+		outOff[0] = 64 * get_local_id(0) + width * get_group_id(0) * 2;
+		outOff[1] = outOff[0] + width;
 
-    float4 colMatR = colMatrix[0];
-    float4 colMatG = colMatrix[1];
-    float4 colMatB = colMatrix[2];
+		float4 colMatR = colMatrix[0];
+		float4 colMatG = colMatrix[1];
+		float4 colMatB = colMatrix[2];
 
-    // optimise loading of the 3x3 gamut matrix
-    float4 gamutMat0 = gamutMatrix[0];
-    float4 gamutMat1 = gamutMatrix[1];
-    float4 gamutMat2 = gamutMatrix[2];
-    float3 gamutMatR = (float3)(gamutMat0.s0, gamutMat0.s1, gamutMat0.s2);
-    float3 gamutMatG = (float3)(gamutMat0.s3, gamutMat1.s0, gamutMat1.s1);
-    float3 gamutMatB = (float3)(gamutMat1.s2, gamutMat1.s3, gamutMat2.s0);
+		// optimise loading of the 3x3 gamut matrix
+		float4 gamutMat0 = gamutMatrix[0];
+		float4 gamutMat1 = gamutMatrix[1];
+		float4 gamutMat2 = gamutMatrix[2];
+		float3 gamutMatR = (float3)(gamutMat0.s0, gamutMat0.s1, gamutMat0.s2);
+		float3 gamutMatG = (float3)(gamutMat0.s3, gamutMat1.s0, gamutMat1.s1);
+		float3 gamutMatB = (float3)(gamutMat1.s2, gamutMat1.s3, gamutMat2.s0);
 
-    for (uint i=0; i<numLoops; ++i) {
-			uchar8 y[2];
-      y[0] = inputY[inOffY[0]];
-      y[1] = inputY[inOffY[1]];
-      uchar4 u = inputU[inOffUV];
-      uchar4 v = inputV[inOffUV];
+		for (uint i=0; i<numLoops; ++i) {
+			uchar4 u = inputU[inOffUV];
+			uchar4 v = inputV[inOffUV];
 
 			for (uint l=0; l<2; ++l) {
+				uchar8 y = inputY[inOffY[l]];
 				uchar4 yuva[8];
-				yuva[0] = (uchar4)(y[l].s0, u.s0, v.s0, 1);
-				yuva[1] = (uchar4)(y[l].s1, u.s0, v.s0, 1);
-				yuva[2] = (uchar4)(y[l].s2, u.s1, v.s1, 1);
-				yuva[3] = (uchar4)(y[l].s3, u.s1, v.s1, 1);
-				yuva[4] = (uchar4)(y[l].s4, u.s2, v.s2, 1);
-				yuva[5] = (uchar4)(y[l].s5, u.s2, v.s2, 1);
-				yuva[6] = (uchar4)(y[l].s6, u.s3, v.s3, 1);
-				yuva[7] = (uchar4)(y[l].s7, u.s3, v.s3, 1);
+				yuva[0] = (uchar4)(y.s0, u.s0, v.s0, 1);
+				yuva[1] = (uchar4)(y.s1, u.s0, v.s0, 1);
+				yuva[2] = (uchar4)(y.s2, u.s1, v.s1, 1);
+				yuva[3] = (uchar4)(y.s3, u.s1, v.s1, 1);
+				yuva[4] = (uchar4)(y.s4, u.s2, v.s2, 1);
+				yuva[5] = (uchar4)(y.s5, u.s2, v.s2, 1);
+				yuva[6] = (uchar4)(y.s6, u.s3, v.s3, 1);
+				yuva[7] = (uchar4)(y.s7, u.s3, v.s3, 1);
 
 				for (uint p=0; p<8; ++p) {
 					float4 yuva_f = convert_float4(yuva[p]);
@@ -91,34 +90,31 @@ const yuv420pKernel = `
 
 					output[outOff[l]+p] = rgba;
 				}
+
+				inOffY[l]++;
+				outOff[l]+=8;
 			}
 
-			inOffY[0]++;
-			inOffY[1]++;
 			inOffUV++;
-      outOff[0]+=8;
-      outOff[1]+=8;
-    }
+		}
 
-    if (remain > 0) {
-			uchar8 y[2];
-      y[0] = inputY[inOffY[0]];
-      y[1] = inputY[inOffY[1]];
-      uchar4 u = inputU[inOffUV];
-      uchar4 v = inputV[inOffUV];
+		if (remain > 0) {
+			uchar4 u = inputU[inOffUV];
+			uchar4 v = inputV[inOffUV];
 
 			for (uint l=0; l<2; ++l) {
+				uchar8 y = inputY[inOffY[l]];
 				uchar4 yuva[6];
-				yuva[0] = (uchar4)(y[l].s0, u.s0, v.s0, 1);
-				yuva[1] = (uchar4)(y[l].s1, u.s0, v.s0, 1);
+				yuva[0] = (uchar4)(y.s0, u.s0, v.s0, 1);
+				yuva[1] = (uchar4)(y.s1, u.s0, v.s0, 1);
 
 				if (remain > 2) {
-					yuva[2] = (uchar4)(y[l].s2, u.s1, v.s1, 1);
-					yuva[3] = (uchar4)(y[l].s3, u.s1, v.s1, 1);
+					yuva[2] = (uchar4)(y.s2, u.s1, v.s1, 1);
+					yuva[3] = (uchar4)(y.s3, u.s1, v.s1, 1);
 
 					if (remain > 4) {
-						yuva[4] = (uchar4)(y[l].s4, u.s2, v.s2, 1);
-						yuva[5] = (uchar4)(y[l].s5, u.s2, v.s2, 1);
+						yuva[4] = (uchar4)(y.s4, u.s2, v.s2, 1);
+						yuva[5] = (uchar4)(y.s5, u.s2, v.s2, 1);
 					}
 				}
 
@@ -134,60 +130,45 @@ const yuv420pKernel = `
 					rgba.s1 = dot(rgb, gamutMatG);
 					rgba.s2 = dot(rgb, gamutMatB);
 					rgba.s3 = 1.0f;
+
 					output[outOff[l]+p] = rgba;
 				}
 			}
-    }
-  }
+		}
+	}
 
-  __kernel void write(__global float4* restrict input,
-                      __global uchar8* restrict outputY,
-                      __global uchar4* restrict outputU,
-                      __global uchar4* restrict outputV,
-                      __private unsigned int width,
-                      __private unsigned int interlace,
-                      __constant float4* restrict colMatrix,
-                      __global float* restrict gammaLut) {
-    bool lastItemOnLine = get_local_id(0) == get_local_size(0) - 1;
+	__kernel void write(__global float4* restrict input,
+											__global uchar8* restrict outputY,
+											__global uchar4* restrict outputU,
+											__global uchar4* restrict outputV,
+											__private unsigned int width,
+											__private unsigned int interlace,
+											__constant float4* restrict colMatrix,
+											__global float* restrict gammaLut) {
+		bool lastItemOnLine = get_local_id(0) == get_local_size(0) - 1;
 
-    // 64 input pixels per workItem = 8 input luma uchar8s per work item, 8 each u & v uchar4s per work item
-    uint numPixels = lastItemOnLine && (0 != width % 8) ? width % 64 : 64;
-    uint numLoops = numPixels / 8;
-    uint remain = numPixels % 8;
+		// 64 input pixels per workItem = 8 input luma uchar8s per work item, 8 each u & v uchar4s per work item
+		uint numPixels = lastItemOnLine && (0 != width % 64) ? width % 64 : 64;
+		uint numLoops = numPixels / 8;
+		uint remain = numPixels % 8;
 
-    uint interlaceOff = (3 == interlace) ? 1 : 0;
+		uint interlaceOff = (3 == interlace) ? 1 : 0;
 		uint line = get_group_id(0) * 2 + interlaceOff;
 		uint numLines = (0 == interlace) ? 2 : 1;
 
 		uint inOff[2];
-    inOff[0] = 64 * (get_local_id(0) + line * get_local_size(0));
-    inOff[1] = inOff[0] + 64 * get_local_size(0);
+		inOff[0] = 64 * get_local_id(0) + width * line;
+		inOff[1] = inOff[0] + width;
 
+		uint pitchReads = (width + 7) / 8;
 		uint outOffY[2];
-		outOffY[0] = 8 * (get_local_id(0) + line * get_local_size(0));
-		outOffY[1] = outOffY[0] + 8 * get_local_size(0);
-		uint outOffUV = 8 * get_global_id(0);
+		outOffY[0] = 8 * get_local_id(0) + pitchReads * line;
+		outOffY[1] = outOffY[0] + pitchReads;
+		uint outOffUV = 8 * get_local_id(0) + pitchReads * get_group_id(0);
 
-    if (64 != numPixels) {
-      // clear the output buffers for the last item, partially overwritten below
-			uint clearOffY[2];
-      clearOffY[0] = outOffY[0];
-      clearOffY[1] = outOffY[1];
-      uint clearOffUV = outOffUV;
-      for (uint i=0; i<numLoops; ++i) {
-        outputY[clearOffY[0]] = (uchar8)(64, 64, 64, 64, 64, 64, 64, 64);
-        outputY[clearOffY[1]] = (uchar8)(64, 64, 64, 64, 64, 64, 64, 64);
-        outputU[clearOffUV] = (uchar4)(512, 512, 512, 512);
-        outputV[clearOffUV] = (uchar4)(512, 512, 512, 512);
-        clearOffY[0]++;
-        clearOffY[1]++;
-        clearOffUV++;
-      }
-    }
-
-    float4 matY = colMatrix[0];
-    float4 matU = colMatrix[1];
-    float4 matV = colMatrix[2];
+		float4 matY = colMatrix[0];
+		float4 matU = colMatrix[1];
+		float4 matV = colMatrix[2];
 
 		for (uint l=0; l<numLines; ++l) {
 			for (uint i=0; i<numLoops; ++i) {
@@ -221,11 +202,11 @@ const yuv420pKernel = `
 			}
 		}
 
-    if (remain > 0) {
+		if (remain > 0) {
 			for (uint l=0; l<numLines; ++l) {
-				uchar8 y = (uchar8)(64, 64, 64, 64, 64, 64, 64, 64);
-				uchar4 u = (uchar4)(512, 512, 512, 512);
-				uchar4 v = (uchar4)(512, 512, 512, 512);
+				uchar8 y = (uchar8)(16, 16, 16, 16, 16, 16, 16, 16);
+				uchar4 u = (uchar4)(128, 128, 128, 128);
+				uchar4 v = (uchar4)(128, 128, 128, 128);
 
 				uchar3 yuv[6];
 				for (uint p=0; p<remain; ++p) {
@@ -253,8 +234,8 @@ const yuv420pKernel = `
 					if (remain > 4) {
 						y.s4 = yuv[4].s0;
 						y.s5 = yuv[5].s0;
-						u.s1 = yuv[4].s1;
-						v.s1 = yuv[4].s2;
+						u.s2 = yuv[4].s1;
+						v.s2 = yuv[4].s2;
 					}
 				}
 
@@ -265,7 +246,7 @@ const yuv420pKernel = `
 				}
 			}
 		}
-  }
+	}
 `
 
 const getPitch = (width: number): number => width + 7 - ((width - 1) % 8)
@@ -278,7 +259,8 @@ export const fillBuf = (buf: Buffer, width: number, height: number): void => {
 	let uOff = lumaPitchBytes * height
 	let vOff = uOff + chromaPitchBytes * Math.ceil(height / 2)
 
-	buf.fill(0)
+	buf.fill(16, lOff)
+	buf.fill(128, uOff) // fills both u and v
 	let Y0 = 16
 	let Y1 = 234
 	const Cb = 128
@@ -306,7 +288,13 @@ export const fillBuf = (buf: Buffer, width: number, height: number): void => {
 	}
 }
 
-export const dumpBuf = (buf: Buffer, width: number, height: number, numLines: number): void => {
+export const dumpBuf = (
+	buf: Buffer,
+	width: number,
+	height: number,
+	numLines: number,
+	lineEnds?: boolean
+): void => {
 	console.log()
 
 	const lumaPitchBytes = getPitchBytes(width)
@@ -322,26 +310,23 @@ export const dumpBuf = (buf: Buffer, width: number, height: number, numLines: nu
 	const getUHex = (off: number): string => buf.readUInt8(uLineOff + off / 2).toString(16)
 	const getVHex = (off: number): string => buf.readUInt8(vLineOff + off / 2).toString(16)
 
+	const numPixels = 8
+	const endOffset = lineEnds ? lumaPitchBytes - numPixels : 0
 	for (let line = 0; line < numLines; line += 2) {
-		y0LineOff = lumaPitchBytes * line
-		y1LineOff = lumaPitchBytes * (line + 1)
-		uLineOff = lumaPitchBytes * height + chromaPitchBytes * (line / 2)
-		vLineOff = uLineOff + chromaPitchBytes * (height / 2)
-		for (let l = line; l < line + 2; ++l)
-			console.log(
-				`Line ${l}: ${getUHex(0)}, ${getYHex(l, 0)}, ${getVHex(0)}, ${getYHex(l, 1)}; ${getUHex(
-					2
-				)}, ${getYHex(l, 2)}, ${getVHex(2)}, ${getYHex(l, 3)}; ${getUHex(4)}, ${getYHex(
-					l,
-					4
-				)}, ${getVHex(4)}, ${getYHex(l, 5)}; ${getUHex(6)}, ${getYHex(l, 6)}, ${getVHex(
-					6
-				)}, ${getYHex(l, 7)};`
-			)
+		y0LineOff = lumaPitchBytes * line + endOffset
+		y1LineOff = lumaPitchBytes * (line + 1) + endOffset
+		uLineOff = lumaPitchBytes * height + chromaPitchBytes * (line / 2) + endOffset / 2
+		vLineOff = uLineOff + chromaPitchBytes * (height / 2) + endOffset / 2
+		for (let l = line; l < line + 2; ++l) {
+			let s = `Line ${l}:`
+			for (let p = 0; p < numPixels; p += 2)
+				s += ` ${getUHex(p)}, ${getYHex(l, p)}, ${getVHex(p)}, ${getYHex(l, p + 1)};`
+			console.log(s)
+		}
 	}
 }
 
-// process one image line per work group
+// process one image line pair per work group
 const pixelsPerWorkItem = 64
 
 export class Reader extends PackImpl {
@@ -354,7 +339,8 @@ export class Reader extends PackImpl {
 		this.isRGB = false
 		const lumaBytes = getPitchBytes(this.width) * this.height
 		this.numBytes = [lumaBytes, lumaBytes / 4, lumaBytes / 4]
-		this.workItemsPerGroup = getPitch(this.width) / pixelsPerWorkItem
+		this.workItemsPerGroup = Math.ceil(getPitch(this.width) / pixelsPerWorkItem)
+		// Halve total items as each item processes two lines
 		this.globalWorkItems = (this.workItemsPerGroup * this.height) / 2
 	}
 
@@ -386,7 +372,8 @@ export class Writer extends PackImpl {
 		this.isRGB = false
 		const lumaBytes = getPitchBytes(this.width) * this.height
 		this.numBytes = [lumaBytes, lumaBytes / 4, lumaBytes / 4]
-		this.workItemsPerGroup = getPitch(this.width) / pixelsPerWorkItem
+		this.workItemsPerGroup = Math.ceil(getPitch(this.width) / pixelsPerWorkItem)
+		// Halve total items as each item processes two lines
 		this.globalWorkItems = (this.workItemsPerGroup * this.height) / 2
 	}
 

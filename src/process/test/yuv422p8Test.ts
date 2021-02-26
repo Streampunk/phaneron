@@ -15,7 +15,7 @@
 
 import { clContext as nodenCLContext, OpenCLBuffer } from 'nodencl'
 import { ClProcessJobs } from '../../clJobQueue'
-import { Reader, Writer, fillBuf, dumpBuf } from '../yuv420p'
+import { Reader, Writer, fillBuf, dumpBuf } from '../yuv422p8'
 import { ToRGBA, FromRGBA } from '../io'
 import { Interlace } from '../packer'
 
@@ -54,9 +54,9 @@ const test = async () => {
 
 	const colSpecRead = '709'
 	const colSpecWrite = '709'
-	const width = 1920
+	const width = 718
 	const height = 1080
-	const showLineEnds = false
+	const showLineEnds = true
 
 	const toRGBA = new ToRGBA(clContext, colSpecRead, colSpecWrite, new Reader(width, height), clJobs)
 	await toRGBA.init()
