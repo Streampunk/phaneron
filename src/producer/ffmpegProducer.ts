@@ -198,89 +198,131 @@ export class FFmpegProducer implements Producer {
 		}
 		// console.log('\nFFmpeg producer audio:\n', audFilterer.graph.dump())
 
-		const vidStream = videoStreams[0]
-		const width = vidStream.codecpar.width
-		const height = vidStream.codecpar.height
-
+		let width = this.consumerFormat.width
+		let height = this.consumerFormat.height
+		let squareWidth = width
+		let squareHeight = height
+		let vidTimescale = this.consumerFormat.timescale
+		let vidDuration = this.consumerFormat.duration
 		let toRGBA: ToRGBA | null = null
-		let filterOutputFormat = vidStream.codecpar.format
-		let readImpl: PackImpl
-		switch (vidStream.codecpar.format) {
-			case 'yuv420p':
-				console.log('Using native yuv420p loader')
-				readImpl = new yuv420pReader(width, height)
-				break
-			case 'yuv422p':
-				console.log('Using native yuv422p8 loader')
-				readImpl = new yuv422p8Reader(width, height)
-				break
-			case 'yuv422p10le':
-				console.log('Using native yuv422p10 loader')
-				readImpl = new yuv422p10Reader(width, height)
-				break
-			case 'v210':
-				console.log('Using native v210 loader')
-				readImpl = new v210Reader(width, height)
-				break
-			case 'rgba':
-				console.log('Using native rgba8 loader')
-				readImpl = new rgba8Reader(width, height)
-				break
-			case 'bgra':
-				console.log('Using native bgra8 loader')
-				readImpl = new bgra8Reader(width, height)
-				break
-			default:
-				if (vidStream.codecpar.format.includes('yuv')) {
-					console.log(`Non-native loader for ${vidStream.codecpar.format} - using yuv422p10`)
-					filterOutputFormat = 'yuv422p10le'
-					readImpl = new yuv422p10Reader(width, height)
-				} else if (vidStream.codecpar.format.includes('rgb')) {
-					console.log(`Non-native loader for ${vidStream.codecpar.format} - using rgba8`)
-					filterOutputFormat = 'rgba'
-					readImpl = new rgba8Reader(width, height)
-				} else
-					throw new Error(
-						`Unsupported video format '${vidStream.codecpar.format}' from FFmpeg decoder`
-					)
-		}
-		toRGBA = new ToRGBA(this.clContext, '709', '709', readImpl, this.clJobs)
-		await toRGBA.init()
-		const chanTb = [this.consumerFormat.duration, this.consumerFormat.timescale]
-		const vidFilterer = await filterer({
-			filterType: 'video',
-			inputParams: [
-				{
-					timeBase: vidStream.time_base,
-					width: width,
-					height: height,
-					pixelFormat: vidStream.codecpar.format,
-					pixelAspect: vidStream.codecpar.sample_aspect_ratio
-				}
-			],
-			outputParams: [
-				{
-					pixelFormat: filterOutputFormat
-				}
-			],
-			filterSpec: `fps=fps=${chanTb[1] / 2}/${chanTb[0]}`
-		})
-		// console.log('\nFFmpeg producer video:\n', vidFilterer.graph.dump())
-
+		let vidFilterer: Filterer | null = null
+		let progressive = true
 		let yadif: Yadif | null = null
-		const fieldOrder = vidStream.codecpar.field_order
-		const progressive = fieldOrder === 'progressive'
-		const tff = fieldOrder === 'unknown' || fieldOrder.split(', ', 2)[1] === 'top displayed first'
-		const yadifMode = progressive ? 'send_frame' : 'send_field'
-		yadif = new Yadif(
-			this.clContext,
-			this.clJobs,
-			width,
-			height,
-			{ mode: yadifMode, tff: tff },
-			!progressive
-		)
-		await yadif.init()
+		let black: OpenCLBuffer | null = null
+
+		const vidStream = videoStreams[0]
+		if (vidStream) {
+			width = vidStream.codecpar.width
+			height = vidStream.codecpar.height
+			squareWidth = (width * vidStream.sample_aspect_ratio[0]) / vidStream.sample_aspect_ratio[1]
+			squareHeight = height
+			vidTimescale = vidStream.time_base[1] * (progressive ? 1 : 2)
+			vidDuration = vidStream.time_base[0]
+
+			let filterOutputFormat = vidStream.codecpar.format
+			let readImpl: PackImpl
+			switch (vidStream.codecpar.format) {
+				case 'yuv420p':
+					console.log('Using native yuv420p loader')
+					readImpl = new yuv420pReader(width, height)
+					break
+				case 'yuv422p':
+					console.log('Using native yuv422p8 loader')
+					readImpl = new yuv422p8Reader(width, height)
+					break
+				case 'yuv422p10le':
+					console.log('Using native yuv422p10 loader')
+					readImpl = new yuv422p10Reader(width, height)
+					break
+				case 'v210':
+					console.log('Using native v210 loader')
+					readImpl = new v210Reader(width, height)
+					break
+				case 'rgba':
+					console.log('Using native rgba8 loader')
+					readImpl = new rgba8Reader(width, height)
+					break
+				case 'bgra':
+					console.log('Using native bgra8 loader')
+					readImpl = new bgra8Reader(width, height)
+					break
+				default:
+					if (vidStream.codecpar.format.includes('yuv')) {
+						console.log(`Non-native loader for ${vidStream.codecpar.format} - using yuv422p10`)
+						filterOutputFormat = 'yuv422p10le'
+						readImpl = new yuv422p10Reader(width, height)
+					} else if (vidStream.codecpar.format.includes('rgb')) {
+						console.log(`Non-native loader for ${vidStream.codecpar.format} - using rgba8`)
+						filterOutputFormat = 'rgba'
+						readImpl = new rgba8Reader(width, height)
+					} else
+						throw new Error(
+							`Unsupported video format '${vidStream.codecpar.format}' from FFmpeg decoder`
+						)
+			}
+			toRGBA = new ToRGBA(this.clContext, '709', '709', readImpl, this.clJobs)
+			await toRGBA.init()
+			const chanTb = [this.consumerFormat.duration, this.consumerFormat.timescale]
+			vidFilterer = await filterer({
+				filterType: 'video',
+				inputParams: [
+					{
+						timeBase: vidStream.time_base,
+						width: width,
+						height: height,
+						pixelFormat: vidStream.codecpar.format,
+						pixelAspect: vidStream.codecpar.sample_aspect_ratio
+					}
+				],
+				outputParams: [
+					{
+						pixelFormat: filterOutputFormat
+					}
+				],
+				filterSpec: `fps=fps=${chanTb[1] / 2}/${chanTb[0]}`
+			})
+			// console.log('\nFFmpeg producer video:\n', vidFilterer.graph.dump())
+
+			const fieldOrder = vidStream.codecpar.field_order
+			progressive = fieldOrder === 'progressive'
+			const tff = fieldOrder === 'unknown' || fieldOrder.split(', ', 2)[1] === 'top displayed first'
+			const yadifMode = progressive ? 'send_frame' : 'send_field'
+			yadif = new Yadif(
+				this.clContext,
+				this.clJobs,
+				width,
+				height,
+				{ mode: yadifMode, tff: tff },
+				!progressive
+			)
+			await yadif.init()
+		} else {
+			const numBytesRGBA = width * height * 4 * 4
+			black = await this.clContext.createBuffer(
+				numBytesRGBA,
+				'readwrite',
+				'coarse',
+				{
+					width: width,
+					height: height
+				},
+				'combinerBlack'
+			)
+
+			let off = 0
+			const blackFloat = new Float32Array(numBytesRGBA / 4)
+			for (let y = 0; y < height; ++y) {
+				for (let x = 0; x < width * 4; x += 4) {
+					blackFloat[off + x + 0] = 0.0
+					blackFloat[off + x + 1] = 0.0
+					blackFloat[off + x + 2] = 0.0
+					blackFloat[off + x + 3] = 0.0
+				}
+				off += width * 4
+			}
+			await black.hostAccess('writeonly')
+			Buffer.from(blackFloat.buffer).copy(black)
+		}
 
 		const demux: Generator<Packet | RedioEnd> = async () => {
 			let packet: Packet | RedioEnd = end
@@ -365,7 +407,7 @@ export class FFmpegProducer implements Producer {
 
 		const vidFilter: Valve<Frame | RedioEnd, Frame | RedioEnd> = async (decFrame) => {
 			if (isValue(decFrame)) {
-				if (!this.running) return nil
+				if (!this.running || !vidFilterer) return nil
 				const ff = await vidFilterer.filter([decFrame])
 				if (!ff[0]) return nil
 				return ff[0].frames.length > 0 ? ff[0].frames : nil
@@ -425,15 +467,25 @@ export class FFmpegProducer implements Producer {
 			}
 		}
 
+		const blackPipe: RedioPipe<OpenCLBuffer | RedioEnd> = redio(
+			async () => {
+				if (this.running) {
+					black?.addRef()
+					return black
+				} else return end
+			},
+			{ bufferSizeMax: 1 }
+		)
+
 		const srcFormat = {
 			name: 'ffmpeg',
 			fields: 1,
 			width: width,
 			height: height,
-			squareWidth: (width * vidStream.sample_aspect_ratio[0]) / vidStream.sample_aspect_ratio[1],
-			squareHeight: height,
-			timescale: vidStream.time_base[1] * (progressive ? 1 : 2),
-			duration: vidStream.time_base[0],
+			squareWidth: squareWidth,
+			squareHeight: squareHeight,
+			timescale: vidTimescale,
+			duration: vidDuration,
 			audioSampleRate: 48000,
 			audioChannels: numAudChannels
 		}
@@ -443,9 +495,9 @@ export class FFmpegProducer implements Producer {
 		let audSrc: RedioPipe<RedioEnd | AudioMixFrame> | undefined
 		if (audioStreams.length) {
 			audSrc = ffPackets
-				.fork({ bufferSizeMax: 2 })
+				.fork({ bufferSizeMax: 10 })
 				.valve(audPacketFilter)
-				.valve(audDecode)
+				.valve(audDecode, { bufferSizeMax: 2 })
 				.valve(audFilter, { oneToMany: true })
 		} else {
 			// eslint-disable-next-line prettier/prettier
@@ -461,22 +513,28 @@ export class FFmpegProducer implements Producer {
 			return this.paused
 		})
 
-		this.vidSource = ffPackets
-			.fork({ bufferSizeMax: 2 })
-			.valve(vidPacketFilter)
-			.valve(vidDecode, { oneToMany: true })
-			.valve(vidFilter, { oneToMany: true })
-			.valve(vidLoader, { bufferSizeMax: 1 })
-			.valve(vidProcess)
-			.valve(vidDeint, { oneToMany: true })
-			.pause((frame) => {
-				if (!this.running) {
-					frame = nil
-					return false
-				}
-				if (this.paused && isValue(frame)) (frame as OpenCLBuffer).addRef()
-				return this.paused
-			})
+		let vidSrc: RedioPipe<RedioEnd | OpenCLBuffer> | undefined
+		if (videoStreams.length) {
+			vidSrc = ffPackets
+				.fork({ bufferSizeMax: 10 })
+				.valve(vidPacketFilter)
+				.valve(vidDecode, { oneToMany: true, bufferSizeMax: 2 })
+				.valve(vidFilter, { oneToMany: true })
+				.valve(vidLoader, { bufferSizeMax: 1 })
+				.valve(vidProcess)
+				.valve(vidDeint, { oneToMany: true })
+		} else {
+			vidSrc = blackPipe
+		}
+
+		this.vidSource = vidSrc.pause((frame) => {
+			if (!this.running) {
+				frame = nil
+				return false
+			}
+			if (this.paused && isValue(frame)) (frame as OpenCLBuffer).addRef()
+			return this.paused
+		})
 
 		await this.mixer.init(this.sourceID, this.audSource, this.vidSource, srcFormat)
 
