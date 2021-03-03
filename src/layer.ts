@@ -85,6 +85,7 @@ export class Layer {
 			this.channelUpdate()
 		}
 
+		this.endEvent.once('end', () => (this.foreground = null))
 		this.foreground?.setPaused(false)
 	}
 

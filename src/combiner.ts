@@ -34,10 +34,8 @@ export class CombineLayer {
 	private readonly audioPipe: RedioPipe<Frame | RedioEnd>
 	private readonly videoPipe: RedioPipe<OpenCLBuffer | RedioEnd>
 	private readonly endEvent: EventEmitter
-	private audioStarted = false
-	private videoStarted = false
-	private audioEnd = false
-	private videoEnd = false
+	private audioState: 'start' | 'run' | 'end' = 'start'
+	private videoState: 'start' | 'run' | 'end' = 'start'
 
 	constructor(
 		layer: Layer,
@@ -64,11 +62,12 @@ export class CombineLayer {
 
 	checkAudio(frame: Frame | RedioEnd): boolean {
 		let result = true
-		if (isValue(frame)) this.audioStarted = true
-		else {
-			if (this.audioStarted && !this.audioEnd) {
-				this.audioEnd = true
-				if (this.audioEnd && this.videoEnd) this.endEvent.emit('end')
+		if (isValue(frame)) {
+			if (this.audioState === 'start') this.audioState = 'run'
+		} else {
+			if (this.audioState === 'run') {
+				this.audioState = 'end'
+				if (this.audioState === 'end' && this.videoState === 'end') this.endEvent.emit('end')
 			}
 			result = false
 		}
@@ -77,11 +76,12 @@ export class CombineLayer {
 
 	checkVideo(frame: OpenCLBuffer | RedioEnd): boolean {
 		let result = true
-		if (isValue(frame)) this.videoStarted = true
-		else {
-			if (this.videoStarted && !this.videoEnd) {
-				this.videoEnd = true
-				if (this.audioEnd && this.videoEnd) this.endEvent.emit('end')
+		if (isValue(frame)) {
+			if (this.videoState === 'start') this.videoState = 'run'
+		} else {
+			if (this.videoState === 'run') {
+				this.videoState = 'end'
+				if (this.audioState === 'end' && this.videoState === 'end') this.endEvent.emit('end')
 			}
 			result = false
 		}
@@ -205,7 +205,11 @@ export class Combiner {
 		> = async (frames) => {
 			if (isValue(frames)) {
 				return frames.filter((f, i) =>
-					i > 0 ? this.combineLayers[i - 1].checkAudio(f) : true
+					i > 0
+						? this.combineLayers.length > i - 1
+							? this.combineLayers[i - 1].checkAudio(f)
+							: false
+						: true
 				) as [Frame | RedioEnd, ...(Frame | RedioEnd)[]]
 			} else {
 				return frames
@@ -264,7 +268,11 @@ export class Combiner {
 		> = async (frames) => {
 			if (isValue(frames)) {
 				return frames.filter((f, i) =>
-					i > 0 ? this.combineLayers[i - 1].checkVideo(f) : true
+					i > 0
+						? this.combineLayers.length > i - 1
+							? this.combineLayers[i - 1].checkVideo(f)
+							: false
+						: true
 				) as [OpenCLBuffer | RedioEnd, ...(OpenCLBuffer | RedioEnd)[]]
 			} else {
 				return frames
