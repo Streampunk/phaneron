@@ -1,0 +1,69 @@
+{
+	"events": [
+		{
+			"duration": 10000,
+			"layers": [
+				{
+					"layerNum": 3,
+					"url": "url3.mov",
+					"seek": 0
+				},
+				{
+					"layerNum": 2,
+					"url": "url2.mxf",
+					"seek": 0
+				},
+				{
+					"layerNum": 1,
+					"url": "url1.wav",
+					"seek": 0
+				}
+			]
+		},
+		{
+			"duration": 10000,
+			"layers": [
+				{
+					"layerNum": 3,
+					"url": "url3.mov",
+					"seek": 0
+				},
+				{
+					"layerNum": 2,
+					"url": "url4.mov",
+					"seek": 0
+				}
+			]
+		},
+		{
+			"duration": 10000,
+			"layers": [
+				{
+					"layerNum": 3,
+					"url": "url3.mov",
+					"seek": 0
+				},
+				{
+					"layerNum": 2,
+					"url": "url5.mov",
+					"seek": 0
+				}
+			]
+		},
+		{
+			"duration": 10000,
+			"layers": [
+				{
+					"layerNum": 3,
+					"url": "url3.mov",
+					"seek": 0
+				},
+				{
+					"layerNum": 2,
+					"url": "url6.mov",
+					"seek": 0
+				}
+			]
+		}
+	]
+}

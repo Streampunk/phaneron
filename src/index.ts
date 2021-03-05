@@ -29,10 +29,14 @@ import { ConsumerRegistry } from './consumer/consumer'
 import { ProducerRegistry } from './producer/producer'
 import { ConsumerConfig, VideoFormats } from './config'
 import readline from 'readline'
+import { Osc, OscConfig } from './osc/osc'
+import { Heads, HeadsConfig } from './heads/heads'
 
 class Config {
 	private readonly videoFormats: VideoFormats
 	readonly consumers: ConsumerConfig[]
+	readonly oscConfig: OscConfig
+	readonly headsConfig: HeadsConfig
 
 	constructor() {
 		this.videoFormats = new VideoFormats()
@@ -43,20 +47,30 @@ class Config {
 					{ name: 'decklink', deviceIndex: 1, embeddedAudio: true }
 					// { name: 'screen', deviceIndex: 0 }
 				]
-			},
-			{
-				format: this.videoFormats.get('1080i5000'),
-				devices: []
-			},
-			{
-				format: this.videoFormats.get('1080i5000'),
-				devices: []
-			},
-			{
-				format: this.videoFormats.get('1080i5000'),
-				devices: []
-			}
+			} //,
+			// {
+			// 	format: this.videoFormats.get('1080i5000'),
+			// 	devices: []
+			// },
+			// {
+			// 	format: this.videoFormats.get('1080i5000'),
+			// 	devices: []
+			// },
+			// {
+			// 	format: this.videoFormats.get('1080i5000'),
+			// 	devices: []
+			// }
 		]
+		this.oscConfig = {
+			serverPort: 9876,
+			clientPort: 9877,
+			clientAddr: '192.168.1.141'
+		}
+		this.headsConfig = {
+			channel: 1,
+			controls: { load: '/1/push1', take: '/1/push3' },
+			url: 'heads.json'
+		}
 	}
 }
 
@@ -102,7 +116,7 @@ rl.on('SIGINT', () => {
 
 console.log('\nWelcome to Phaneron\n')
 
-const commands: Commands = new Commands()
+const commands = new Commands()
 initialiseOpenCL()
 	.then(async (clContext) => {
 		const consReg = new ConsumerRegistry(clContext)
@@ -111,12 +125,15 @@ initialiseOpenCL()
 		const clProcessJobs = new ClProcessJobs(clContext)
 		const clJobs = clProcessJobs.getJobs()
 		const config = new Config()
-		const channels: Channel[] = []
 
-		config.consumers.forEach((consumerConfig, i) => {
+		let osc: Osc | undefined
+		if (config.oscConfig) osc = new Osc(config.oscConfig)
+
+		const channels: Channel[] = []
+		config.consumers.forEach((consConfig, i) => {
 			try {
 				channels.push(
-					new Channel(clContext, `ch ${i + 1}`, i + 1, consumerConfig, consReg, prodReg, clJobs)
+					new Channel(clContext, `ch ${i + 1}`, i + 1, consConfig, consReg, prodReg, clJobs)
 				)
 			} catch (err) {
 				console.log(`Error creating configured channel ${i + 1}: ${err.message}`)
@@ -125,6 +142,12 @@ initialiseOpenCL()
 
 		if (channels.length === 0) console.error('Error: No channels found!!')
 		await Promise.all(channels.map((chan) => chan.initialise()))
+
+		if (osc && config.headsConfig) {
+			const hc = config.headsConfig
+			const heads = new Heads(osc, channels[hc.channel - 1], hc.controls)
+			if (hc.url) heads.loadSpec(hc.url)
+		}
 
 		commands.add(new BasicCmds(consReg, channels, clJobs).list())
 		commands.add(new MixerCmds(channels).list())
