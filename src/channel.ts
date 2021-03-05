@@ -99,17 +99,23 @@ export class Channel {
 		// sort layers from low to high for combining bottom to top
 		layerNums.sort((a, b) => a - b)
 
-		const combineLayers: CombineLayer[] = []
+		const curLayers = this.combiner.getLayers()
+		const newLayers: CombineLayer[] = []
 		layerNums.forEach((l) => {
 			const layer = this.layers.get(l)
 			if (layer) {
 				const audPipe = layer.getAudioPipe()
 				const vidPipe = layer.getVideoPipe()
-				if (audPipe && vidPipe) combineLayers.push(new CombineLayer(layer, audPipe, vidPipe))
+				if (audPipe && vidPipe) {
+					const aid = audPipe.fittingId
+					const curLayer = curLayers.find((cl) => aid === cl.getAudioPipe().fittingId)
+					if (curLayer) newLayers.push(curLayer)
+					else newLayers.push(new CombineLayer(layer, audPipe, vidPipe))
+				}
 			}
 		})
 
-		this.combiner.updateLayers(combineLayers)
+		this.combiner.updateLayers(newLayers)
 	}
 
 	async loadSource(params: LoadParams): Promise<boolean> {

@@ -69,7 +69,7 @@ export class Layer {
 			this.background = null
 			this.channelUpdate()
 		}
-		console.log(`Layer load: preview ${preview}, autoPlay ${this.autoPlay}`)
+		console.log(`Layer load: preview ${preview}, autoPlay ${autoPlay}`)
 		return true
 	}
 

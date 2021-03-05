@@ -400,6 +400,10 @@ export class Combiner {
 		await this.vidCombiner.init()
 	}
 
+	getLayers(): CombineLayer[] {
+		return this.combineLayers
+	}
+
 	updateLayers(layers: CombineLayer[]): void {
 		this.combineLayers = layers.slice(0)
 		this.audLayerPipes.splice(0)
