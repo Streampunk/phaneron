@@ -61,7 +61,7 @@ export class Heads {
 	private readonly eventDone: EventEmitter
 	private headsSpec: HeadsSpec | undefined
 	private eventTimeout: NodeJS.Timeout | undefined
-	private first = true
+	private running = false
 
 	constructor(osc: Osc, channel: Channel, controls: HeadsControls) {
 		this.osc = osc
@@ -70,16 +70,22 @@ export class Heads {
 
 		if (controls.load)
 			this.osc.addControl(controls.load, (msg) => {
-				this.loadSpec(msg.value as string)
+				if (msg.value !== 0) this.loadSpec(msg.value as string)
 			})
 
 		if (controls.take)
 			this.osc.addControl(controls.take, (msg) => {
-				if (msg.value === 1) this.next()
+				if (msg.value !== 0) this.next()
 			})
 	}
 
 	loadSpec(urlOrJson: string): void {
+		if (this.running) {
+			this.running = false
+			this.eventDone.emit('done')
+			this.channel.clear(0)
+		}
+
 		if (isJsonString(urlOrJson)) {
 			this.headsSpec = JSON.parse(urlOrJson)
 		} else if (fs.existsSync(urlOrJson)) {
@@ -112,28 +118,31 @@ export class Heads {
 
 	async runEvents(): Promise<void> {
 		if (this.headsSpec) {
+			this.running = true
 			let eventId = 0
 			await this.loadEvent(this.headsSpec.events[eventId])
-			while (eventId < this.headsSpec.events.length) {
+			while (this.running && eventId < this.headsSpec.events.length) {
 				await this.runEvent(this.headsSpec.events[eventId])
 				eventId++
 				if (eventId < this.headsSpec.events.length)
 					await this.loadEvent(this.headsSpec.events[eventId])
 
 				await once(this.eventDone, 'done')
-				if (eventId === this.headsSpec.events.length) this.channel.clear(0)
+				if (eventId === this.headsSpec.events.length) {
+					this.channel.clear(0)
+					this.running = false
+				}
 			}
 		}
 	}
 
 	run(): void {
 		this.runEvents()
-		this.first = false
 	}
 
 	next(): void {
 		if (this.eventTimeout) clearTimeout(this.eventTimeout)
-		if (this.first) this.run()
-		else this.eventDone.emit('done')
+		if (this.running) this.eventDone.emit('done')
+		else this.run()
 	}
 }
