@@ -27,6 +27,7 @@ import { Frame } from 'beamcoder'
 import { Channel } from '../channel'
 import { ConfigParams, VideoFormat, DeviceConfig, ConsumerConfig } from '../config'
 import { ClJobs } from '../clJobQueue'
+import { GrandioseConsumerFactory } from './grandioseConsumer'
 
 export interface Consumer {
 	initialise(): Promise<void>
@@ -52,6 +53,7 @@ export class ConsumerRegistry {
 
 	constructor(clContext: nodenCLContext) {
 		this.consumerFactories = new Map()
+		this.consumerFactories.set('ndi', new GrandioseConsumerFactory(clContext))
 		this.consumerFactories.set('decklink', new MacadamConsumerFactory(clContext))
 		this.consumerFactories.set('screen', new ScreenConsumerFactory(clContext))
 		this.consumerFactories.set('ffmpeg', new FFmpegConsumerFactory(clContext))

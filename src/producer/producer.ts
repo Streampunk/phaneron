@@ -26,6 +26,7 @@ import { FFmpegProducerFactory } from './ffmpegProducer'
 import { MacadamProducerFactory } from './macadamProducer'
 import { RedioPipe, RedioEnd } from 'redioactive'
 import { AudioMixFrame } from '../mixer'
+import { GrandioseProducerFactory } from './grandioseProducer'
 
 export interface Producer {
 	initialise(consumerFormat: VideoFormat): void
@@ -56,6 +57,7 @@ export class ProducerRegistry {
 
 	constructor(clContext: nodenCLContext) {
 		this.producerFactories = []
+		this.producerFactories.push(new GrandioseProducerFactory(clContext))
 		this.producerFactories.push(new MacadamProducerFactory(clContext))
 		this.producerFactories.push(new FFmpegProducerFactory(clContext))
 	}
