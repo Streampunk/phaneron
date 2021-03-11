@@ -68,18 +68,20 @@ export class MacadamProducer implements Producer {
 
 		let width = 0
 		let height = 0
-		const progressive = false
+		let progressive = false
+		const displayMode = Macadam.bmdModeHD1080i50
 		const tff = true
 		const sampleRate = this.consumerFormat.audioSampleRate
 		const numAudChannels = this.consumerFormat.audioChannels
 		const audLayout = `${numAudChannels}c`
 		try {
+			progressive = !Macadam.modeInterlace(displayMode)
 			this.capture = await Macadam.capture({
 				deviceIndex: (this.params.channel as number) - 1,
 				channels: numAudChannels,
 				sampleRate: Macadam.bmdAudioSampleRate48kHz,
 				sampleType: Macadam.bmdAudioSampleType32bitInteger,
-				displayMode: Macadam.bmdModeHD1080i50,
+				displayMode: displayMode,
 				pixelFormat: Macadam.bmdFormat10BitYUV
 			})
 
@@ -88,7 +90,7 @@ export class MacadamProducer implements Producer {
 			for (let s = 0; s < numAudChannels; ++s) filtStr += `[c${s}:a]`
 			for (let s = 0; s < numAudChannels; ++s)
 				filtStr += `;\n[c${s}:a]aformat=channel_layouts=1c[out${s}:a]`
-			console.log(filtStr)
+			// console.log(filtStr)
 
 			const outParams = []
 			for (let s = 0; s < numAudChannels; ++s)
@@ -179,8 +181,14 @@ export class MacadamProducer implements Producer {
 			if (isValue(frame)) {
 				const toRGBA = this.toRGBA as ToRGBA
 				const clSources = await toRGBA.createSources()
-				const timestamp = frame.video.frameTime / frame.video.frameDuration
-				clSources.forEach((s) => (s.timestamp = timestamp))
+				// const now = process.hrtime()
+				// const nowms = now[0] * 1000.0 + now[1] / 1000000.0
+				const timestamp =
+					(frame.video.frameTime / frame.video.frameDuration) * (progressive ? 1 : 2)
+				clSources.forEach((s) => {
+					// s.loadstamp = nowms
+					s.timestamp = timestamp
+				})
 				await toRGBA.loadFrame(frame.video.data, clSources, this.clContext.queue.load)
 				await this.clContext.waitFinish(this.clContext.queue.load)
 				return clSources
@@ -195,6 +203,7 @@ export class MacadamProducer implements Producer {
 			if (isValue(clSources)) {
 				const toRGBA = this.toRGBA as ToRGBA
 				const clDest = await toRGBA.createDest({ width: width, height: height })
+				// clDest.loadstamp = clSources[0].loadstamp
 				clDest.timestamp = clSources[0].timestamp
 				toRGBA.processFrame(this.sourceID, clSources, clDest)
 				return clDest
@@ -209,7 +218,7 @@ export class MacadamProducer implements Producer {
 				const yadif = this.yadif as Yadif
 				const yadifDests: OpenCLBuffer[] = []
 				await yadif.processFrame(frame, yadifDests, this.sourceID)
-				return yadifDests.length > 1 ? yadifDests : nil
+				return yadifDests.length > 0 ? yadifDests : nil
 			} else {
 				if (isEnd(frame)) {
 					this.yadif?.release()

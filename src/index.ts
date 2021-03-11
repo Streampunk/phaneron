@@ -19,6 +19,7 @@
 */
 
 import { clContext as nodenCLContext } from 'nodencl'
+import { logging as ffmpegLogging } from 'beamcoder'
 import { ClProcessJobs } from './clJobQueue'
 import { start, processCommand } from './AMCP/server'
 import { Commands } from './AMCP/commands'
@@ -47,19 +48,26 @@ class Config {
 					{ name: 'decklink', deviceIndex: 1, embeddedAudio: true }
 					// { name: 'screen', deviceIndex: 0 }
 				]
-			} //,
-			// {
-			// 	format: this.videoFormats.get('1080i5000'),
-			// 	devices: []
-			// },
-			// {
-			// 	format: this.videoFormats.get('1080i5000'),
-			// 	devices: []
-			// },
-			// {
-			// 	format: this.videoFormats.get('1080i5000'),
-			// 	devices: []
-			// }
+			},
+			{
+				format: this.videoFormats.get('1080i5000'),
+				// eslint-disable-next-line prettier/prettier
+				devices: [
+					// { name: 'decklink', deviceIndex: 2, embeddedAudio: true }
+				]
+			},
+			{
+				format: this.videoFormats.get('1080i5000'),
+				devices: [
+					// { name: 'decklink', deviceIndex: 3, embeddedAudio: true }
+				]
+			},
+			{
+				format: this.videoFormats.get('1080i5000'),
+				devices: [
+					// { name: 'decklink', deviceIndex: 4, embeddedAudio: true }
+				]
+			}
 		]
 		this.oscConfig = {
 			serverPort: 9876,
@@ -129,6 +137,11 @@ initialiseOpenCL()
 		let osc: Osc | undefined
 		if (config.oscConfig) osc = new Osc(config.oscConfig)
 
+		let numThreads = 4
+		const threadsStr = process.env.UV_THREADPOOL_SIZE
+		if (threadsStr) numThreads = +threadsStr
+		console.log(`Using ${numThreads} worker threads`)
+
 		const channels: Channel[] = []
 		config.consumers.forEach((consConfig, i) => {
 			try {
@@ -151,6 +164,8 @@ initialiseOpenCL()
 
 		commands.add(new BasicCmds(consReg, channels, clJobs).list())
 		commands.add(new MixerCmds(channels).list())
+
+		ffmpegLogging('warning')
 
 		// setInterval(() => clContext.logBuffers(), 2000)
 	})

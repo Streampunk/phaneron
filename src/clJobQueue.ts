@@ -35,7 +35,7 @@ export type JobID = {
 	timestamp: number
 }
 
-type JobsRequest = { id: string; jobs: ClJob[]; done: () => void }
+type JobsRequest = { id: string; jobs: ClJob[]; start: [number, number]; done: () => void }
 
 export class ClJobs {
 	private readonly processJobs: ClProcessJobs
@@ -78,7 +78,7 @@ export class ClJobs {
 		if (!tsJobs) throw new Error(`Failed to run queue for id ${key}`)
 
 		return new Promise<void>((resolve) => {
-			const jobsRequest = { id: key, jobs: tsJobs, done: resolve }
+			const jobsRequest = { id: key, jobs: tsJobs, start: process.hrtime(), done: resolve }
 			this.processJobs.requestRun(key, jobsRequest)
 			this.delete(id)
 		})
@@ -117,7 +117,7 @@ export class ClProcessJobs {
 			const chan = curReq.value[0]
 			const req = curReq.value[1]
 			const timings = new Map<string, RunTimings>()
-			const start = process.hrtime()
+			const queued = process.hrtime(req.start)
 			for (let i = 0; i < req.jobs.length; ++i) {
 				const job = req.jobs[i]
 				timings.set(
@@ -128,8 +128,8 @@ export class ClProcessJobs {
 
 			await this.clContext.waitFinish(this.clContext.queue.process)
 			req.jobs.forEach((j) => j.cb())
-			const end = process.hrtime(start)
-			this.logTimings(req.id, end, timings)
+			const end = process.hrtime(req.start)
+			this.logTimings(req.id, queued, end, timings)
 			req.done()
 			this.requests.delete(chan)
 			curReq = reqIt.next()
@@ -147,7 +147,7 @@ export class ClProcessJobs {
 		this.runEvents.emit('run')
 	}
 
-	logTimings(id: string, end: number[], timings: Map<string, RunTimings>): void {
+	logTimings(id: string, queued: number[], end: number[], timings: Map<string, RunTimings>): void {
 		const idLim = id.slice(-20).concat(':').padEnd(21, ' ')
 		const idSp = new Array(25 - idLim.length).fill(' ').join('')
 		if (this.showTimings > 1) {
@@ -181,9 +181,11 @@ export class ClProcessJobs {
 		}
 
 		if (this.showTimings > 0) {
-			const elapsed = end[0] * 1000.0 + end[1] / 1000000.0
+			const queuedms = queued[0] * 1000.0 + queued[1] / 1000000.0
+			const elapsedms = end[0] * 1000.0 + end[1] / 1000000.0
 			console.log(
-				`${idLim}${elapsed < 10.0 ? idSp : idSp.slice(1)}  ${elapsed.toFixed(2)}ms elapsed`
+				// eslint-disable-next-line prettier/prettier
+				`${idLim}${elapsedms < 10.0 ? idSp : idSp.slice(1)}  ${elapsedms.toFixed(2)}ms elapsed (${queuedms.toFixed(2)}ms queued)`
 			)
 		}
 	}

@@ -95,7 +95,7 @@ export class Combiner {
 	private readonly consumerFormat: VideoFormat
 	private readonly clJobs: ClJobs
 	private lastNumAudLayers = 0
-	private lastNumVidLayers = 2
+	private lastNumVidLayers = 0
 	private numConsumers = 0
 	private audCombiner: Filterer | undefined
 	private vidCombiner: ImageProcess | undefined
@@ -156,8 +156,6 @@ export class Combiner {
 		})
 		// console.log('\nSilence:\n', audSilenceFilterer.graph.dump())
 
-		await this.makeAudCombiner(this.lastNumAudLayers)
-
 		const numBytesRGBA = this.consumerFormat.width * this.consumerFormat.height * 4 * 4
 		const black: OpenCLBuffer = await this.clContext.createBuffer(
 			numBytesRGBA,
@@ -183,8 +181,6 @@ export class Combiner {
 		}
 		await black.hostAccess('writeonly')
 		Buffer.from(blackFloat.buffer).copy(black)
-
-		await this.makeVidCombiner(this.lastNumVidLayers)
 
 		const silencePipe: RedioPipe<Frame | RedioEnd> = redio(async () => silence, {
 			bufferSizeMax: 1
@@ -220,14 +216,15 @@ export class Combiner {
 			[Frame | RedioEnd, ...(Frame | RedioEnd)[]],
 			Frame | RedioEnd
 		> = async (frames) => {
-			if (isValue(frames) && this.audCombiner) {
+			if (isValue(frames)) {
 				const numLayers = frames.length - 1
 				const layerFrames = frames.slice(1)
 				const doFilter = layerFrames.reduce((acc, f) => acc && isValue(f), true)
 
-				if (this.lastNumAudLayers !== numLayers) {
-					await this.makeAudCombiner(numLayers)
-					this.lastNumAudLayers = numLayers
+				const numCombineLayers = numLayers < 2 ? 0 : numLayers
+				if (numCombineLayers && this.lastNumAudLayers !== numCombineLayers) {
+					await this.makeAudCombiner(numCombineLayers)
+					this.lastNumAudLayers = numCombineLayers
 				}
 
 				const srcFrames = frames as [Frame | RedioEnd, ...(Frame | RedioEnd)[]]
@@ -237,10 +234,9 @@ export class Combiner {
 				if (numLayers === 0) {
 					return srcFrames[0]
 				} else if (numLayers === 1) {
-					if (!isValue(srcFrames[1])) return end
-					srcFrames[1].pts = refFrame.pts
+					if (isValue(srcFrames[1])) srcFrames[1].pts = refFrame.pts
 					return srcFrames[1]
-				} else if (doFilter) {
+				} else if (doFilter && this.audCombiner) {
 					const filterFrames = (layerFrames as Frame[]).map((f, i) => {
 						f.pts = refFrame.pts
 						return {
@@ -285,25 +281,23 @@ export class Combiner {
 		> = async (frames) => {
 			if (isValue(frames)) {
 				const numLayers = frames.length - 1
-				let layerFrames = frames.slice(1) as OpenCLBuffer[]
+				const layerFrames = frames.slice(1) as OpenCLBuffer[]
 
 				if (!isValue(frames[0])) return end
 				const timestamp = frames[0].timestamp++
 
-				const numCombineLayers = numLayers < 2 ? 2 : numLayers
-				if (this.lastNumVidLayers !== numCombineLayers) {
+				const numCombineLayers = numLayers < 2 ? 0 : numLayers
+				if (numCombineLayers && this.lastNumVidLayers !== numCombineLayers) {
 					await this.makeVidCombiner(numCombineLayers)
 					this.lastNumVidLayers = numCombineLayers
 				}
 
 				if (numLayers === 0) {
 					frames[0].addRef()
-					frames[0].addRef()
-					layerFrames = [frames[0], frames[0]]
+					return frames[0]
 				} else if (numLayers === 1) {
-					if (!isValue(frames[1])) return end
-					frames[1].addRef()
-					layerFrames = [frames[1], frames[1]]
+					if (isValue(frames[1])) frames[1].timestamp = timestamp
+					return frames[1]
 				}
 
 				if (frames.reduce((acc, f) => acc && isValue(f), true)) {
@@ -317,6 +311,7 @@ export class Combiner {
 						},
 						'combine'
 					)
+					// combineDest.loadstamp = Math.min(...layerFrames.map((f) => f.loadstamp))
 					combineDest.timestamp = timestamp
 					for (let d = 1; d < this.numConsumers; ++d) combineDest.addRef()
 
