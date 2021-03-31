@@ -44,7 +44,7 @@ import { Reader as rgba8Reader } from '../../process/rgba8'
 import { Reader as bgra8Reader } from '../../process/bgra8'
 import Yadif from '../../process/yadif'
 import { PackImpl } from '../../process/packer'
-import { AudioMixFrame } from '../../mixer'
+import { Mixer, AudioMixFrame } from '../mixer'
 
 interface AudioChannel {
 	name: string
@@ -56,6 +56,8 @@ export class WebRTCProducer implements Producer {
 	private readonly loadParams: LoadParams
 	private readonly clContext: nodenCLContext
 	private readonly clJobs: ClJobs
+	private readonly consumerFormat: VideoFormat
+	private readonly mixer: Mixer
 	private demuxer: Demuxer | null = null
 	private format: VideoFormat
 	private audSource: RedioPipe<AudioMixFrame | RedioEnd> | undefined
@@ -63,15 +65,17 @@ export class WebRTCProducer implements Producer {
 	private running = true
 	private paused = false
 
-	constructor(id: number, loadParams: LoadParams, context: nodenCLContext, clJobs: ClJobs) {
+	constructor(id: number, loadParams: LoadParams, context: nodenCLContext, clJobs: ClJobs, consumerFormat: VideoFormat) {
 		this.sourceID = `P${id} FFmpeg ${loadParams.url} L${loadParams.layer}`
 		this.loadParams = loadParams
 		this.clContext = context
 		this.clJobs = clJobs
 		this.format = new VideoFormats().get('1080p5000') // default
+		this.consumerFormat = consumerFormat
+		this.mixer = new Mixer(this.clContext, this.consumerFormat, this.clJobs)
 	}
 
-	async initialise(consumerFormat: VideoFormat): Promise<void> {
+	async initialise(): Promise<void> {
 		try {
 			this.demuxer = await demuxer(this.loadParams.url)
 		} catch (err) {
@@ -215,7 +219,7 @@ export class WebRTCProducer implements Producer {
 		}
 		toRGBA = new ToRGBA(this.clContext, '709', '709', readImpl, this.clJobs)
 		await toRGBA.init()
-		const chanTb = [consumerFormat.duration, consumerFormat.timescale]
+		const chanTb = [this.consumerFormat.duration, this.consumerFormat.timescale]
 		const vidFilterer = await filterer({
 			filterType: 'video',
 			inputParams: [
@@ -319,13 +323,13 @@ export class WebRTCProducer implements Producer {
 			if (isValue(frames) && audFilterer) {
 				const ff = await audFilterer.filter(frames)
 				if (!ff[0]) return nil
-				const audMixFrames =
-					ff[0].frames.length > 0 ? ff[0].frames.map((f) => ({ frame: f, mute: false })) : nil
-				return audMixFrames
+				if (ff.reduce((acc, f) => acc && f.frames && f.frames.length > 0, true)) {
+					return { frames: ff.map((f) => f.frames), mute: false }
+				} else return nil
 			} else {
 				return frames as RedioEnd
 			}
-		}
+		} 
 
 		const silence: Generator<AudioChannel[] | RedioEnd> = async () => [
 			{ name: 'in0:a', frames: [silentFrame] }
@@ -462,6 +466,10 @@ export class WebRTCProducer implements Producer {
 		return this.vidSource
 	}
 
+	getMixer(): Mixer {
+		return this.mixer
+	}
+
 	setPaused(pause: boolean): void {
 		this.paused = pause
 	}
@@ -478,7 +486,7 @@ export class WebRTCProducerFactory implements ProducerFactory<WebRTCProducer> {
 		this.clContext = clContext
 	}
 
-	createProducer(id: number, loadParams: LoadParams, clJobs: ClJobs): WebRTCProducer {
-		return new WebRTCProducer(id, loadParams, this.clContext, clJobs)
+	createProducer(id: number, loadParams: LoadParams, clJobs: ClJobs, consumerFormat: VideoFormat): WebRTCProducer {
+		return new WebRTCProducer(id, loadParams, this.clContext, clJobs, consumerFormat)
 	}
 }
