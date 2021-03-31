@@ -32,6 +32,7 @@ import { ConsumerConfig, VideoFormats } from './config'
 import readline from 'readline'
 import { Osc, OscConfig } from './osc/osc'
 import { Heads, HeadsConfig } from './heads/heads'
+import fs from 'fs'
 
 class Config {
 	private readonly videoFormats: VideoFormats
@@ -45,8 +46,9 @@ class Config {
 			{
 				format: this.videoFormats.get('1080i5000'),
 				devices: [
-					{ name: 'decklink', deviceIndex: 1, embeddedAudio: true }
-					// { name: 'screen', deviceIndex: 0 }
+					// { name: 'decklink', deviceIndex: 1, embeddedAudio: true },
+					// { name: 'screen', deviceIndex: 0 },
+					{ name: 'webrtc', deviceIndex: 1 }
 				]
 			},
 			{
@@ -122,6 +124,10 @@ rl.on('SIGINT', () => {
 	process.kill(process.pid, 'SIGTERM')
 })
 
+rl.on('close', () => {
+	process.kill(process.pid, 'SIGTERM')
+})
+
 console.log('\nWelcome to Phaneron\n')
 
 const commands = new Commands()
@@ -171,5 +177,15 @@ initialiseOpenCL()
 	})
 	.then(() => start(commands))
 	.then(console.log, console.error)
+	.then(async () => {
+		if (fs.existsSync('startupAMCPCommands')) {
+			const startupFile = fs.readFileSync('startupAMCPCommands').toString().split('\n')
+			for (const command of startupFile) {
+				if (!command.match('^#')) {
+					await processCommand(command.match(/"[^"]+"|""|\S+/g))
+				}
+			}
+		}
+	})
 	.then(() => rl.prompt())
 	.catch(console.error)
