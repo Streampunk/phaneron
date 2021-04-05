@@ -1,6 +1,7 @@
 import Koa from 'koa'
 import cors from '@koa/cors'
 import bodyParser from 'koa-bodyparser'
+import serve from 'koa-static'
 import { v4 as uuidv4 } from 'uuid'
 
 import connectionManagerApi from './api'
@@ -34,6 +35,7 @@ export class PeerManager {
 		this.kapp.use(cors())
 		this.kapp.use(bodyParser())
 		connectionManagerApi(this.kapp, this.consumers)
+		this.kapp.use(serve("scratch/"))
 
 		const server = this.kapp.listen(3002)
 		process.on('SIGHUP', server.close)

@@ -20,21 +20,21 @@
 
 import { clContext as nodenCLContext, OpenCLBuffer } from 'nodencl'
 import { RedioPipe, RedioEnd, nil, isValue, Valve, Spout } from 'redioactive'
-import { Frame, Filterer, filterer } from 'beamcoder'
+import { Frame, Filterer, /* filterer */ } from 'beamcoder'
 import { ConsumerFactory, Consumer } from '../consumer'
 import { FromRGBA } from '../../process/io'
 import { Writer } from '../../process/rgba8'
 import { ConfigParams, VideoFormat, DeviceConfig } from '../../config'
 import { ClJobs } from '../../clJobQueue'
 import {
-	MediaStreamTrack,
+	/* MediaStreamTrack, */
 	nonstandard as WebRTCNonstandard,
-	RTCAudioData,
+	// RTCAudioData,
 	RTCPeerConnection,
 	RTCVideoFrame
 } from 'wrtc'
 import { PeerManager } from './peerManager'
-const { RTCVideoSource, rgbaToI420, RTCAudioSource } = WebRTCNonstandard
+const { RTCVideoSource, rgbaToI420, /* RTCAudioSource */ } = WebRTCNonstandard
 import { v4 as uuidv4 } from 'uuid'
 
 interface AudioBuffer {
@@ -50,7 +50,7 @@ export class WebRTCConsumer implements Consumer {
 	private readonly format: VideoFormat
 	private readonly clJobs: ClJobs
 	private fromRGBA: FromRGBA | undefined
-	private readonly audioOutChannels: number
+	// private readonly audioOutChannels: number
 	private readonly audioTimebase: number[]
 	private readonly videoTimebase: number[]
 	private audFilterer: Filterer | undefined
@@ -59,10 +59,10 @@ export class WebRTCConsumer implements Consumer {
 	// 	RTCPeerConnection,
 	// 	{ source: WebRTCNonstandard.RTCVideoSource; track: MediaStreamTrack }
 	// > = new Map()
-	private rtcVideoSource: WebRTCNonstandard.RTCVideoSource
-	private rtcVideoTrack: MediaStreamTrack
-	private rtcAudioSource: WebRTCNonstandard.RTCAudioSource
-	private rtcAudioTrack: MediaStreamTrack
+	// private rtcVideoSource: WebRTCNonstandard.RTCVideoSource
+	// 	private rtcVideoTrack: MediaStreamTrack
+	// private rtcAudioSource: WebRTCNonstandard.RTCAudioSource
+	// private rtcAudioTrack: MediaStreamTrack
 
 	constructor(
 		context: nodenCLContext,
@@ -77,20 +77,23 @@ export class WebRTCConsumer implements Consumer {
 		this.params = params
 		this.format = format
 		this.clJobs = clJobs
-		this.audioOutChannels = 2
+		// this.audioOutChannels = 2
 		this.audioTimebase = [1, this.format.audioSampleRate]
 		this.videoTimebase = [this.format.duration, this.format.timescale]
 
 		if (Object.keys(this.params).length > 1)
 			console.log('WebRTC consumer - unused params', this.params)
 
-		this.rtcVideoSource = new RTCVideoSource()
-		this.rtcVideoTrack = this.rtcVideoSource.createTrack()
-		this.rtcAudioSource = new RTCAudioSource()
-		this.rtcAudioTrack = this.rtcAudioSource.createTrack()
+			new RTCVideoSource()
+		// this.rtcVideoSource = new RTCVideoSource()
+		// console.log(this.rtcVideoSource)
+		// this.rtcVideoTrack = this.rtcVideoSource.createTrack()
+		// console.log(this.rtcVideoTrack)
+		// this.rtcAudioSource = new RTCAudioSource()
+		// this.rtcAudioTrack = this.rtcAudioSource.createTrack()
 
 		this.peerManager = PeerManager.singleton()
-		this.peerManager.registerSource({ id: this.rtcUuid, description: this.chanID, newPeer: this.newPeer, peerClose: this.peerClose})
+		// this.peerManager.registerSource({ id: this.rtcUuid, description: this.chanID, newPeer: this.newPeer, peerClose: this.peerClose})
 			
 		// this.peerManager.on('newPeer', this.newPeer)
 		// this.peerManager.on('peerClose', this.peerClose)
@@ -99,39 +102,40 @@ export class WebRTCConsumer implements Consumer {
 	// TODO - hook this up to be called frm somewhere
 	async destroy(): Promise<void> {
 		this.peerManager.destroySource(this.rtcUuid)
-		this.rtcVideoTrack.stop()
+		// this.rtcVideoTrack.stop()
 	}
 
 	async initialise(): Promise<void> {
-		const sampleRate = this.audioTimebase[1]
-		const audInLayout = `${this.format.audioChannels}c`
-		const audOutLayout = `${this.audioOutChannels}c`
+		// const sampleRate = this.audioTimebase[1]
+		// const audInLayout = `${this.format.audioChannels}c`
+		// const audOutLayout = `${this.audioOutChannels}c`
 		// !!! Needs more work to handle 59.94 frame rates !!!
-		const samplesPerFrame =
-			(this.format.audioSampleRate * this.format.duration) / this.format.timescale
-		const outSampleFormat = 's16'
+		// const samplesPerFrame =
+		// 	(this.format.audioSampleRate * this.format.duration) / this.format.timescale
+		// const outSampleFormat = 's16'
 
-		this.audFilterer = await filterer({
-			filterType: 'audio',
-			inputParams: [
-				{
-					name: 'in0:a',
-					timeBase: this.audioTimebase,
-					sampleRate: sampleRate,
-					sampleFormat: 'flt',
-					channelLayout: audInLayout
-				}
-			],
-			outputParams: [
-				{
-					name: 'out0:a',
-					sampleRate: this.format.audioSampleRate,
-					sampleFormat: outSampleFormat,
-					channelLayout: audOutLayout
-				}
-			],
-			filterSpec: `[in0:a] aformat=sample_fmts=${outSampleFormat}:sample_rates=${this.format.audioSampleRate}:channel_layouts=${audOutLayout}, asetnsamples=n=${samplesPerFrame}:p=1 [out0:a]`
-		})
+		this.audFilterer = undefined
+		// this.audFilterer = await filterer({
+		// 	filterType: 'audio',
+		// 	inputParams: [
+		// 		{
+		// 			name: 'in0:a',
+		// 			timeBase: this.audioTimebase,
+		// 			sampleRate: sampleRate,
+		// 			sampleFormat: 'flt',
+		// 			channelLayout: audInLayout
+		// 		}
+		// 	],
+		// 	outputParams: [
+		// 		{
+		// 			name: 'out0:a',
+		// 			sampleRate: this.format.audioSampleRate,
+		// 			sampleFormat: outSampleFormat,
+		// 			channelLayout: audOutLayout
+		// 		}
+		// 	],
+		// 	filterSpec: `[in0:a] aformat=sample_fmts=${outSampleFormat}:sample_rates=${this.format.audioSampleRate}:channel_layouts=${audOutLayout}, asetnsamples=n=${samplesPerFrame}:p=1 [out0:a]`
+		// })
 		// console.log('\nScreen consumer audio:\n', this.audFilterer.graph.dump())
 
 		const width = this.format.width
@@ -148,11 +152,11 @@ export class WebRTCConsumer implements Consumer {
 		return Promise.resolve()
 	}
 
-	newPeer = ({ peerConnection }: { peerConnection: RTCPeerConnection }) => {
+	newPeer = ({ /* peerConnection */ }: { peerConnection: RTCPeerConnection }) => {
 		// const source = new RTCVideoSource()
 		// const track = source.createTrack()
-		peerConnection.addTransceiver(this.rtcVideoTrack)
-		peerConnection.addTransceiver(this.rtcAudioTrack)
+		// peerConnection.addTransceiver(this.rtcVideoTrack)
+		// peerConnection.addTransceiver(this.rtcAudioTrack)
 		// this.rtcVideoSources.set(peerConnection, { source: this.rtcVideoSource, track: this.rtcVideoTrack })
 	}
 	peerClose = ({}: { peerConnection: RTCPeerConnection }) => {
@@ -168,7 +172,9 @@ export class WebRTCConsumer implements Consumer {
 		combineVideo: RedioPipe<OpenCLBuffer | RedioEnd>
 	): void {
 		const audFilter: Valve<Frame | RedioEnd, AudioBuffer | RedioEnd> = async (frame) => {
+			
 			if (isValue(frame)) {
+				if (!this.audFilterer) return nil
 				const audFilt = this.audFilterer as Filterer
 				const ff = await audFilt.filter([{ name: 'in0:a', frames: [frame] }])
 				const result: AudioBuffer[] = ff[0].frames.map((f) => ({
@@ -255,7 +261,7 @@ export class WebRTCConsumer implements Consumer {
 						i420frame
 					)
 
-					this.rtcVideoSource.onFrame(i420frame)
+					// this.rtcVideoSource.onFrame(i420frame)
 
 					// new Int16Array(
 					// 	floatBuffer,
@@ -267,20 +273,20 @@ export class WebRTCConsumer implements Consumer {
 					console.log(`SAMPLES: ${samples}`)
 					console.log(`CHANNELS: ${this.format.audioChannels}`)
 					console.log(`BUFFER: ${audBuf.buffer.length}`)
-					for (let i = 0; i < 4; i++) {
-						const start = (i * audBuf.buffer.length) / 4
-						const end = start + audBuf.buffer.length / 4
-						const audioBuffer: RTCAudioData = {
-							samples: Int16Array.from(audBuf.buffer.slice(start, end)),
-							sampleRate: this.format.audioSampleRate,
-							// // bitsPerSample default is 16
-							// bitsPerSample?: number
-							channelCount: this.audioOutChannels,
-							// number of frames
-							numberOfFrames: this.format.audioSampleRate / 100
-						}
-						this.rtcAudioSource.onData(audioBuffer)
-					}
+					// for (let i = 0; i < 4; i++) {
+						// const start = (i * audBuf.buffer.length) / 4
+						// const end = start + audBuf.buffer.length / 4
+						// const audioBuffer: RTCAudioData = {
+						// 	samples: Int16Array.from(audBuf.buffer.slice(start, end)),
+						// 	sampleRate: this.format.audioSampleRate,
+						// 	// // bitsPerSample default is 16
+						// 	// bitsPerSample?: number
+						// 	channelCount: this.audioOutChannels,
+						// 	// number of frames
+						// 	numberOfFrames: this.format.audioSampleRate / 100
+						// }
+						// this.rtcAudioSource.onData(audioBuffer)
+					// }
 
 					resolve()
 
