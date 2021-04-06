@@ -27,6 +27,7 @@ export default function mountConnectionsApi(
 					return
 				}
 				const connection = await consumer.connectionManager.createConnection()
+				console.log(connection)
 				ctx.body = connection
 			} catch (error) {
 				console.error(error)
