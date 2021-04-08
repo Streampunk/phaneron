@@ -45,6 +45,7 @@ export class PeerManager {
 		if(this.consumers.get(info.id)) {
 			throw new Error(`WebRTC Consumer "${info.id}" already registered`)
 		}
+		let receiveChannel
 
 		const beforeAnswer = (peerConnection: RTCPeerConnection) => {
 			// let that = this
@@ -59,7 +60,17 @@ export class PeerManager {
 				info.peerClose({ peerConnection })
 				return close.apply(this, args)
 			}
+
+			peerConnection.ondatachannel = (event) => {
+				console.log("Data channel time", event)
+				receiveChannel = event.channel
+				receiveChannel.onmessage = onReceiveMessageCallback
+			}
 		}
+
+		function onReceiveMessageCallback(event: MessageEvent) {
+			console.log('Received Message', event.data);
+		  }
 
 		this.consumers.set(info.id, {
 			...info, 
