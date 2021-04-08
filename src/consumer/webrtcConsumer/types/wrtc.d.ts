@@ -3,6 +3,9 @@
 // Definitions by: Ken Smith <https://github.com/smithkl42/>
 // Definitions: https://github.com/DefinitelyTyped/DefinitelyTyped
 
+// import { WriteVResult } from "node:fs"
+// import { WebRtcConnectionManager } from "../connections/webRTCConnectionManager"
+
 // Taken from http://dev.w3.org/2011/webrtc/editor/getusermedia.html
 // version: W3C Editor's Draft 29 June 2015
 
@@ -83,7 +86,7 @@ declare module 'wrtc' {
 		groupId?: boolean
 	}
 
-	interface MediaStream extends EventTarget {
+	class MediaStream extends EventTarget {
 		//id: string;
 		//active: boolean;
 
@@ -91,7 +94,7 @@ declare module 'wrtc' {
 		//oninactive: EventListener;
 		//onaddtrack: (event: MediaStreamTrackEvent) => any;
 		//onremovetrack: (event: MediaStreamTrackEvent) => any;
-		constructor(options: { id: string }): this
+		constructor(options: { id: string })
 
 		clone(): MediaStream
 		stop(): void

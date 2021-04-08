@@ -33,9 +33,9 @@ export class PeerManager {
 
 		this.kapp = new Koa()
 		this.kapp.use(cors())
-		this.kapp.use(bodyParser())
+		this.kapp.use(bodyParser({ enableTypes: [ 'json' ] }))
 		connectionManagerApi(this.kapp, this.consumers)
-		this.kapp.use(serve("scratch/"))
+		this.kapp.use(serve("static/"))
 
 		const server = this.kapp.listen(3002)
 		process.on('SIGHUP', server.close)
@@ -46,7 +46,7 @@ export class PeerManager {
 			throw new Error(`WebRTC Consumer "${info.id}" already registered`)
 		}
 
-		const beforeOffer = (peerConnection: RTCPeerConnection) => {
+		const beforeAnswer = (peerConnection: RTCPeerConnection) => {
 			// let that = this
 			// this.allPeerConnections.push(peerConnection)
 			info.newPeer({ peerConnection })
@@ -61,13 +61,12 @@ export class PeerManager {
 			}
 		}
 
-
 		this.consumers.set(info.id, {
 			...info, 
 			connectionManager: new WebRtcConnectionManager({
 				createConnection: (id, baseOptions) =>
 					new WebRTCConnection(id, {
-						beforeOffer,
+						beforeAnswer,
 						...baseOptions
 					}),
 				generateId: uuidv4

@@ -8,7 +8,7 @@ const TIME_TO_RECONNECTED = 10000
 
 export interface IWebRTCConnectionOptions {
 	createRTCPeerConnection: (config: RTCConfiguration) => DefaultRTCPeerConnection
-	beforeOffer: (peerConnection: DefaultRTCPeerConnection) => void
+	beforeAnswer: (peerConnection: DefaultRTCPeerConnection) => void
 	clearTimeout: (timeoutId: NodeJS.Timeout) => void
 	setTimeout: (callback: (...args: any[]) => void, ms: number, ...args: any[]) => NodeJS.Timeout
 	timeToConnected: number
@@ -25,9 +25,11 @@ export class WebRTCConnection extends Connection {
 	constructor(id: ConnectionID, options0: Partial<IWebRTCConnectionOptions> = {}) {
 		super(id, options0)
 
+		console.log("In WebRTCConnection constructor")
+
 		this.options = {
 			createRTCPeerConnection: (config: RTCConfiguration) => new DefaultRTCPeerConnection(config),
-			beforeOffer() {},
+			beforeAnswer() {},
 			clearTimeout,
 			setTimeout,
 			timeToConnected: TIME_TO_CONNECTED,
@@ -36,14 +38,15 @@ export class WebRTCConnection extends Connection {
 			...options0
 		}
 
-		const { createRTCPeerConnection, beforeOffer, timeToConnected } = this.options
+		const { createRTCPeerConnection, beforeAnswer, timeToConnected } = this.options
 
-		const peerConnection = (this.peerConnection = createRTCPeerConnection({
-			// @ts-ignore
-			sdpSemantics: 'unified-plan'
-		}))
+		const peerConnection = this.peerConnection = createRTCPeerConnection({})
+		// 	// @ts-ignore
+		// 	sdpSemantics: 'unified-plan'
+		// }))
 
-		beforeOffer(peerConnection)
+		console.log("About to call before answer")
+		beforeAnswer(peerConnection)
 
 		this.connectionTimer = this.options.setTimeout(() => {
 			if (
@@ -86,8 +89,8 @@ export class WebRTCConnection extends Connection {
 		}
 	}
 
-	doOffer = async () => {
-		const offer = await this.peerConnection.createOffer()
+	doAnswer = async () => {
+		const offer = await this.peerConnection.createAnswer()
 		await this.peerConnection.setLocalDescription(offer)
 		// try {
 		//  await waitUntilIceGatheringStateComplete(this.peerConnection, this.options)
@@ -97,8 +100,8 @@ export class WebRTCConnection extends Connection {
 		// }
 	}
 
-	applyAnswer = async (answer: RTCSessionDescriptionInit) => {
-		await this.peerConnection.setRemoteDescription(answer)
+	applyOffer = async (offer: RTCSessionDescriptionInit) => {
+		await this.peerConnection.setRemoteDescription(offer)
 	}
 
 	close = () => {
@@ -133,7 +136,7 @@ export class WebRTCConnection extends Connection {
 	}
 
 	get localDescription() {
-		return descriptionToJSON(this.peerConnection.localDescription, true)
+		return descriptionToJSON(this.peerConnection.localDescription, false)
 	}
 
 	get remoteDescription() {

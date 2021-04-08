@@ -8,9 +8,15 @@ export class WebRtcConnectionManager<RTCPeerConnectionType extends WebRTCConnect
 		this.connectionManager = new ConnectionManager<RTCPeerConnectionType>(options)
 	}
 
-	createConnection = async () => {
+	createConnection = async (offer?: RTCSessionDescription) => {
 		const connection = await this.connectionManager.createConnection()
-		await connection.doOffer()
+		console.log("In WebRTC connection manager createConnection.")
+		if (offer) {
+			await connection.applyOffer(offer)
+			console.log("Applied offer ... time to answer")
+			await connection.doAnswer()
+			console.log("Generated answer", connection.localDescription)
+		} 
 		return connection
 	}
 

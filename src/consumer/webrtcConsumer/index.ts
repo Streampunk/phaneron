@@ -31,7 +31,8 @@ import {
 	nonstandard as WebRTCNonstandard,
 	RTCAudioData,
 	RTCPeerConnection,
-	RTCVideoFrame
+	RTCVideoFrame,
+	MediaStream
 } from 'wrtc'
 import { PeerManager } from './peerManager'
 const { RTCVideoSource, rgbaToI420, RTCAudioSource } = WebRTCNonstandard
@@ -63,6 +64,7 @@ export class WebRTCConsumer implements Consumer {
 	private rtcVideoTrack: MediaStreamTrack
 	private rtcAudioSource: WebRTCNonstandard.RTCAudioSource
 	private rtcAudioTrack: MediaStreamTrack
+	private mediaStream: MediaStream
 
 	constructor(
 		context: nodenCLContext,
@@ -90,6 +92,10 @@ export class WebRTCConsumer implements Consumer {
 		console.log(this.rtcVideoTrack)
 		this.rtcAudioSource = new RTCAudioSource()
 		this.rtcAudioTrack = this.rtcAudioSource.createTrack()
+
+		this.mediaStream = new MediaStream({ id: `phaneron` })
+		this.mediaStream.addTrack(this.rtcVideoTrack)
+		this.mediaStream.addTrack(this.rtcAudioTrack)
 
 		this.peerManager = PeerManager.singleton()
 		this.peerManager.registerSource({ id: this.rtcUuid, description: this.chanID, newPeer: this.newPeer, peerClose: this.peerClose})
@@ -153,8 +159,8 @@ export class WebRTCConsumer implements Consumer {
 	newPeer = ({ peerConnection }: { peerConnection: RTCPeerConnection }) => {
 		// const source = new RTCVideoSource()
 		// const track = source.createTrack()
-		peerConnection.addTransceiver(this.rtcVideoTrack)
-		peerConnection.addTransceiver(this.rtcAudioTrack)
+		peerConnection.addTrack(this.rtcVideoTrack, this.mediaStream)
+		peerConnection.addTrack(this.rtcAudioTrack, this.mediaStream)
 		// this.rtcVideoSources.set(peerConnection, { source: this.rtcVideoSource, track: this.rtcVideoTrack })
 	}
 	peerClose = ({}: { peerConnection: RTCPeerConnection }) => {
