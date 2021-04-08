@@ -1,7 +1,7 @@
 import fs from 'fs'
 import path from 'path'
 
-const MEDIA_DIR = '../media'
+const MEDIA_DIR = '../media/dpp/'
 
 class AssetManager {
 	public getAsset(clip: string): Promise<string> {

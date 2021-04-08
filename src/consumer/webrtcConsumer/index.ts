@@ -152,6 +152,9 @@ export class WebRTCConsumer implements Consumer {
 		)
 		await this.fromRGBA.init()
 
+		// console.log(this.rtcVideoTrack.getConstraints())
+		// console.log(this.rtcVideoTrack.getConstraints())
+
 		console.log('Created WebRTC consumer')
 		return Promise.resolve()
 	}
@@ -279,16 +282,19 @@ export class WebRTCConsumer implements Consumer {
 					// 	(i * floatBuffer.length) / 4,
 					// 	floatBuffer.length / 4
 
-					// const samples =
-					// 	(this.format.audioSampleRate * this.format.duration) / this.format.timescale
-					// console.log(`SAMPLES: ${samples}`)
-					// console.log(`CHANNELS: ${this.format.audioChannels}`)
-					// console.log(`BUFFER: ${audBuf.buffer.length}`)
+					const samples =
+						(this.format.audioSampleRate * this.format.duration) / this.format.timescale
+					console.log(`SAMPLES: ${samples}`)
+					console.log(`CHANNELS: ${this.format.audioChannels}`)
+					console.log(`BUFFER: ${audBuf.buffer.length}`)
 					for (let i = 0; i < 4; i++) {
 						const start = (i * audBuf.buffer.length) / 4
 						const end = start + audBuf.buffer.length / 4
+						const slicedAudio = audBuf.buffer.slice(start, end)
+						const asInts = new Int16Array(slicedAudio.buffer, slicedAudio.byteOffset, slicedAudio.length / 2)
+						console.log(asInts)
 						const audioBuffer: RTCAudioData = {
-							samples: Int16Array.from(audBuf.buffer.slice(start, end)),
+							samples: asInts,
 							sampleRate: this.format.audioSampleRate,
 							// // bitsPerSample default is 16
 							// bitsPerSample?: number
