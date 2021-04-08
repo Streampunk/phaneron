@@ -512,7 +512,7 @@ declare module 'wrtc' {
 	}
 
 	interface RTCAudioData {
-		samples: Int16Array
+		samples: ArrayBuffer
 		sampleRate: number
 		// bitsPerSample default is 16
 		bitsPerSample?: number

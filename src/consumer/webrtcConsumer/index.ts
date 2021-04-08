@@ -117,6 +117,7 @@ export class WebRTCConsumer implements Consumer {
 		// !!! Needs more work to handle 59.94 frame rates !!!
 		const samplesPerFrame =
 			(this.format.audioSampleRate * this.format.duration) / this.format.timescale
+		console.log('samplesPerFrame', samplesPerFrame)
 		const outSampleFormat = 's16'
 
 		this.audFilterer = await filterer({
@@ -191,6 +192,7 @@ export class WebRTCConsumer implements Consumer {
 					buffer: f.data[0],
 					timestamp: f.pts
 				}))
+				// console.log("<<<", result.map(x => x.buffer.length))
 				return result.length > 0 ? result : nil
 			} else {
 				return frame
@@ -282,23 +284,22 @@ export class WebRTCConsumer implements Consumer {
 					// 	(i * floatBuffer.length) / 4,
 					// 	floatBuffer.length / 4
 
-					const samples =
-						(this.format.audioSampleRate * this.format.duration) / this.format.timescale
-					console.log(`SAMPLES: ${samples}`)
-					console.log(`CHANNELS: ${this.format.audioChannels}`)
-					console.log(`BUFFER: ${audBuf.buffer.length}`)
-					for (let i = 0; i < 4; i++) {
-						const start = (i * audBuf.buffer.length) / 4
-						const end = start + audBuf.buffer.length / 4
-						const slicedAudio = audBuf.buffer.slice(start, end)
-						const asInts = new Int16Array(slicedAudio.buffer, slicedAudio.byteOffset, slicedAudio.length / 2)
-						console.log(asInts)
+					// const samples =
+					// 	(this.format.audioSampleRate * this.format.duration) / this.format.timescale
+					// console.log(`SAMPLES: ${samples}`)
+					// console.log(`CHANNELS: ${this.format.audioChannels}`)
+					// console.log(`BUFFER: ${audBuf.buffer.length}`)
+					for (let i = 0; i < 2; i++) {
+						const start = (i * audBuf.buffer.length) / 2
+						const end = start + audBuf.buffer.length / 2
+						const slicedAudio = audBuf.buffer.buffer.slice(start, end)
+						// console.log(">>>", slicedAudio.byteLength)
 						const audioBuffer: RTCAudioData = {
-							samples: asInts,
+							samples: slicedAudio,
 							sampleRate: this.format.audioSampleRate,
 							// // bitsPerSample default is 16
-							// bitsPerSample?: number
-							channelCount: this.audioOutChannels,
+							bitsPerSample: 16,
+							channelCount: 2,
 							// number of frames
 							numberOfFrames: this.format.audioSampleRate / 100
 						}
