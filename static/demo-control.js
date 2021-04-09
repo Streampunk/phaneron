@@ -15,6 +15,8 @@ connectButton.addEventListener('click', async () => {
 })
 
 playButton.addEventListener('click', play);
+pauseButton.addEventListener('click', pause);
+stopButton.addEventListener('click', stopClick);
 
 const remoteVideo = document.getElementById('remoteVideo');
 
@@ -130,6 +132,18 @@ function gotRemoteStream(e) {
 }
 
 function play() {
-  console.log('Play button!')
+  console.log('Play button!');
   dataChannel.send("PLAY");
+  pauseButton.disabled = false;
+  stopButton.disabled = false;
+}
+
+function pause() {
+  console.log('Pause button');
+  dataChannel.send("PAUSE");
+}
+
+function stopClick() {
+  console.log('Pause button');
+  dataChannel.send("STOP");
 }

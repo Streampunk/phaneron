@@ -8,7 +8,7 @@ import connectionManagerApi from './api'
 import { RTCPeerConnection } from 'wrtc'
 import { WebRtcConnectionManager } from './connections/webRTCConnectionManager'
 import { WebRTCConnection } from './connections/webRTCConnection'
-
+import { processCommand } from '../../AMCP/server'
 let peerManagerSingleton: PeerManager
 
 interface ConsumerInfo {
@@ -68,9 +68,27 @@ export class PeerManager {
 			}
 		}
 
-		function onReceiveMessageCallback(event: MessageEvent) {
+		let paused = false
+		function onReceiveMessageCallback(event: MessageEvent<String>) {
 			console.log('Received Message', event.data);
-		  }
+			if (event.data === 'PLAY') {
+				processCommand(['PLAY', '1-1', 'AS11_DPP_HD_EXAMPLE_1.MXF', 'SEEK', '200'])
+				paused = false
+			}
+			if (event.data === 'PAUSE') {
+				if (!paused) {
+					processCommand(['PAUSE', '1-1'])
+					paused = true
+				} else {
+					processCommand(['RESUME', '1-1'])
+					paused = false
+				}
+			}
+			if (event.data === 'STOP') {
+				processCommand(['STOP', '1-1'])
+				paused = false
+			}
+		}
 
 		this.consumers.set(info.id, {
 			...info, 
