@@ -294,14 +294,15 @@ export class WebRTCConsumer implements Consumer {
 					// console.log(`SAMPLES: ${samples}`)
 					// console.log(`CHANNELS: ${this.format.audioChannels}`)
 					// console.log(`BUFFER: ${audBuf.buffer.length}`)
-					for (let i = 0; i < 4; i++) {
-						const start = (i * audBuf.buffer.length) / 4
-						const end = start + audBuf.buffer.length / 4
+					for (let i = 0; i < 2; i++) {
+						const start = (i * audBuf.buffer.length) / 2
+						const end = start + audBuf.buffer.length / 2
+						const slicedAudio = audBuf.buffer.buffer.slice(start, end)       
 						const audioBuffer: RTCAudioData = {
-							samples: Int16Array.from(audBuf.buffer.slice(start, end)),
+							samples: slicedAudio,
 							sampleRate: this.format.audioSampleRate,
 							// // bitsPerSample default is 16
-							// bitsPerSample?: number
+							bitsPerSample: 16,
 							channelCount: this.audioOutChannels,
 							// number of frames
 							numberOfFrames: this.format.audioSampleRate / 100
