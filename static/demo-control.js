@@ -3,6 +3,15 @@ const connectButton = document.getElementById('connectButton');
 const playButton = document.getElementById('playButton');
 const pauseButton = document.getElementById('pauseButton');
 const stopButton = document.getElementById('stopButton');
+const srot = document.getElementById("srot");
+const vrot = document.getElementById("vrot");
+const sscalex = document.getElementById("sscalex");
+const vscalex = document.getElementById("vscalex");
+const sscaley = document.getElementById("sscaley");
+const vscaley = document.getElementById("vscaley");
+vrot.innerHTML = srot.value
+vscalex.innerHTML = `${+sscalex.value / 100.0}`
+vscaley.innerHTML = `${+sscaley.value / 100.0}` 
 
 playButton.disabled = true;
 pauseButton.disabled = true;
@@ -146,4 +155,19 @@ function pause() {
 function stopClick() {
   console.log('Pause button');
   dataChannel.send("STOP");
+}
+
+srot.oninput = function() { 
+  vrot.innerHTML = this.value + "";
+  dataChannel.send("ROTATION " + this.value);
+}
+
+sscalex.oninput = function() {
+  vscalex.innerHTML = `${+this.value / 100.0}`;
+  dataChannel.send(`FILL ${+this.value / 100} ${+sscaley.value / 100}`); 
+}
+
+sscaley.oninput = function() {
+  vscaley.innerHTML = `${+this.value / 100.0}`;
+  dataChannel.send(`FILL ${+sscalex.value / 100} ${+this.value / 100} `); 
 }

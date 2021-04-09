@@ -9,6 +9,7 @@ import { RTCPeerConnection } from 'wrtc'
 import { WebRtcConnectionManager } from './connections/webRTCConnectionManager'
 import { WebRTCConnection } from './connections/webRTCConnection'
 import { processCommand } from '../../AMCP/server'
+import { Channel } from '../../channel'
 let peerManagerSingleton: PeerManager
 
 interface ConsumerInfo {
@@ -16,6 +17,7 @@ interface ConsumerInfo {
 	readonly description: string
 	newPeer: (peer: { peerConnection: RTCPeerConnection }) => void
 	peerClose: (peer: { peerConnection: RTCPeerConnection }) => void
+	readonly channel: Channel
 }
 
 export interface ConsumerInfoExt extends ConsumerInfo {
@@ -69,8 +71,12 @@ export class PeerManager {
 		}
 
 		let paused = false
+		let channel = info.channel
+		let firstMessage = true
+
 		function onReceiveMessageCallback(event: MessageEvent<String>) {
 			console.log('Received Message', event.data);
+
 			if (event.data === 'PLAY') {
 				processCommand(['PLAY', '1-1', 'AS11_DPP_HD_EXAMPLE_1.MXF', 'SEEK', '200'])
 				paused = false
@@ -87,6 +93,22 @@ export class PeerManager {
 			if (event.data === 'STOP') {
 				processCommand(['STOP', '1-1'])
 				paused = false
+			}
+
+			if (event.data.startsWith('ROTATION')) {
+				if (firstMessage) {
+					channel.anchor(1, ['0.5', '0.5'])
+					firstMessage = false
+				}
+				channel.rotation(1, [event.data.slice(9)])
+			}
+
+			if (event.data.startsWith('FILL')) {
+				if (firstMessage) {
+					channel.anchor(1, ['0.5', '0.5'])
+					firstMessage = false
+				}
+				channel.fill(1, ['0', '0', ...event.data.split(' ').slice(1) ])
 			}
 		}
 

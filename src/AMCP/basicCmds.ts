@@ -227,6 +227,7 @@ export class BasicCmds implements CmdList {
 
 		try {
 			const consumer = this.consumerRegistry.createConsumer(
+				channel,
 				chanLay.channel,
 				consumerIndex,
 				this.parseParams(params),

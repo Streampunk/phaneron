@@ -46,6 +46,7 @@ interface AudioBuffer {
 
 export class WebRTCConsumer implements Consumer {
 	private readonly clContext: nodenCLContext
+	private readonly channel: Channel
 	private readonly chanID: string
 	private readonly rtcUuid: string
 	private readonly params: ConfigParams
@@ -71,12 +72,14 @@ export class WebRTCConsumer implements Consumer {
 
 	constructor(
 		context: nodenCLContext,
+		channel: Channel,
 		chanID: string,
 		params: ConfigParams,
 		format: VideoFormat,
 		clJobs: ClJobs
 	) {
 		this.clContext = context
+		this.channel = channel
 		this.chanID = `${chanID} WebRTC`
 		this.rtcUuid = `${chanID}-${uuidv4()}`
 		this.params = params
@@ -103,7 +106,13 @@ export class WebRTCConsumer implements Consumer {
 		this.mediaStream.addTrack(this.rtcAudioTrack)
 
 		this.peerManager = PeerManager.singleton()
-		this.peerManager.registerSource({ id: this.rtcUuid, description: this.chanID, newPeer: this.newPeer, peerClose: this.peerClose})
+		this.peerManager.registerSource({ 
+			id: this.rtcUuid, 
+			description: this.chanID, 
+			newPeer: this.newPeer, 
+			peerClose: this.peerClose, 
+			channel: this.channel
+		})
 			
 		// this.peerManager.on('newPeer', this.newPeer)
 		// this.peerManager.on('peerClose', this.peerClose)
