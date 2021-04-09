@@ -66,6 +66,8 @@ export class WebRTCConsumer implements Consumer {
 	private rtcAudioSource: WebRTCNonstandard.RTCAudioSource
 	private rtcAudioTrack: MediaStreamTrack
 	private mediaStream: MediaStream
+	private timer: [number, number]
+	private frameCount: number
 
 	constructor(
 		context: nodenCLContext,
@@ -83,6 +85,8 @@ export class WebRTCConsumer implements Consumer {
 		this.audioOutChannels = 2
 		this.audioTimebase = [1, this.format.audioSampleRate]
 		this.videoTimebase = [this.format.duration, this.format.timescale]
+		this.timer = [0, 0]
+		this.frameCount = 0
 
 		if (Object.keys(this.params).length > 1)
 			console.log('WebRTC consumer - unused params', this.params)
@@ -227,6 +231,9 @@ export class WebRTCConsumer implements Consumer {
 		> = async (frame) => {
 			// console.log('Hello from screen spout', isValue(frame))
 			if (isValue(frame)) {
+				if (this.frameCount === 0) {
+					this.timer = process.hrtime()
+				}
 				const vidBufs = frame[0]
 				const audBuf = frame[1]
 				if (!(audBuf && isValue(audBuf) && vidBufs && isValue(vidBufs))) {
@@ -282,9 +289,6 @@ export class WebRTCConsumer implements Consumer {
 						data: new Uint8ClampedArray(frame)
 					}
 
-					// console.log('Calling rtcVideoSource.onFrame()', i420frame)
-					this.rtcVideoSource.onFrame(i420frame)
-
 					// new Int16Array(
 					// 	floatBuffer,
 					// 	(i * floatBuffer.length) / 4,
@@ -311,7 +315,20 @@ export class WebRTCConsumer implements Consumer {
 						this.rtcAudioSource.onData(audioBuffer)
 					}
 
-					resolve()
+					// console.log('Calling rtcVideoSource.onFrame()', i420frame)
+					this.rtcVideoSource.onFrame(i420frame)
+
+					const [gaps, gapn] = process.hrtime(this.timer)
+					this.frameCount++
+					const timeFromStartMS = gaps * 1000 + (gapn / 1000000 | 0)
+					const nextFrameTime = this.frameCount * 1000 * this.videoTimebase[0] / this.videoTimebase[1] | 0
+					const waitForIt = nextFrameTime - timeFromStartMS
+					// console.log(this.frameCount, waitForIt)
+					if (waitForIt > 0) {
+						setTimeout(resolve, waitForIt)
+					} else {
+						resolve()
+					}
 
 					// write(audBuf.buffer, () => {
 					// 	vidBuf.release()
