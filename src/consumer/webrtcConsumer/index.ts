@@ -23,7 +23,7 @@ import { RedioPipe, RedioEnd, nil, isValue, Valve, Spout } from 'redioactive'
 import { Frame, Filterer, filterer } from 'beamcoder'
 import { ConsumerFactory, Consumer } from '../consumer'
 import { FromRGBA } from '../../process/io'
-import { Writer } from '../../process/rgba8'
+import { Writer } from '../../process/yuv420p'
 import { ConfigParams, VideoFormat, DeviceConfig } from '../../config'
 import { ClJobs } from '../../clJobQueue'
 import {
@@ -35,7 +35,7 @@ import {
 	MediaStream
 } from 'wrtc'
 import { PeerManager } from './peerManager'
-const { RTCVideoSource, rgbaToI420, RTCAudioSource } = WebRTCNonstandard
+const { RTCVideoSource, /* rgbaToI420,*/ RTCAudioSource } = WebRTCNonstandard
 import { v4 as uuidv4 } from 'uuid'
 
 interface AudioBuffer {
@@ -117,7 +117,6 @@ export class WebRTCConsumer implements Consumer {
 		// !!! Needs more work to handle 59.94 frame rates !!!
 		const samplesPerFrame =
 			(this.format.audioSampleRate * this.format.duration) / this.format.timescale
-		console.log('samplesPerFrame', samplesPerFrame)
 		const outSampleFormat = 's16'
 
 		this.audFilterer = await filterer({
@@ -147,14 +146,11 @@ export class WebRTCConsumer implements Consumer {
 		const height = this.format.height
 		this.fromRGBA = new FromRGBA(
 			this.clContext,
-			'sRGB',
+			'709',
 			new Writer(width, height, false),
 			this.clJobs
 		)
 		await this.fromRGBA.init()
-
-		// console.log(this.rtcVideoTrack.getConstraints())
-		// console.log(this.rtcVideoTrack.getConstraints())
 
 		console.log('Created WebRTC consumer')
 		return Promise.resolve()
@@ -192,56 +188,56 @@ export class WebRTCConsumer implements Consumer {
 					buffer: f.data[0],
 					timestamp: f.pts
 				}))
-				// console.log("<<<", result.map(x => x.buffer.length))
 				return result.length > 0 ? result : nil
 			} else {
 				return frame
 			}
 		}
 
-		const vidProcess: Valve<OpenCLBuffer | RedioEnd, OpenCLBuffer | RedioEnd> = async (frame) => {
-			// console.log('Hello from vid process', isValue(frame))
+		const vidProcess: Valve<OpenCLBuffer | RedioEnd, OpenCLBuffer[] | RedioEnd> = async (frame) => {
 			if (isValue(frame)) {
 				const fromRGBA = this.fromRGBA as FromRGBA
 				const clDests = await fromRGBA.createDests()
 				clDests.forEach((d) => (d.timestamp = frame.timestamp))
 				fromRGBA.processFrame(this.chanID, frame, clDests, 0)
 				await this.clJobs.runQueue({ source: this.chanID, timestamp: frame.timestamp })
-				return clDests[0]
+				return clDests
 			} else {
+				this.clJobs.clearQueue(this.chanID)
 				return frame
 			}
 		}
 
-		const vidSaver: Valve<OpenCLBuffer | RedioEnd, OpenCLBuffer | RedioEnd> = async (frame) => {
-			// console.log('Hello from vid saver', isValue(frame))
-			if (isValue(frame)) {
+		const vidSaver: Valve<OpenCLBuffer[] | RedioEnd, OpenCLBuffer[] | RedioEnd> = async (
+			frames
+		) => {
+			if (isValue(frames)) {
 				const fromRGBA = this.fromRGBA as FromRGBA
-				await fromRGBA.saveFrame(frame, this.clContext.queue.unload)
+				await Promise.all(frames.map((f) => fromRGBA.saveFrame(f, this.clContext.queue.unload)))
 				await this.clContext.waitFinish(this.clContext.queue.unload)
-				return frame
+				return frames
 			} else {
-				return frame
+				return frames
 			}
 		}
 
 		const screenSpout: Spout<
-			[(OpenCLBuffer | RedioEnd | undefined)?, (AudioBuffer | RedioEnd | undefined)?] | RedioEnd
+			[(OpenCLBuffer[] | RedioEnd | undefined)?, (AudioBuffer | RedioEnd | undefined)?] | RedioEnd
 		> = async (frame) => {
 			// console.log('Hello from screen spout', isValue(frame))
 			if (isValue(frame)) {
-				const vidBuf = frame[0]
+				const vidBufs = frame[0]
 				const audBuf = frame[1]
-				if (!(audBuf && isValue(audBuf) && vidBuf && isValue(vidBuf))) {
-					console.log('One-legged zipper:', audBuf, vidBuf)
-					if (vidBuf && isValue(vidBuf)) vidBuf.release()
+				if (!(audBuf && isValue(audBuf) && vidBufs && isValue(vidBufs))) {
+					console.log('One-legged zipper:', audBuf, vidBufs)
+					if (vidBufs && isValue(vidBufs)) vidBufs.forEach(x =>x.release())
 					return Promise.resolve()
 				}
 
 				const atb = this.audioTimebase
 				const ats = (audBuf.timestamp * atb[0]) / atb[1]
 				const vtb = this.videoTimebase
-				const vts = (vidBuf.timestamp * vtb[0]) / vtb[1]
+				const vts = (vidBufs[0].timestamp * vtb[0]) / vtb[1]
 				if (Math.abs(ats - vts) > 0.1)
 					console.log('WebRTC audio and video timestamp mismatch - aud:', ats, ' vid:', vts)
 
@@ -258,23 +254,32 @@ export class WebRTCConsumer implements Consumer {
 				// }
 
 				return new Promise((resolve) => {
-					const frame = Buffer.alloc(this.format.width * this.format.height * 4)
-					vidBuf.copy(frame)
-					vidBuf.release()
+					const lumaBytes = this.format.width * this.format.height
+					const chromaBytes = lumaBytes / 4
+					const frame = Buffer.alloc(lumaBytes + chromaBytes * 2)
+					vidBufs[0].copy(frame)
+					vidBufs[1].copy(frame, lumaBytes)
+					vidBufs[2].copy(frame, lumaBytes + chromaBytes)
+					vidBufs.forEach(x => x.release())
 
+					// const i420frame: RTCVideoFrame = {
+					// 	width: this.format.width,
+					// 	height: this.format.height,
+					// 	data: new Uint8ClampedArray(1.5 * this.format.width * this.format.height)
+					// }
+					// rgbaToI420(
+					// 	{
+					// 		width: this.format.width,
+					// 		height: this.format.height,
+					// 		data: new Uint8ClampedArray(frame)
+					// 	},
+					// 	i420frame
+					// )
 					const i420frame: RTCVideoFrame = {
 						width: this.format.width,
 						height: this.format.height,
-						data: new Uint8ClampedArray(1.5 * this.format.width * this.format.height)
+						data: new Uint8ClampedArray(frame)
 					}
-					rgbaToI420(
-						{
-							width: this.format.width,
-							height: this.format.height,
-							data: new Uint8ClampedArray(frame)
-						},
-						i420frame
-					)
 
 					// console.log('Calling rtcVideoSource.onFrame()', i420frame)
 					this.rtcVideoSource.onFrame(i420frame)
@@ -289,17 +294,15 @@ export class WebRTCConsumer implements Consumer {
 					// console.log(`SAMPLES: ${samples}`)
 					// console.log(`CHANNELS: ${this.format.audioChannels}`)
 					// console.log(`BUFFER: ${audBuf.buffer.length}`)
-					for (let i = 0; i < 2; i++) {
-						const start = (i * audBuf.buffer.length) / 2
-						const end = start + audBuf.buffer.length / 2
-						const slicedAudio = audBuf.buffer.buffer.slice(start, end)
-						// console.log(">>>", slicedAudio.byteLength)
+					for (let i = 0; i < 4; i++) {
+						const start = (i * audBuf.buffer.length) / 4
+						const end = start + audBuf.buffer.length / 4
 						const audioBuffer: RTCAudioData = {
-							samples: slicedAudio,
+							samples: Int16Array.from(audBuf.buffer.slice(start, end)),
 							sampleRate: this.format.audioSampleRate,
 							// // bitsPerSample default is 16
-							bitsPerSample: 16,
-							channelCount: 2,
+							// bitsPerSample?: number
+							channelCount: this.audioOutChannels,
 							// number of frames
 							numberOfFrames: this.format.audioSampleRate / 100
 						}

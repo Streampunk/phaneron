@@ -29,11 +29,11 @@ export default function mountConnectionsApi(
 					return
 				}
 				let offer = ctx.request.body as RTCSessionDescription
-				console.log('Received offer:', offer)
+				// console.log('Received offer:', offer)
 				// const connection = new RTCPeerConnection({})
 				// await connection.setRemoteDescription(offer)
 				const connection = await consumer.connectionManager.createConnection(offer)
-				console.log(connection.localDescription)
+				// console.log(connection.localDescription)
 				// ctx.body = connection
 				ctx.body = connection.localDescription
 			} catch (error) {
