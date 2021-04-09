@@ -37,6 +37,7 @@ import {
 import { PeerManager } from './peerManager'
 const { RTCVideoSource, /* rgbaToI420,*/ RTCAudioSource } = WebRTCNonstandard
 import { v4 as uuidv4 } from 'uuid'
+import { Channel } from '../../channel'
 
 interface AudioBuffer {
 	buffer: Buffer
@@ -344,13 +345,14 @@ export class WebRTCConsumerFactory implements ConsumerFactory<WebRTCConsumer> {
 	}
 
 	createConsumer(
+		channel: Channel,
 		chanID: string,
 		params: ConfigParams,
 		format: VideoFormat,
 		_device: DeviceConfig,
 		clJobs: ClJobs
 	): WebRTCConsumer {
-		const consumer = new WebRTCConsumer(this.clContext, chanID, params, format, clJobs)
+		const consumer = new WebRTCConsumer(this.clContext, channel, chanID, params, format, clJobs)
 		return consumer
 	}
 }

@@ -36,6 +36,7 @@ export interface Consumer {
 
 export interface ConsumerFactory<T extends Consumer> {
 	createConsumer(
+		channel: Channel,
 		chanID: string,
 		params: ConfigParams,
 		format: VideoFormat,
@@ -63,6 +64,7 @@ export class ConsumerRegistry {
 	}
 
 	createConsumer(
+		channel: Channel,
 		chanNum: number,
 		consumerIndex: number,
 		params: ConfigParams,
@@ -85,6 +87,7 @@ export class ConsumerRegistry {
 		if (!format) throw new Error(`channel format not registered`)
 
 		const consumer = factory.createConsumer(
+			channel,
 			chanID,
 			params,
 			format,
@@ -117,6 +120,7 @@ export class ConsumerRegistry {
 	}
 
 	createConsumers(
+		channel: Channel,
 		chanNum: number,
 		chanID: string,
 		config: ConsumerConfig,
@@ -126,7 +130,7 @@ export class ConsumerRegistry {
 		this.formats.set(chanNum, config.format)
 
 		return config.devices.map((device) =>
-			this.createConsumer(chanNum, this.consumerIndex++, {}, device, clJobs)
+			this.createConsumer(channel, chanNum, this.consumerIndex++, {}, device, clJobs)
 		)
 	}
 }

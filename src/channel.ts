@@ -53,6 +53,7 @@ export class Channel {
 		this.clJobs = clJobs
 		this.combiner = new Combiner(this.clContext, chanID, this.consumerConfig.format, this.clJobs)
 		this.consumers = this.consumerRegistry.createConsumers(
+			this,
 			chanNum,
 			chanID,
 			this.consumerConfig,
