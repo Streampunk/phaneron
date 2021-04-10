@@ -214,7 +214,7 @@ export class FFmpegProducer implements Producer {
 		if (vidStream) {
 			width = vidStream.codecpar.width
 			height = vidStream.codecpar.height
-			squareWidth = (width * vidStream.sample_aspect_ratio[0]) / vidStream.sample_aspect_ratio[1]
+			squareWidth = (width * vidStream.codecpar.sample_aspect_ratio[0]) / vidStream.codecpar.sample_aspect_ratio[1]
 			squareHeight = height
 			vidTimescale = vidStream.time_base[1] * (progressive ? 1 : 2)
 			vidDuration = vidStream.time_base[0]
@@ -285,6 +285,7 @@ export class FFmpegProducer implements Producer {
 
 			const fieldOrder = vidStream.codecpar.field_order
 			progressive = fieldOrder === 'progressive'
+			// console.log('Is progressive', progressive, vidStream.time_base, filterOutputFormat, fieldOrder)
 			const tff = fieldOrder === 'unknown' || fieldOrder.split(', ', 2)[1] === 'top displayed first'
 			const yadifMode = progressive ? 'send_frame' : 'send_field'
 			yadif = new Yadif(

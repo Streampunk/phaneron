@@ -1,0 +1,86 @@
+<meta charset="UTF-8">
+<html>
+
+<head>
+	<style>
+		.div-section {
+			margin-bottom: 8px;
+		}
+	</style>
+</head>
+
+<body>
+	<h2>Phaneron - basic controls demo</h2>
+	<div class="div-section">
+		<table>
+			<tr>
+				<td>Stream:</td>
+				<td>
+					<select id="streamSelect" onchange="changeStream()"></select>
+				</td>
+				<td>
+					<button onclick="refreshStreamList()">Refresh list</button>
+				</td>
+			</tr>
+		</table>
+	</div>
+	<div class="div-section">
+		<video id="remoteVideo" autoplay playsinline controls="false" style="height:480px;"></video>
+	</div>
+
+	<div class="box">
+        <button id="connectButton">Connect</button>
+        <button id="playButton">Play</button>
+        <button id="pauseButton">Pause</button>
+		<button id="stopButton">Stop</button>
+    </div>
+
+	<p>rotation: 
+	<input type="range" min="0" max="360" value="0" id="srot"> <span id="vrot"></span>
+	</p>
+
+	<p>scale: 
+		<input type="range" min="0" max="200" value="100" id="sscalex"> <span id="vscalex"></span>
+		<input type="range" min="0" max="200" value="100" id="sscaley"> <span id="vscaley"></span>
+	</p>
+
+    <div class="box">
+        <span>Codec selection:</span>
+        <div id="videoCodec"></div>
+		<div id="audioCodec"></div>
+    </div>
+
+
+	<script src="https://webrtc.github.io/adapter/adapter-latest.js"></script>
+	<script src="demo-control.js"></script>
+
+	<script type="text/javascript">
+		async function refreshStreamList() {
+			const list = await listStreams()
+
+			const listElm = document.querySelector('#streamSelect')
+			listElm.innerHTML = ''
+
+			for (const s of list) {
+				const e = document.createElement('option')
+				e.innerText = s.description
+				e.setAttribute('id', s.streamId)
+				listElm.appendChild(e)
+			}
+		}
+
+		async function changeStream(e) {
+			const streamId = document.querySelector('#streamSelect option:checked').id
+			console.log('changing to', streamId)
+			if (streamId) {
+				startStream(streamId)
+			}
+		}
+
+		refreshStreamList();
+		// startStream(host);
+
+	</script>
+</body>
+
+</html>

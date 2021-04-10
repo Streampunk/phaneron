@@ -1,0 +1,63 @@
+<meta charset="UTF-8">
+<html>
+
+<head>
+	<style>
+		.div-section {
+			margin-bottom: 8px;
+		}
+	</style>
+</head>
+
+<body>
+	<div class="div-section">
+		<table>
+			<tr>
+				<td>Stream:</td>
+				<td>
+					<select id="streamSelect" onchange="changeStream()"></select>
+				</td>
+				<td>
+					<button onclick="refreshStreamList()">Refresh list</button>
+				</td>
+			</tr>
+		</table>
+	</div>
+	<div class="div-section">
+		<video id="remoteVideo" autoplay playsinline controls="false" style="height:480px;"></video>
+	</div>
+
+	<script src="https://webrtc.github.io/adapter/adapter-latest.js"></script>
+	<script src="webrtc-player.js"></script>
+
+	<script type="text/javascript">
+		const host = `http://${window.location.hostname}:3002`
+		async function refreshStreamList() {
+			const list = await listStreams(host)
+
+			const listElm = document.querySelector('#streamSelect')
+			listElm.innerHTML = ''
+
+			for (const s of list) {
+				const e = document.createElement('option')
+				e.innerText = s.description
+				e.setAttribute('id', s.streamId)
+				listElm.appendChild(e)
+			}
+		}
+
+		async function changeStream(e) {
+			const streamId = document.querySelector('#streamSelect option:checked').id
+			console.log('changing to', streamId)
+			if (streamId) {
+				startStream(host, streamId)
+			}
+		}
+
+		refreshStreamList();
+		startStream(host);
+
+	</script>
+</body>
+
+</html>

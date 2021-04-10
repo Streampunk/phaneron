@@ -27,6 +27,7 @@ import { Frame } from 'beamcoder'
 import { Channel } from '../channel'
 import { ConfigParams, VideoFormat, DeviceConfig, ConsumerConfig } from '../config'
 import { ClJobs } from '../clJobQueue'
+import { WebRTCConsumerFactory } from './webrtcConsumer'
 
 export interface Consumer {
 	initialise(): Promise<void>
@@ -35,6 +36,7 @@ export interface Consumer {
 
 export interface ConsumerFactory<T extends Consumer> {
 	createConsumer(
+		channel: Channel,
 		chanID: string,
 		params: ConfigParams,
 		format: VideoFormat,
@@ -55,12 +57,14 @@ export class ConsumerRegistry {
 		this.consumerFactories.set('decklink', new MacadamConsumerFactory(clContext))
 		this.consumerFactories.set('screen', new ScreenConsumerFactory(clContext))
 		this.consumerFactories.set('ffmpeg', new FFmpegConsumerFactory(clContext))
+		this.consumerFactories.set('webrtc', new WebRTCConsumerFactory(clContext))
 		this.consumers = new Map()
 		this.chanIDs = new Map()
 		this.formats = new Map()
 	}
 
 	createConsumer(
+		channel: Channel,
 		chanNum: number,
 		consumerIndex: number,
 		params: ConfigParams,
@@ -83,6 +87,7 @@ export class ConsumerRegistry {
 		if (!format) throw new Error(`channel format not registered`)
 
 		const consumer = factory.createConsumer(
+			channel,
 			chanID,
 			params,
 			format,
@@ -115,6 +120,7 @@ export class ConsumerRegistry {
 	}
 
 	createConsumers(
+		channel: Channel,
 		chanNum: number,
 		chanID: string,
 		config: ConsumerConfig,
@@ -124,7 +130,7 @@ export class ConsumerRegistry {
 		this.formats.set(chanNum, config.format)
 
 		return config.devices.map((device) =>
-			this.createConsumer(chanNum, this.consumerIndex++, {}, device, clJobs)
+			this.createConsumer(channel, chanNum, this.consumerIndex++, {}, device, clJobs)
 		)
 	}
 }

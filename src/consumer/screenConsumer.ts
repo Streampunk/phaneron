@@ -29,6 +29,7 @@ import { FromRGBA } from '../process/io'
 import { Writer } from '../process/rgba8'
 import { ConfigParams, VideoFormat, DeviceConfig } from '../config'
 import { ClJobs } from '../clJobQueue'
+import { Channel } from '../channel'
 
 interface AudioBuffer {
 	buffer: Buffer
@@ -237,6 +238,7 @@ export class ScreenConsumerFactory implements ConsumerFactory<ScreenConsumer> {
 	}
 
 	createConsumer(
+		_channel: Channel,
 		chanID: string,
 		params: ConfigParams,
 		format: VideoFormat,

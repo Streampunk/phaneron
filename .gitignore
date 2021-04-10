@@ -102,3 +102,9 @@ dist
 
 # TernJS port file
 .tern-port
+
+# Media folder
+media/
+
+# Startup commands
+startupAMCPCommands

@@ -27,6 +27,7 @@ import { Writer } from '../process/v210'
 import { Frame, Filterer, filterer } from 'beamcoder'
 import { ConfigParams, VideoFormat, DeviceConfig } from '../config'
 import { ClJobs } from '../clJobQueue'
+import { Channel } from '../channel'
 
 interface DecklinkConfig extends DeviceConfig {
 	keyDeviceIndex: number
@@ -296,6 +297,7 @@ export class MacadamConsumerFactory implements ConsumerFactory<MacadamConsumer> 
 	}
 
 	createConsumer(
+		_channel: Channel,
 		chanID: string,
 		params: ConfigParams,
 		format: VideoFormat,
