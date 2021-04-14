@@ -111,7 +111,7 @@ rl.on('line', async (input) => {
 
 	if (input !== '') {
 		console.log(`AMCP received: ${input}`)
-		const result = await processCommand(input.toUpperCase().match(/"[^"]+"|""|\S+/g))
+		const result = await processCommand(input.match(/"[^"]+"|""|\S+/g))
 		console.log('AMCP returned:', result)
 	}
 

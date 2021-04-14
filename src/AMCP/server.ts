@@ -26,16 +26,19 @@ let cmds: Commands
 let ccgResponses = responses218
 
 export async function processCommand(command: string[] | null, token = ''): Promise<string> {
-	if (!command) {
+	if (!command || command.length === 0) {
 		return '400 ERROR'
 	}
+	command[0] = command[0].toUpperCase()
 	if (command[0] === 'REQ') {
 		if (command[2] !== 'PING') {
 			return processCommand(command.slice(2), command[1])
 		} else {
 			token = command[1]
+			command[2] = command[2].toUpperCase()
 		}
 	}
+	console.log(command)
 	if (command[0] === 'SWITCH') {
 		if (command[1] === '207') {
 			ccgResponses = responses207
@@ -138,7 +141,7 @@ server.on('connection', (sock) => {
 		while (eol > -1) {
 			const command = chunk.substring(0, eol)
 			console.log(command)
-			const result = await processCommand(command.toUpperCase().match(/"[^"]+"|""|\S+/g))
+			const result = await processCommand(command.match(/"[^"]+"|""|\S+/g))
 			if (result === '***BYE***') {
 				sock.destroy()
 				break
