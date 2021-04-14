@@ -91,9 +91,10 @@ export class BasicCmds implements CmdList {
 		if (!channel) return Promise.resolve(false)
 
 		let curParam = 0
-		const clip = params[0]
+		let clip = params[0]
 		let chanNum = 0
 		if (clip === 'DECKLINK') chanNum = +params[curParam + 1]
+		if (clip === '[HTML]') clip = `[HTML] ${params[curParam + 1]}`
 
 		const loop = params.find((param) => param === 'LOOP') !== undefined
 

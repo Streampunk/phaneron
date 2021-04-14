@@ -25,6 +25,7 @@ import { LoadParams } from '../chanLayer'
 import { VideoFormat } from '../config'
 import { FFmpegProducerFactory } from './ffmpegProducer'
 import { MacadamProducerFactory } from './macadamProducer'
+import { HTMLProducerFactory } from './htmlProducer'
 // import { RedioPipe, RedioEnd } from 'redioactive'
 import { Mixer } from './mixer'
 
@@ -56,6 +57,7 @@ export class ProducerRegistry {
 		this.producerFactories = []
 		this.producerFactories.push(new MacadamProducerFactory(clContext))
 		this.producerFactories.push(new FFmpegProducerFactory(clContext))
+		this.producerFactories.push(new HTMLProducerFactory(clContext))
 	}
 
 	async createSource(
