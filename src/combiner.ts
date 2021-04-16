@@ -21,7 +21,7 @@
 import { EventEmitter } from 'events'
 import { clContext as nodenCLContext } from 'nodencl'
 import { Layer } from './layer'
-import redio, { RedioPipe, RedioEnd, isValue, Valve, nil, end } from 'redioactive'
+import redio, { RedioPipe, RedioEnd, isValue, isEnd, Valve, nil, end } from 'redioactive'
 import { OpenCLBuffer } from 'nodencl'
 import { AudioInputParam, filterer, Filterer, frame, Frame } from 'beamcoder'
 import { VideoFormat } from './config'
@@ -104,6 +104,7 @@ export class Combiner {
 	private combineLayers: CombineLayer[] = []
 	private audLayerPipes: RedioPipe<Frame | RedioEnd>[] = []
 	private vidLayerPipes: RedioPipe<OpenCLBuffer | RedioEnd>[] = []
+	private vidTimestamp = 0
 
 	constructor(
 		clContext: nodenCLContext,
@@ -284,7 +285,7 @@ export class Combiner {
 				const layerFrames = frames.slice(1) as OpenCLBuffer[]
 
 				if (!isValue(frames[0])) return end
-				const timestamp = frames[0].timestamp++
+				const timestamp = this.vidTimestamp++
 
 				const numCombineLayers = numLayers < 2 ? 0 : numLayers
 				if (numCombineLayers && this.lastNumVidLayers !== numCombineLayers) {
@@ -293,10 +294,14 @@ export class Combiner {
 				}
 
 				if (numLayers === 0) {
-					frames[0].addRef()
+					for (let d = 0; d < this.numConsumers; ++d) frames[0].addRef()
+					frames[0].timestamp = timestamp
 					return frames[0]
 				} else if (numLayers === 1) {
-					if (isValue(frames[1])) frames[1].timestamp = timestamp
+					if (!isEnd(frames[1])) {
+						frames[1].timestamp = timestamp
+						for (let d = 1; d < this.numConsumers; ++d) frames[1].addRef()
+					}
 					return frames[1]
 				}
 

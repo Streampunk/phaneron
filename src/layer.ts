@@ -27,7 +27,7 @@ import { MixerDefaults } from './producer/mixer'
 
 export class Layer {
 	private readonly endEvent: EventEmitter
-	private mixerParams = MixerDefaults
+	private mixerParams = JSON.parse(MixerDefaults)
 	private background: Producer | null
 	private foreground: Producer | null
 	private channelUpdate: () => void

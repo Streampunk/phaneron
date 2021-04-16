@@ -50,12 +50,13 @@ export type MixerParams = {
 	volume: number
 }
 
-export const MixerDefaults: MixerParams = {
-	anchor: { x: 0, y: 0 },
-	rotation: 0,
-	fill: { xOffset: 0, yOffset: 0, xScale: 1, yScale: 1 },
-	volume: 1
-}
+export const MixerDefaults =
+	'{\
+		"anchor": { "x": 0, "y": 0 },\
+		"rotation": 0,\
+		"fill": { "xOffset": 0, "yOffset": 0, "xScale": 1, "yScale": 1 },\
+		"volume": 1\
+	}'
 
 // const getFilters = (filterer: Filterer): string[] => {
 // 	const filters: string[] = []
@@ -111,7 +112,7 @@ export class Mixer {
 	private mixAudio: RedioPipe<Frame | RedioEnd> | undefined
 	private mixVideo: RedioPipe<OpenCLBuffer | RedioEnd> | undefined
 	private audMixFilterer: Filterer | null = null
-	private mixParams = MixerDefaults
+	private mixParams = JSON.parse(MixerDefaults)
 	private srcLevels: number[] = []
 	private muted = false
 	private running = true
@@ -223,6 +224,7 @@ export class Mixer {
 					frame.release()
 					return nil
 				}
+				const timestamp = frame.timestamp
 				const xfDest = await this.clContext.createBuffer(
 					numBytesRGBA,
 					'readwrite',
@@ -249,10 +251,10 @@ export class Mixer {
 						offsetY: -this.mixParams.fill.yOffset,
 						output: xfDest
 					},
-					{ source: sourceID, timestamp: frame.timestamp },
+					{ source: sourceID, timestamp: timestamp },
 					() => frame.release()
 				)
-				await this.clJobs.runQueue({ source: sourceID, timestamp: frame.timestamp })
+				await this.clJobs.runQueue({ source: sourceID, timestamp: timestamp })
 
 				return xfDest
 			} else {
