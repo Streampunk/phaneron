@@ -55,6 +55,7 @@ interface AudioBuffer {
 
 const bmdSampleRates = new Map([[48000, Macadam.bmdAudioSampleRate48kHz]])
 const bmdDisplayMode = new Map([
+	['720p5000', Macadam.bmdModeHD1080p50],
 	['1080i5000', Macadam.bmdModeHD1080i50],
 	['1080p5000', Macadam.bmdModeHD1080p50]
 ])
@@ -218,7 +219,10 @@ export class MacadamConsumer implements Consumer {
 				const fromRGBA = this.fromRGBA as FromRGBA
 				if (this.vidField === 0) {
 					this.clDests = await fromRGBA.createDests()
-					this.clDests.forEach((d) => (d.timestamp = (frame.timestamp / this.format.fields) << 0))
+					this.clDests.forEach((d) => {
+						// d.loadstamp = frame.loadstamp
+						d.timestamp = (frame.timestamp / this.format.fields) << 0
+					})
 				}
 				const interlace = this.format.fields ? 0x1 | (this.vidField << 1) : 0
 				fromRGBA.processFrame(this.chanID, frame, this.clDests, interlace)

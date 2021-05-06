@@ -22,6 +22,7 @@ import { EventEmitter, once } from 'events'
 import { Channel } from '../channel'
 import { Osc } from '../osc/osc'
 import fs from 'fs'
+import { TransitionParams } from '../chanLayer'
 
 type HeadsControls = { load?: string; take?: string }
 
@@ -35,6 +36,7 @@ type LayerSpec = {
 	layerNum: number
 	url: string
 	seek: number
+	transition?: TransitionParams
 }
 
 type EventSpec = {
@@ -59,6 +61,7 @@ export class Heads {
 	private readonly osc: Osc
 	private readonly channel: Channel
 	private readonly eventDone: EventEmitter
+	private readonly framerate: number
 	private headsSpec: HeadsSpec | undefined
 	private eventTimeout: NodeJS.Timeout | undefined
 	private running = false
@@ -67,7 +70,8 @@ export class Heads {
 		this.osc = osc
 		this.channel = channel
 		this.eventDone = new EventEmitter()
-
+		const fmt = this.channel.getConfig().format
+		this.framerate = fmt.timescale / fmt.fields
 		if (controls.load)
 			this.osc.addControl(controls.load, (msg) => {
 				if (msg.value !== 0) this.loadSpec(msg.value as string)
@@ -98,22 +102,27 @@ export class Heads {
 
 	async loadEvent(eventSpec: EventSpec): Promise<void> {
 		await Promise.all(
-			eventSpec.layers.map((l) =>
-				this.channel.loadSource({
+			eventSpec.layers.map((l) => {
+				console.log('load event:', l.url, l.transition ? l.transition : '')
+				return this.channel.loadSource({
 					url: l.url,
 					layer: l.layerNum,
 					loop: false,
 					preview: false,
 					autoPlay: false,
-					seek: l.seek
+					seek: l.seek,
+					transition: l.transition
 				})
-			)
+			})
 		)
 	}
 
 	async runEvent(eventSpec: EventSpec): Promise<void> {
 		await Promise.all(eventSpec.layers.map((l) => this.channel.play(l.layerNum)))
-		this.eventTimeout = setTimeout(() => this.eventDone.emit('done'), eventSpec.duration)
+		this.eventTimeout = setTimeout(
+			() => this.eventDone.emit('done'),
+			eventSpec.duration * this.framerate
+		)
 	}
 
 	async runEvents(): Promise<void> {
@@ -129,7 +138,7 @@ export class Heads {
 
 				await once(this.eventDone, 'done')
 				if (eventId === this.headsSpec.events.length) {
-					this.channel.clear(0)
+					await this.channel.clear(0)
 					this.running = false
 				}
 			}

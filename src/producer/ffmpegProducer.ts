@@ -214,10 +214,21 @@ export class FFmpegProducer implements Producer {
 		if (vidStream) {
 			width = vidStream.codecpar.width
 			height = vidStream.codecpar.height
-			squareWidth = (width * vidStream.sample_aspect_ratio[0]) / vidStream.sample_aspect_ratio[1]
+			if (vidStream.codecpar.sample_aspect_ratio[0] && vidStream.codecpar.sample_aspect_ratio[1]) {
+				squareWidth =
+					(width * vidStream.codecpar.sample_aspect_ratio[0]) /
+					vidStream.codecpar.sample_aspect_ratio[1]
+			}
 			squareHeight = height
-			vidTimescale = vidStream.time_base[1] * (progressive ? 1 : 2)
-			vidDuration = vidStream.time_base[0]
+			const fieldOrder = vidStream.codecpar.field_order
+			if (vidStream.avg_frame_rate[0] / vidStream.avg_frame_rate[1] > 30) {
+				console.log(
+					'Stream field_order flag not set for framerate greater than 30fps - setting to progressive'
+				)
+				progressive = true
+			} else progressive = fieldOrder === 'progressive'
+			vidTimescale = vidStream.avg_frame_rate[0] * (progressive ? 1 : 2)
+			vidDuration = vidStream.avg_frame_rate[1]
 
 			let filterOutputFormat = vidStream.codecpar.format
 			let readImpl: PackImpl
@@ -279,12 +290,10 @@ export class FFmpegProducer implements Producer {
 						pixelFormat: filterOutputFormat
 					}
 				],
-				filterSpec: `fps=fps=${chanTb[1] / 2}/${chanTb[0]}`
+				filterSpec: `fps=fps=${chanTb[1] / (progressive ? 1 : 2)}/${chanTb[0]}`
 			})
 			// console.log('\nFFmpeg producer video:\n', vidFilterer.graph.dump())
 
-			const fieldOrder = vidStream.codecpar.field_order
-			progressive = fieldOrder === 'progressive'
 			const tff = fieldOrder === 'unknown' || fieldOrder.split(', ', 2)[1] === 'top displayed first'
 			const yadifMode = progressive ? 'send_frame' : 'send_field'
 			yadif = new Yadif(
@@ -421,7 +430,12 @@ export class FFmpegProducer implements Producer {
 				if (!this.running) return nil
 				const convert = toRGBA as ToRGBA
 				const clSources = await convert.createSources()
-				clSources.forEach((s) => (s.timestamp = progressive ? frame.pts : frame.pts * 2))
+				// const now = process.hrtime()
+				// const nowms = now[0] * 1000.0 + now[1] / 1000000.0
+				clSources.forEach((s) => {
+					// s.loadstamp = nowms
+					s.timestamp = progressive ? frame.pts : frame.pts * 2
+				})
 				await convert.loadFrame(frame.data, clSources, this.clContext.queue.load)
 				await this.clContext.waitFinish(this.clContext.queue.load)
 				return clSources
@@ -440,6 +454,7 @@ export class FFmpegProducer implements Producer {
 				}
 				const convert = toRGBA as ToRGBA
 				const clDest = await convert.createDest({ width: width, height: height })
+				// clDest.loadstamp = clSources[0].loadstamp
 				clDest.timestamp = clSources[0].timestamp
 				convert.processFrame(this.sourceID, clSources, clDest)
 				return clDest

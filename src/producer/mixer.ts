@@ -50,12 +50,13 @@ export type MixerParams = {
 	volume: number
 }
 
-export const MixerDefaults: MixerParams = {
-	anchor: { x: 0, y: 0 },
-	rotation: 0,
-	fill: { xOffset: 0, yOffset: 0, xScale: 1, yScale: 1 },
-	volume: 1
-}
+export const MixerDefaults =
+	'{\
+		"anchor": { "x": 0, "y": 0 },\
+		"rotation": 0,\
+		"fill": { "xOffset": 0, "yOffset": 0, "xScale": 1, "yScale": 1 },\
+		"volume": 1\
+	}'
 
 // const getFilters = (filterer: Filterer): string[] => {
 // 	const filters: string[] = []
@@ -108,10 +109,10 @@ export class Mixer {
 	private readonly consumerFormat: VideoFormat
 	private readonly clJobs: ClJobs
 	private transform: ImageProcess | null
-	private mixAudio: RedioPipe<Frame | RedioEnd> | undefined
-	private mixVideo: RedioPipe<OpenCLBuffer | RedioEnd> | undefined
+	private mixAudio!: RedioPipe<Frame | RedioEnd>
+	private mixVideo!: RedioPipe<OpenCLBuffer | RedioEnd>
 	private audMixFilterer: Filterer | null = null
-	private mixParams = MixerDefaults
+	private mixParams = JSON.parse(MixerDefaults)
 	private srcLevels: number[] = []
 	private muted = false
 	private running = true
@@ -223,6 +224,7 @@ export class Mixer {
 					frame.release()
 					return nil
 				}
+				const timestamp = frame.timestamp
 				const xfDest = await this.clContext.createBuffer(
 					numBytesRGBA,
 					'readwrite',
@@ -231,9 +233,10 @@ export class Mixer {
 						width: this.consumerFormat.width,
 						height: this.consumerFormat.height
 					},
-					'transform'
+					'mixer'
 				)
-				xfDest.timestamp = frame.timestamp
+				// xfDest.loadstamp = frame.loadstamp
+				xfDest.timestamp = timestamp
 
 				await this.transform?.run(
 					{
@@ -249,11 +252,10 @@ export class Mixer {
 						offsetY: -this.mixParams.fill.yOffset,
 						output: xfDest
 					},
-					{ source: sourceID, timestamp: frame.timestamp },
+					{ source: sourceID, timestamp: timestamp },
 					() => frame.release()
 				)
-				await this.clJobs.runQueue({ source: sourceID, timestamp: frame.timestamp })
-
+				await this.clJobs.runQueue({ source: sourceID, timestamp: timestamp })
 				return xfDest
 			} else {
 				this.clJobs.clearQueue(sourceID)
@@ -291,10 +293,10 @@ export class Mixer {
 		return true
 	}
 
-	getAudioPipe(): RedioPipe<Frame | RedioEnd> | undefined {
+	getAudioPipe(): RedioPipe<Frame | RedioEnd> {
 		return this.mixAudio
 	}
-	getVideoPipe(): RedioPipe<OpenCLBuffer | RedioEnd> | undefined {
+	getVideoPipe(): RedioPipe<OpenCLBuffer | RedioEnd> {
 		return this.mixVideo
 	}
 }

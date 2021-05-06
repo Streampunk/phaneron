@@ -22,13 +22,15 @@ import { clContext as nodenCLContext } from 'nodencl'
 import { LoadParams } from './chanLayer'
 import { Producer, ProducerRegistry } from './producer/producer'
 import { ConsumerConfig } from './config'
-import { Layer } from './layer'
+import { DefaultTransitionSpec, Layer } from './layer'
 import { ConsumerRegistry, Consumer } from './consumer/consumer'
 import { CombineLayer, Combiner } from './combiner'
 import { ClJobs } from './clJobQueue'
+import { TransitionSpec } from './transitioner'
 
 export class Channel {
 	private readonly clContext: nodenCLContext
+	private readonly chanID: string
 	private readonly consumerConfig: ConsumerConfig
 	private readonly consumerRegistry: ConsumerRegistry
 	private readonly producerRegistry: ProducerRegistry
@@ -47,14 +49,20 @@ export class Channel {
 		clJobs: ClJobs
 	) {
 		this.clContext = clContext
+		this.chanID = chanID
 		this.consumerConfig = consumerConfig
 		this.consumerRegistry = consumerRegistry
 		this.producerRegistry = producerRegistry
 		this.clJobs = clJobs
-		this.combiner = new Combiner(this.clContext, chanID, this.consumerConfig.format, this.clJobs)
+		this.combiner = new Combiner(
+			this.clContext,
+			this.chanID,
+			this.consumerConfig.format,
+			this.clJobs
+		)
 		this.consumers = this.consumerRegistry.createConsumers(
 			chanNum,
-			chanID,
+			this.chanID,
 			this.consumerConfig,
 			this.clJobs
 		)
@@ -66,6 +74,10 @@ export class Channel {
 		await Promise.all(this.consumers.map((c) => c.initialise()))
 		this.consumers.forEach((c) => this.addConsumer(c))
 		return Promise.resolve()
+	}
+
+	getConfig(): ConsumerConfig {
+		return this.consumerConfig
 	}
 
 	addConsumer(consumer: Consumer): void {
@@ -119,7 +131,8 @@ export class Channel {
 	}
 
 	async loadSource(params: LoadParams): Promise<boolean> {
-		let producer: Producer | null = null
+		let producer: Producer | undefined
+		const transitionSpec: TransitionSpec = JSON.parse(DefaultTransitionSpec)
 		let error = ''
 		try {
 			producer = await this.producerRegistry.createSource(
@@ -127,23 +140,47 @@ export class Channel {
 				this.consumerConfig.format,
 				this.clJobs
 			)
+
+			if (params.transition) {
+				transitionSpec.type = params.transition.type
+				if (params.transition.type === 'wipe' && params.transition.url)
+					transitionSpec.mask = await this.producerRegistry.createSource(
+						{
+							url: params.transition.url,
+							layer: params.layer
+						},
+						this.consumerConfig.format,
+						this.clJobs
+					)
+				transitionSpec.len = params.transition.length
+			}
 		} catch (err) {
 			error = err
 		}
 
-		if (producer === null || error.length > 0) {
+		if (!producer || error.length > 0) {
 			console.log(`Failed to create source for params ${params}`)
 			return false
 		}
 
 		let layer = this.layers.get(params.layer)
 		if (!layer) {
-			layer = new Layer()
+			layer = new Layer(
+				this.clContext,
+				`${this.chanID}-l${params.layer}`,
+				this.consumerConfig,
+				this.clJobs
+			)
+			await layer.initialise()
 			this.layers.set(params.layer, layer)
 		}
 
-		return layer.load(producer, params.preview ? true : false, params.autoPlay ? true : false, () =>
-			this.updateLayers()
+		return layer.load(
+			producer,
+			transitionSpec,
+			params.preview ? true : false,
+			params.autoPlay ? true : false,
+			this.updateLayers.bind(this)
 		)
 	}
 
@@ -181,10 +218,14 @@ export class Channel {
 				layerNums.push(next.value)
 				next = layerIter.next()
 			}
-			await Promise.all(layerNums.map((n) => this.stop(n)))
-			layerNums.map((n) => this.layers.delete(n))
+			for (let n = 0; n < layerNums.length; ++n) {
+				await this.stop(n)
+				await this.layers.get(n)?.release()
+				this.layers.delete(n)
+			}
 		} else {
 			result = await this.stop(layerNum)
+			await this.layers.get(layerNum)?.release()
 			this.layers.delete(layerNum)
 		}
 

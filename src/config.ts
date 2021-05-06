@@ -40,6 +40,18 @@ export class VideoFormats {
 
 	constructor() {
 		this.formats = new Map<string, VideoFormat>()
+		this.formats.set('720p5000', {
+			name: '720p5000',
+			fields: 1,
+			width: 1280,
+			height: 720,
+			squareWidth: 1280,
+			squareHeight: 720,
+			timescale: 50,
+			duration: 1,
+			audioSampleRate: 48000,
+			audioChannels: 8
+		})
 		this.formats.set('1080i5000', {
 			name: '1080i5000',
 			fields: 2,

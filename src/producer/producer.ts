@@ -19,13 +19,11 @@
 */
 
 import { clContext as nodenCLContext } from 'nodencl'
-// import { Frame } from 'beamcoder'
 import { ClJobs } from '../clJobQueue'
 import { LoadParams } from '../chanLayer'
 import { VideoFormat } from '../config'
 import { FFmpegProducerFactory } from './ffmpegProducer'
 import { MacadamProducerFactory } from './macadamProducer'
-// import { RedioPipe, RedioEnd } from 'redioactive'
 import { Mixer } from './mixer'
 
 export interface Producer {
@@ -62,13 +60,12 @@ export class ProducerRegistry {
 		params: LoadParams,
 		consumerFormat: VideoFormat,
 		clJobs: ClJobs
-	): Promise<Producer | null> {
+	): Promise<Producer | undefined> {
 		let producerErr = ''
 		for (const f of this.producerFactories) {
 			try {
-				const producer = f.createProducer(this.producerID, params, clJobs, consumerFormat)
+				const producer = f.createProducer(this.producerID++, params, clJobs, consumerFormat)
 				await producer.initialise()
-				this.producerID++
 				return producer
 			} catch (err) {
 				producerErr = err.message
@@ -80,6 +77,6 @@ export class ProducerRegistry {
 
 		if (producerErr !== '') console.log(producerErr)
 		console.log(`Failed to find producer for params: '${params}'`)
-		return null
+		return undefined
 	}
 }

@@ -24,6 +24,12 @@ export interface ChanLayer {
 	layer: number
 }
 
+export type TransitionParams = {
+	type: 'cut' | 'dissolve' | 'wipe'
+	length: number
+	url?: string
+}
+
 export interface LoadParams {
 	url: string
 	layer: number
@@ -32,4 +38,5 @@ export interface LoadParams {
 	preview?: boolean
 	autoPlay?: boolean
 	seek?: number
+	transition?: TransitionParams
 }

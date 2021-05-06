@@ -51,7 +51,6 @@ class Config {
 			},
 			{
 				format: this.videoFormats.get('1080i5000'),
-				// eslint-disable-next-line prettier/prettier
 				devices: [
 					// { name: 'decklink', deviceIndex: 2, embeddedAudio: true }
 				]
@@ -146,7 +145,7 @@ initialiseOpenCL()
 		config.consumers.forEach((consConfig, i) => {
 			try {
 				channels.push(
-					new Channel(clContext, `ch ${i + 1}`, i + 1, consConfig, consReg, prodReg, clJobs)
+					new Channel(clContext, `ch${i + 1}`, i + 1, consConfig, consReg, prodReg, clJobs)
 				)
 			} catch (err) {
 				console.log(`Error creating configured channel ${i + 1}: ${err.message}`)
