@@ -19,7 +19,7 @@
 */
 
 import { clContext as nodenCLContext, KernelParams } from 'nodencl'
-import { RedioPipe, RedioEnd, isValue, Valve, nil, isEnd } from 'redioactive'
+import { RedioPipe, RedioEnd, isValue, Valve, nil, isEnd, end } from 'redioactive'
 import { OpenCLBuffer } from 'nodencl'
 import { AudioInputParam, filterer, Filterer, Frame } from 'beamcoder'
 import { VideoFormat } from './config'
@@ -49,16 +49,14 @@ export class Transitioner {
 	private vidTransition: ImageProcess | null = null
 	private audioPipe: RedioPipe<Frame | RedioEnd> | undefined
 	private videoPipe: RedioPipe<OpenCLBuffer | RedioEnd> | undefined
-	private audSourcePipes: RedioPipe<Frame | RedioEnd>[] = []
-	private vidSourcePipes: RedioPipe<OpenCLBuffer | RedioEnd>[] = []
-	private audTransitionSources: RedioPipe<Frame | RedioEnd>[] = []
-	private vidTransitionSources: RedioPipe<OpenCLBuffer | RedioEnd>[] = []
+	private readonly audSourcePipes: RedioPipe<Frame | RedioEnd>[] = []
+	private readonly vidSourcePipes: RedioPipe<OpenCLBuffer | RedioEnd>[] = []
 	private numAudSources: number
 	private numVidSources: number
 	private audDone = false
 	private vidDone = false
 	// eslint-disable-next-line @typescript-eslint/no-empty-function
-	private layerUpdate: (type: LayerUpdType) => Promise<void> = async () => {}
+	private layerUpdate: (type: LayerUpdType) => void = () => {}
 
 	constructor(
 		clContext: nodenCLContext,
@@ -66,7 +64,7 @@ export class Transitioner {
 		consumerFormat: VideoFormat,
 		clJobs: ClJobs,
 		endEvent: EventEmitter,
-		layerUpdate: (type: LayerUpdType) => Promise<void>
+		layerUpdate: (type: LayerUpdType) => void
 	) {
 		this.clContext = clContext
 		this.layerID = `${layerID} transition`
@@ -85,7 +83,6 @@ export class Transitioner {
 	}
 
 	async initialise(): Promise<void> {
-		console.log('transitioner initialise')
 		const silencePipe = (await this.silence?.initialise()) as RedioPipe<Frame | RedioEnd>
 		const blackPipe = (await this.black?.initialise()) as RedioPipe<OpenCLBuffer | RedioEnd>
 
@@ -98,18 +95,7 @@ export class Transitioner {
 					return frames[0]
 				}
 				const srcFrames = (frames.slice(1) as Frame[]).slice(0, 2)
-				if (srcFrames.length !== this.numAudSources) {
-					await this.makeAudTransition(srcFrames.length)
-					const newSources: RedioPipe<Frame | RedioEnd>[] = []
-					const trimSourcePipes = this.audSourcePipes.slice(0, 2)
-					trimSourcePipes.forEach((pipe) => {
-						const source = this.audTransitionSources.find((s) => pipe.fittingId === s.fittingId)
-						if (source) newSources.push(source)
-						else newSources.push(pipe)
-					})
-					this.audTransitionSources.splice(0)
-					newSources.forEach((s) => this.audTransitionSources.push(s))
-				}
+				if (srcFrames.length !== this.numAudSources) await this.makeAudTransition(srcFrames.length)
 
 				if (srcFrames.length === 1 && !isEnd(srcFrames[0])) {
 					return srcFrames[0]
@@ -132,7 +118,20 @@ export class Transitioner {
 						}
 						return frames[0]
 					} else {
-						return isValue(srcFrames[1]) ? srcFrames[1] : srcFrames[0]
+						let frame: Frame | RedioEnd = end
+						const newSrcPipes: RedioPipe<Frame | RedioEnd>[] = []
+						if (srcFrames.length === this.audSourcePipes.length) {
+							srcFrames.forEach((f, i) => {
+								if (isValue(f)) {
+									if (isEnd(frame)) frame = f
+									newSrcPipes.push(this.audSourcePipes[i])
+								}
+							})
+							this.audSourcePipes.splice(0, this.audSourcePipes.length, ...newSrcPipes)
+							return frame
+						} else {
+							return isValue(srcFrames[1]) ? srcFrames[1] : srcFrames[0]
+						}
 					}
 				}
 			} else {
@@ -151,28 +150,17 @@ export class Transitioner {
 				}
 
 				const srcFrames = frames.slice(1) as OpenCLBuffer[]
-				if (srcFrames.length !== this.numVidSources) {
-					await this.makeVidTransition(srcFrames.length)
-					const newSources: RedioPipe<OpenCLBuffer | RedioEnd>[] = []
-					this.vidSourcePipes.forEach((pipe) => {
-						const source = this.vidTransitionSources.find((s) => pipe.fittingId === s.fittingId)
-						if (source) newSources.push(source)
-						else newSources.push(pipe)
-					})
-					this.vidTransitionSources.splice(0)
-					newSources.forEach((s) => this.vidTransitionSources.push(s))
-				}
+				if (srcFrames.length !== this.numVidSources) await this.makeVidTransition(srcFrames.length)
 
-				this.curFrame =
-					this.numFrames === 0 || this.curFrame === this.numFrames
-						? this.curFrame
-						: this.curFrame + 1
 				if (this.numFrames > 0 && this.curFrame === this.numFrames) {
 					this.numFrames = 0
 					this.curFrame = 0
 					this.layerUpdate('transitionEnd')
+				} else if (this.numFrames !== 0 && this.curFrame !== this.numFrames) {
+					this.curFrame = this.curFrame + 1
 				}
 
+				const timestamp = srcFrames[0].timestamp
 				if (srcFrames.length === 1 && !isEnd(srcFrames[0])) {
 					return srcFrames[0]
 				} else if (srcFrames.reduce((acc, f) => acc && isValue(f), true)) {
@@ -187,7 +175,6 @@ export class Transitioner {
 						'transition'
 					)
 
-					const timestamp = srcFrames[0].timestamp
 					// transitionDest.loadstamp = Math.min(...srcFrames.map((f) => f.loadstamp))
 					transitionDest.timestamp = timestamp
 
@@ -218,7 +205,20 @@ export class Transitioner {
 						if (isValue(frames[0])) frames[0].addRef()
 						return frames[0]
 					} else {
-						return isValue(srcFrames[1]) ? srcFrames[1] : srcFrames[0]
+						let frame: OpenCLBuffer | RedioEnd = end
+						const newSrcPipes: RedioPipe<OpenCLBuffer | RedioEnd>[] = []
+						if (srcFrames.length === this.vidSourcePipes.length) {
+							srcFrames.forEach((f, i) => {
+								if (isValue(f)) {
+									if (isEnd(frame)) frame = f
+									newSrcPipes.push(this.vidSourcePipes[i])
+								}
+							})
+							this.vidSourcePipes.splice(0, this.vidSourcePipes.length, ...newSrcPipes)
+							return frame
+						} else {
+							return isValue(srcFrames[1]) ? srcFrames[1] : srcFrames[0]
+						}
 					}
 				}
 			} else {
@@ -291,14 +291,14 @@ export class Transitioner {
 		this.numVidSources = numSources
 	}
 
-	async update(
+	update(
 		type: string,
 		numFrames: number,
 		audioSrcPipes: RedioPipe<Frame | RedioEnd>[],
 		videoSrcPipes: RedioPipe<OpenCLBuffer | RedioEnd>[]
-	): Promise<void> {
+	): void {
 		this.type = type
-		this.numFrames = numFrames
+		this.numFrames = numFrames > 0 ? numFrames - 1 : 0
 		this.curFrame = 0
 
 		this.audSourcePipes.splice(0)

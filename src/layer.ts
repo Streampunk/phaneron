@@ -77,7 +77,7 @@ export class Layer {
 		await this.transitioner?.initialise()
 	}
 
-	async update(): Promise<void> {
+	update(): void {
 		const audioPipes: RedioPipe<Frame | RedioEnd>[] = []
 		const transitionSpec = this.curSrcSpec.transition
 
@@ -98,10 +98,10 @@ export class Layer {
 			}
 		}
 
-		await this.transitioner?.update(transitionSpec.type, transitionSpec.len, audioPipes, videoPipes)
+		this.transitioner?.update(transitionSpec.type, transitionSpec.len, audioPipes, videoPipes)
 	}
 
-	async layerUpdate(type: LayerUpdType): Promise<void> {
+	layerUpdate(type: LayerUpdType): void {
 		if (type === 'transitionEnd') {
 			this.curSrcSpec.transition.mask?.release()
 			this.curSrcSpec.source?.release()
@@ -112,10 +112,10 @@ export class Layer {
 			this.curSrcSpec.source?.release()
 			this.curSrcSpec.source = undefined
 			this.curSrcSpec.transition = JSON.parse(DefaultTransitionSpec)
-		}
 
-		this.endEvent.emit(type)
-		await this.update()
+			this.endEvent.emit(type)
+			this.update()
+		}
 	}
 
 	async load(
@@ -147,7 +147,6 @@ export class Layer {
 			this.nextSrcSpec.source = undefined
 			this.channelUpdate()
 		}
-		// console.log(`Layer load: preview ${preview}, autoPlay ${autoPlay}`)
 		return true
 	}
 

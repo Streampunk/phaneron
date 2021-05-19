@@ -104,9 +104,9 @@ export default class Transition extends ProcessImpl {
 
 		if (this.name === 'dissolve') {
 			kernelParams.mix = params.mix
-		} else {
+		} else if (params.mask) {
 			kernelParams.maskIn = params.mask
-		}
+		} else throw new Error(`Transition '${this.name}' expected a 'mask' buffer which wasn't found`)
 		return Promise.resolve(kernelParams)
 	}
 

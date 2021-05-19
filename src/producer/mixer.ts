@@ -115,6 +115,7 @@ export class Mixer {
 	private mixParams = JSON.parse(MixerDefaults)
 	private srcLevels: number[] = []
 	private muted = false
+	private paused = true
 	private running = true
 	private audDone = false
 	private vidDone = false
@@ -233,7 +234,7 @@ export class Mixer {
 						width: this.consumerFormat.width,
 						height: this.consumerFormat.height
 					},
-					'mixer'
+					`mixer ${sourceID} ${timestamp}`
 				)
 				// xfDest.loadstamp = frame.loadstamp
 				xfDest.timestamp = timestamp
@@ -270,10 +271,30 @@ export class Mixer {
 		// eslint-disable-next-line prettier/prettier
 		this.mixAudio = srcAudio
 			.valve(audMixFilter, { oneToMany: true })
+			.pause((frame) => {
+			if (!this.running) {
+				frame = nil
+				return false
+			}
+			if (this.paused && isValue(frame)) this.muted = true
+			return this.paused
+		})
 
 		// eslint-disable-next-line prettier/prettier
 		this.mixVideo = srcVideo
 			.valve(mixVidValve)
+			.pause((frame) => {
+			if (!this.running) {
+				frame = nil
+				return false
+			}
+			if (this.paused && isValue(frame)) (frame as OpenCLBuffer).addRef()
+			return this.paused
+		})
+	}
+
+	setPaused(pause: boolean): void {
+		this.paused = pause
 	}
 
 	release(): void {
