@@ -218,7 +218,7 @@ export class Channel {
 				layerNums.push(next.value)
 				next = layerIter.next()
 			}
-			for (let n = 0; n < layerNums.length; ++n) {
+			for (const n of layerNums) {
 				await this.stop(n)
 				await this.layers.get(n)?.release()
 				this.layers.delete(n)

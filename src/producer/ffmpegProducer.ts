@@ -63,7 +63,6 @@ export class FFmpegProducer implements Producer {
 	private audSource: RedioPipe<AudioMixFrame | RedioEnd> | undefined
 	private vidSource: RedioPipe<OpenCLBuffer | RedioEnd> | undefined
 	private running = true
-	private paused = true
 
 	constructor(
 		id: number,
@@ -507,30 +506,20 @@ export class FFmpegProducer implements Producer {
 
 		const ffPackets = redio(demux, { bufferSizeMax: this.demuxer.streams.length * 2 })
 
-		let audSrc: RedioPipe<RedioEnd | AudioMixFrame> | undefined
 		if (audioStreams.length) {
-			audSrc = ffPackets
+			this.audSource = ffPackets
 				.fork({ bufferSizeMax: 10 })
 				.valve(audPacketFilter)
 				.valve(audDecode, { bufferSizeMax: 2 })
 				.valve(audFilter, { oneToMany: true })
 		} else {
 			// eslint-disable-next-line prettier/prettier
-			audSrc = redio(silence, { bufferSizeMax: 2 })
+			this.audSource = redio(silence, { bufferSizeMax: 2 })
 				.valve(audFilter, { oneToMany: true })
 		}
-		this.audSource = audSrc.pause((frame) => {
-			if (!this.running) {
-				frame = nil
-				return false
-			}
-			if (this.paused && isValue(frame)) (frame as AudioMixFrame).mute = true
-			return this.paused
-		})
 
-		let vidSrc: RedioPipe<RedioEnd | OpenCLBuffer> | undefined
 		if (videoStreams.length) {
-			vidSrc = ffPackets
+			this.vidSource = ffPackets
 				.fork({ bufferSizeMax: 10 })
 				.valve(vidPacketFilter)
 				.valve(vidDecode, { oneToMany: true, bufferSizeMax: 2 })
@@ -539,17 +528,8 @@ export class FFmpegProducer implements Producer {
 				.valve(vidProcess)
 				.valve(vidDeint, { oneToMany: true })
 		} else {
-			vidSrc = blackPipe
+			this.vidSource = blackPipe
 		}
-
-		this.vidSource = vidSrc.pause((frame) => {
-			if (!this.running) {
-				frame = nil
-				return false
-			}
-			if (this.paused && isValue(frame)) (frame as OpenCLBuffer).addRef()
-			return this.paused
-		})
 
 		await this.mixer.init(this.sourceID, this.audSource, this.vidSource, srcFormat)
 
@@ -561,7 +541,7 @@ export class FFmpegProducer implements Producer {
 	}
 
 	setPaused(pause: boolean): void {
-		this.paused = pause
+		this.mixer.setPaused(pause)
 	}
 
 	release(): void {
