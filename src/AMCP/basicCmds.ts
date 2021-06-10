@@ -69,6 +69,38 @@ export class BasicCmds implements CmdList {
 		return paramsObj
 	}
 
+	async doLoad(chanLay: ChanLayer, params: string[], preview: boolean): Promise<boolean> {
+		if (!chanLay.valid) return Promise.resolve(false)
+
+		const channel = this.channels[chanLay.channel - 1]
+		if (!channel) return Promise.resolve(false)
+
+		const url = params[0]
+		const chanNum = url === 'DECKLINK' ? +params[1] : 0
+
+		const loop = params.find((param) => param === 'LOOP') !== undefined
+		const autoPlay = params.find((param) => param === 'AUTO') !== undefined
+
+		const seekIndex = params.findIndex((param) => param === 'SEEK')
+		const seek = seekIndex < 0 ? 0 : +params[seekIndex + 1]
+
+		const lengthIndex = params.findIndex((param) => param === 'LENGTH')
+		const length = seekIndex < 0 ? 0 : +params[lengthIndex + 1]
+
+		const loadParams: LoadParams = {
+			url: url,
+			layer: chanLay.layer,
+			channel: chanNum,
+			loop: loop,
+			preview: preview,
+			autoPlay: autoPlay,
+			seek: seek,
+			length: length
+		}
+
+		return channel.loadSource(loadParams)
+	}
+
 	/**
 	 * Loads a producer in the background and prepares it for playout. If no layer is specified the default layer index will be used.
 	 *
@@ -85,36 +117,7 @@ export class BasicCmds implements CmdList {
 	 * Note: only one clip can be queued to play automatically per layer.
 	 */
 	async loadbg(chanLay: ChanLayer, params: string[]): Promise<boolean> {
-		if (!chanLay.valid) return Promise.resolve(false)
-
-		const channel = this.channels[chanLay.channel - 1]
-		if (!channel) return Promise.resolve(false)
-
-		let curParam = 0
-		const clip = params[0]
-		let chanNum = 0
-		if (clip === 'DECKLINK') chanNum = +params[curParam + 1]
-
-		const loop = params.find((param) => param === 'LOOP') !== undefined
-
-		const autoPlay = params.find((param) => param === 'AUTO') !== undefined
-
-		let seek = 0
-		// eslint-disable-next-line prettier/prettier
-		if (params.find((param, i) => { curParam = i; return param === 'SEEK'	}) !== undefined)
-			seek = +params[curParam + 1]
-
-		const loadParams: LoadParams = {
-			url: clip,
-			layer: chanLay.layer,
-			channel: chanNum,
-			loop: loop,
-			preview: false,
-			autoPlay: autoPlay,
-			seek: seek
-		}
-
-		return channel.loadSource(loadParams)
+		return this.doLoad(chanLay, params, false)
 	}
 
 	/**
@@ -122,32 +125,7 @@ export class BasicCmds implements CmdList {
 	 * If any clip is playing on the target foreground then this clip will be replaced.
 	 */
 	async load(chanLay: ChanLayer, params: string[]): Promise<boolean> {
-		if (!chanLay.valid) return Promise.resolve(false)
-
-		const channel = this.channels[chanLay.channel - 1]
-		if (!channel) return Promise.resolve(false)
-
-		let curParam = 0
-		const clip = params[0]
-		let chanNum = 0
-		if (clip === 'DECKLINK') chanNum = +params[curParam + 1]
-
-		let seek = 0
-		// eslint-disable-next-line prettier/prettier
-		if (params.find((param, i) => { curParam = i; return param === 'SEEK'	}) !== undefined)
-			seek = +params[curParam + 1]
-
-		const loadParams: LoadParams = {
-			url: clip,
-			layer: chanLay.layer,
-			channel: chanNum,
-			loop: false,
-			preview: true,
-			autoPlay: false,
-			seek: seek
-		}
-
-		return channel.loadSource(loadParams)
+		return this.doLoad(chanLay, params, true)
 	}
 
 	/**
@@ -175,8 +153,7 @@ export class BasicCmds implements CmdList {
 		if (!chanLay.valid) return Promise.resolve(false)
 		const channel = this.channels[chanLay.channel - 1]
 		if (!channel) return Promise.resolve(false)
-		channel.pause(chanLay.layer)
-		return Promise.resolve(true)
+		return channel.pause(chanLay.layer)
 	}
 
 	/** Resumes playback of a foreground clip previously paused with the PAUSE command. */
@@ -185,8 +162,7 @@ export class BasicCmds implements CmdList {
 		if (!chanLay.valid) return Promise.resolve(false)
 		const channel = this.channels[chanLay.channel - 1]
 		if (!channel) return Promise.resolve(false)
-		channel.resume(chanLay.layer)
-		return Promise.resolve(true)
+		return channel.resume(chanLay.layer)
 	}
 
 	/** Removes the foreground clip of the specified layer */
@@ -195,8 +171,7 @@ export class BasicCmds implements CmdList {
 		if (!chanLay.valid) return Promise.resolve(false)
 		const channel = this.channels[chanLay.channel - 1]
 		if (!channel) return Promise.resolve(false)
-		channel.stop(chanLay.layer)
-		return Promise.resolve(true)
+		return channel.stop(chanLay.layer)
 	}
 
 	/**
@@ -208,8 +183,7 @@ export class BasicCmds implements CmdList {
 		if (!chanLay.valid) return Promise.resolve(false)
 		const channel = this.channels[chanLay.channel - 1]
 		if (!channel) return Promise.resolve(false)
-		channel.clear(chanLay.layer)
-		return Promise.resolve(true)
+		return channel.clear(chanLay.layer)
 	}
 
 	async add(chanLay: ChanLayer, params: string[]): Promise<boolean> {

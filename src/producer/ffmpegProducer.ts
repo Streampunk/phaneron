@@ -86,7 +86,6 @@ export class FFmpegProducer implements Producer {
 			console.log(err)
 			throw new InvalidProducerError(err)
 		}
-		if (this.loadParams.seek) await this.demuxer.seek({ time: this.loadParams.seek })
 
 		const audioStreams: Stream[] = []
 		const videoStreams: Stream[] = []
@@ -96,17 +95,39 @@ export class FFmpegProducer implements Producer {
 		const numVidChannels = 1
 		const audioPackets: Packet[] = []
 		const videoPackets: Packet[] = []
-		let monoStreams = true
 
-		this.demuxer.streams.forEach((s) => {
-			if (s.codecpar.codec_type === 'audio' && monoStreams) {
+		const demuxAudioStreams = this.demuxer.streams.filter((s) => s.codecpar.codec_type === 'audio')
+		let astreams = this.loadParams.streams === undefined ? demuxAudioStreams : []
+		if (this.loadParams.streams && this.loadParams.streams.audio)
+			astreams = demuxAudioStreams.filter(
+				(_s, i) =>
+					this.loadParams.streams?.audio?.find((loadIndex) => loadIndex === i) !== undefined
+			)
+
+		const demuxVideoStreams = this.demuxer.streams.filter((s) => s.codecpar.codec_type === 'video')
+		let vstreams = this.loadParams.streams === undefined ? demuxVideoStreams : []
+		if (this.loadParams.streams && this.loadParams.streams.video)
+			vstreams = demuxVideoStreams.filter(
+				(_s, i) =>
+					this.loadParams.streams?.video?.find((loadIndex) => loadIndex === i) !== undefined
+			)
+
+		let monoStreams = true
+		astreams.forEach((s) => {
+			if (monoStreams) {
 				// allow mxf-style mono channel per stream or a single stream of multiple channels
 				s.discard = 'default'
 				audioStreams.push(s)
 				audioIndexes.push(s.index)
 				decoders.set(s.index, decoder({ demuxer: this.demuxer as Demuxer, stream_index: s.index }))
 				monoStreams &&= s.codecpar.channel_layout === 'mono'
-			} else if (s.codecpar.codec_type === 'video' && videoStreams.length < numVidChannels) {
+			} else {
+				s.discard = 'all'
+			}
+		})
+
+		vstreams.forEach((s) => {
+			if (videoStreams.length < numVidChannels) {
 				s.discard = 'default'
 				videoStreams.push(s)
 				videoIndexes.push(s.index)
@@ -115,6 +136,11 @@ export class FFmpegProducer implements Producer {
 				s.discard = 'all'
 			}
 		})
+
+		const primaryIndex = videoIndexes.length ? videoIndexes[0] : audioIndexes[0]
+		if (this.loadParams.seek)
+			await this.demuxer.seek({ stream_index: primaryIndex, frame: this.loadParams.seek })
+		const maxFrame = this.loadParams.length ? this.loadParams.length : 0
 
 		let silentFrame: Frame | null = null
 		let audFilterer: Filterer | null = null
@@ -377,7 +403,7 @@ export class FFmpegProducer implements Producer {
 				if (!this.running) return nil
 				const ff = await audFilterer.filter(frames)
 				if (ff.reduce((acc, f) => acc && f.frames && f.frames.length > 0, true)) {
-					return { frames: ff.map((f) => f.frames), mute: false }
+					return { frames: ff.map((f) => f.frames) }
 				} else return nil
 			} else {
 				return frames as RedioEnd
@@ -464,6 +490,7 @@ export class FFmpegProducer implements Producer {
 			}
 		}
 
+		let curFrame = 0
 		const vidDeint: Valve<OpenCLBuffer | RedioEnd, OpenCLBuffer | RedioEnd> = async (frame) => {
 			if (isValue(frame)) {
 				if (!this.running) {
@@ -472,6 +499,10 @@ export class FFmpegProducer implements Producer {
 				}
 				const yadifDests: OpenCLBuffer[] = []
 				await yadif?.processFrame(frame, yadifDests, this.sourceID)
+
+				if (maxFrame && maxFrame === curFrame) this.release()
+				curFrame += yadifDests.length
+
 				return yadifDests.length > 0 ? yadifDests : nil
 			} else {
 				yadif?.release()
@@ -481,9 +512,13 @@ export class FFmpegProducer implements Producer {
 			}
 		}
 
+		let blackCurFrame = 0
 		const blackPipe: RedioPipe<OpenCLBuffer | RedioEnd> = redio(
 			async () => {
 				if (this.running) {
+					if (maxFrame && maxFrame === blackCurFrame) this.release()
+					if (black) black.timestamp = blackCurFrame
+					blackCurFrame++
 					black?.addRef()
 					return black
 				} else return end

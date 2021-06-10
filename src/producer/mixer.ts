@@ -28,7 +28,6 @@ import Transform from '../process/transform'
 
 export interface AudioMixFrame {
 	frames: Frame[][]
-	mute: boolean
 }
 
 export interface AnchorParams {
@@ -114,7 +113,6 @@ export class Mixer {
 	private audMixFilterer: Filterer | null = null
 	private mixParams = JSON.parse(MixerDefaults)
 	private srcLevels: number[] = []
-	private muted = false
 	private paused = true
 	private running = true
 	private audDone = false
@@ -195,10 +193,7 @@ export class Mixer {
 			if (isValue(frame)) {
 				if (!this.running) return nil
 				if (!this.audMixFilterer) return nil
-				if (frame.mute != this.muted) {
-					this.muted = frame.mute
-					this.setVolume(this.mixParams.volume, this.muted)
-				}
+				this.setVolume(this.mixParams.volume, this.paused)
 
 				const inSpec: { name: string; frames: Frame[] }[] = []
 				frame.frames.forEach((f, i) => {
@@ -268,29 +263,20 @@ export class Mixer {
 			}
 		}
 
-		// eslint-disable-next-line prettier/prettier
 		this.mixAudio = srcAudio
+			.pause(() => this.paused && this.running)
 			.valve(audMixFilter, { oneToMany: true })
-			.pause((frame) => {
-			if (!this.running) {
-				frame = nil
-				return false
-			}
-			if (this.paused && isValue(frame)) this.muted = true
-			return this.paused
-		})
 
-		// eslint-disable-next-line prettier/prettier
 		this.mixVideo = srcVideo
-			.valve(mixVidValve)
 			.pause((frame) => {
-			if (!this.running) {
-				frame = nil
-				return false
-			}
-			if (this.paused && isValue(frame)) (frame as OpenCLBuffer).addRef()
-			return this.paused
-		})
+				if (!this.running) {
+					frame = nil
+					return false
+				}
+				if (this.paused && isValue(frame)) (frame as OpenCLBuffer).addRef()
+				return this.paused
+			})
+			.valve(mixVidValve)
 	}
 
 	setPaused(pause: boolean): void {

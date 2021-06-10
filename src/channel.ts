@@ -147,7 +147,9 @@ export class Channel {
 					transitionSpec.mask = await this.producerRegistry.createSource(
 						{
 							url: params.transition.url,
-							layer: params.layer
+							streams: params.transition.streams,
+							layer: params.layer,
+							length: params.transition.length
 						},
 						this.consumerConfig.format,
 						this.clJobs
@@ -184,9 +186,16 @@ export class Channel {
 		)
 	}
 
-	async play(layerNum: number): Promise<boolean> {
+	async play(layerNum: number, ticker?: () => void): Promise<boolean> {
 		const layer = this.layers.get(layerNum)
-		await layer?.play()
+		// eslint-disable-next-line @typescript-eslint/no-unused-vars
+		await layer?.play(async (t: string) => {
+			if (t === 'end') {
+				await layer?.release()
+				this.layers.delete(layerNum)
+				this.updateLayers()
+			} else if (ticker) ticker()
+		})
 		return layer !== undefined
 	}
 
@@ -218,11 +227,10 @@ export class Channel {
 				layerNums.push(next.value)
 				next = layerIter.next()
 			}
-			for (const n of layerNums) {
-				await this.stop(n)
-				await this.layers.get(n)?.release()
-				this.layers.delete(n)
-			}
+			await Promise.all(
+				layerNums.map((n) => this.stop(n).then(() => this.layers.get(n)?.release()))
+			)
+			for (const n of layerNums) this.layers.delete(n)
 		} else {
 			result = await this.stop(layerNum)
 			await this.layers.get(layerNum)?.release()
