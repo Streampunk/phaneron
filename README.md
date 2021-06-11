@@ -9,7 +9,7 @@ A contribution to the democratization of professional video and graphics product
 With phaneron, you have all the pieces necessary to use a gaming-style PC - with a multi-core CPU and a competant GPU - to build multi-layer, multi-channel video servers using Node.JS. Or why not go virtual - with a vGPU - in the cloud? Entirely configured in software, choose from:
 
 * _producers_ - file (via FFmpeg), stream (via FFmpeg), live SDI (via Blackmagic), HTTP(S) from another phaneron
-* _mixers_ and _compositors_ - mix and composite video, all written using GPU-accelerated floating-point maths 
+* _processors_ - mix and composite video, all written using GPU-accelerated floating-point maths 
 * _consumers_ - outputs including SDI (via Blackmagic), files (vai FFmpeg), streams (via FFmpeg), HTTP(S) to another phaneron
 
 All the bits that need to go super-fast are written as native bindings - such as to FFmpeg/libav - or exposed as editable OpenCL functions. You can write your GPU acceleration from within node source code! An extensible library of accelerated functions is provided for broadcast applications, including:
