@@ -21,16 +21,16 @@
 import { EventEmitter } from 'events'
 import { clContext as nodenCLContext } from 'nodencl'
 import { Layer } from './layer'
-import redio, { RedioPipe, RedioEnd, isValue, isEnd, Valve, nil, end } from 'redioactive'
+import { RedioPipe, RedioEnd, isValue, isEnd, Valve, nil, end } from 'redioactive'
 import { OpenCLBuffer } from 'nodencl'
-import { AudioInputParam, filterer, Filterer, frame, Frame } from 'beamcoder'
+import { AudioInputParam, filterer, Filterer, Frame } from 'beamcoder'
 import { VideoFormat } from './config'
 import { ClJobs } from './clJobQueue'
 import ImageProcess from './process/imageProcess'
 import Combine from './process/combine'
+import { Silence, Black } from './blackSilence'
 
 export class CombineLayer {
-	private readonly layer: Layer
 	private readonly audioPipe: RedioPipe<Frame | RedioEnd>
 	private readonly videoPipe: RedioPipe<OpenCLBuffer | RedioEnd>
 	private readonly endEvent: EventEmitter
@@ -42,14 +42,9 @@ export class CombineLayer {
 		audPipe: RedioPipe<Frame | RedioEnd>,
 		vidPipe: RedioPipe<OpenCLBuffer | RedioEnd>
 	) {
-		this.layer = layer
 		this.audioPipe = audPipe
 		this.videoPipe = vidPipe
 		this.endEvent = layer.getEndEvent()
-	}
-
-	getLayer(): Layer {
-		return this.layer
 	}
 
 	getAudioPipe(): RedioPipe<Frame | RedioEnd> {
@@ -119,82 +114,10 @@ export class Combiner {
 	}
 
 	async initialise(): Promise<void> {
-		const sampleRate = this.consumerFormat.audioSampleRate
-		const numAudChannels = this.consumerFormat.audioChannels
-		const audLayout = `${numAudChannels}c`
-
-		const silenceArr = new Float32Array(1024 * numAudChannels)
-		const silence = frame({
-			nb_samples: 1024,
-			format: 'flt',
-			pts: 0,
-			sample_rate: sampleRate,
-			channels: numAudChannels,
-			channel_layout: audLayout,
-			data: [Buffer.from(silenceArr.buffer)]
-		})
-
-		const audSilenceFilterer = await filterer({
-			filterType: 'audio',
-			inputParams: [
-				{
-					name: 'in0:a',
-					timeBase: [1, sampleRate],
-					sampleRate: sampleRate,
-					sampleFormat: 'flt',
-					channelLayout: audLayout
-				}
-			],
-			outputParams: [
-				{
-					name: 'out0:a',
-					sampleRate: sampleRate,
-					sampleFormat: 'fltp',
-					channelLayout: audLayout
-				}
-			],
-			filterSpec: '[in0:a] asetpts=N/SR/TB [out0:a]'
-		})
-		// console.log('\nSilence:\n', audSilenceFilterer.graph.dump())
-
-		const numBytesRGBA = this.consumerFormat.width * this.consumerFormat.height * 4 * 4
-		const black: OpenCLBuffer = await this.clContext.createBuffer(
-			numBytesRGBA,
-			'readwrite',
-			'coarse',
-			{
-				width: this.consumerFormat.width,
-				height: this.consumerFormat.height
-			},
-			'combinerBlack'
-		)
-
-		let off = 0
-		const blackFloat = new Float32Array(numBytesRGBA / 4)
-		for (let y = 0; y < this.consumerFormat.height; ++y) {
-			for (let x = 0; x < this.consumerFormat.width * 4; x += 4) {
-				blackFloat[off + x + 0] = 0.0
-				blackFloat[off + x + 1] = 0.0
-				blackFloat[off + x + 2] = 0.0
-				blackFloat[off + x + 3] = 0.0
-			}
-			off += this.consumerFormat.width * 4
-		}
-		await black.hostAccess('writeonly')
-		Buffer.from(blackFloat.buffer).copy(black)
-
-		const silencePipe: RedioPipe<Frame | RedioEnd> = redio(async () => silence, {
-			bufferSizeMax: 1
-		})
-
-		const silenceAudValve: Valve<Frame | RedioEnd, Frame | RedioEnd> = async (frame) => {
-			if (isValue(frame) && audSilenceFilterer) {
-				const ff = await audSilenceFilterer.filter([{ name: 'in0:a', frames: [frame] }])
-				return ff[0].frames.length > 0 ? ff[0].frames : nil
-			} else {
-				return frame
-			}
-		}
+		const silence = new Silence(this.consumerFormat)
+		const silencePipe = await silence.initialise()
+		const black = new Black(this.clContext, this.consumerFormat, this.chanID)
+		const blackPipe = await black.initialise()
 
 		const audEndValve: Valve<
 			[Frame | RedioEnd, ...(Frame | RedioEnd)[]],
@@ -219,7 +142,7 @@ export class Combiner {
 		> = async (frames) => {
 			if (isValue(frames)) {
 				const numLayers = frames.length - 1
-				const layerFrames = frames.slice(1)
+				const layerFrames = frames.slice(1) as Frame[]
 				const doFilter = layerFrames.reduce((acc, f) => acc && isValue(f), true)
 
 				const numCombineLayers = numLayers < 2 ? 0 : numLayers
@@ -228,8 +151,8 @@ export class Combiner {
 					this.lastNumAudLayers = numCombineLayers
 				}
 
-				const srcFrames = frames as [Frame | RedioEnd, ...(Frame | RedioEnd)[]]
-				if (!isValue(srcFrames[0])) return end
+				const srcFrames = frames as Frame[]
+				if (!isValue(frames[0])) return end
 				const refFrame = srcFrames[0]
 
 				if (numLayers === 0) {
@@ -238,7 +161,7 @@ export class Combiner {
 					if (isValue(srcFrames[1])) srcFrames[1].pts = refFrame.pts
 					return srcFrames[1]
 				} else if (doFilter && this.audCombiner) {
-					const filterFrames = (layerFrames as Frame[]).map((f, i) => {
+					const filterFrames = layerFrames.map((f, i) => {
 						f.pts = refFrame.pts
 						return {
 							name: `in${i}:a`,
@@ -251,13 +174,11 @@ export class Combiner {
 					return end
 				}
 			} else {
-				return end
+				this.audCombiner = undefined
+				silence.release()
+				return frames
 			}
 		}
-
-		const blackPipe: RedioPipe<OpenCLBuffer | RedioEnd> = redio(async () => black, {
-			bufferSizeMax: 1
-		})
 
 		const vidEndValve: Valve<
 			[OpenCLBuffer | RedioEnd, ...(OpenCLBuffer | RedioEnd)[]],
@@ -307,7 +228,7 @@ export class Combiner {
 
 				if (frames.reduce((acc, f) => acc && isValue(f), true)) {
 					const combineDest = await this.clContext.createBuffer(
-						numBytesRGBA,
+						this.consumerFormat.width * this.consumerFormat.height * 4 * 4,
 						'readwrite',
 						'coarse',
 						{
@@ -339,12 +260,11 @@ export class Combiner {
 					black.release()
 					this.vidCombiner = undefined
 				}
-				return end
+				return frames
 			}
 		}
 
 		this.audioPipe = silencePipe
-			.valve(silenceAudValve, { oneToMany: true })
 			.zipEach(this.audLayerPipes)
 			.valve(audEndValve)
 			.valve(combineAudValve, { oneToMany: true })

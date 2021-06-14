@@ -19,95 +19,213 @@
 */
 
 import { EventEmitter, once } from 'events'
-import { OpenCLBuffer } from 'nodencl'
+import { clContext as nodenCLContext, OpenCLBuffer } from 'nodencl'
 import { RedioPipe, RedioEnd } from 'redioactive'
 import { Frame } from 'beamcoder'
 import { Producer } from './producer/producer'
 import { MixerDefaults } from './producer/mixer'
+import { Transitioner, TransitionSpec } from './transitioner'
+import { ConsumerConfig } from './config'
+import { ClJobs } from './clJobQueue'
+
+export const DefaultTransitionSpec = '{ "type": "cut", "len": 0 }'
+
+type SourceSpec = {
+	source: Producer | undefined
+	transition: TransitionSpec
+	firstTs: number | undefined
+}
 
 export class Layer {
+	private readonly clContext: nodenCLContext
+	private readonly layerID: string
+	private readonly consumerConfig: ConsumerConfig
+	private readonly clJobs: ClJobs
 	private readonly endEvent: EventEmitter
 	private mixerParams = JSON.parse(MixerDefaults)
-	private background: Producer | null
-	private foreground: Producer | null
+	private curSrcSpec: SourceSpec
+	private nextSrcSpec: SourceSpec
+	private transitioner: Transitioner | null
 	private channelUpdate: () => void
+	private layerTick: ((t: string) => void) | undefined
 	private autoPlay = false
 
-	constructor() {
+	constructor(
+		clContext: nodenCLContext,
+		layerID: string,
+		consumerConfig: ConsumerConfig,
+		clJobs: ClJobs
+	) {
+		this.clContext = clContext
+		this.layerID = layerID
+		this.consumerConfig = consumerConfig
+		this.clJobs = clJobs
 		this.endEvent = new EventEmitter()
+		this.curSrcSpec = {
+			source: undefined,
+			transition: JSON.parse(DefaultTransitionSpec),
+			firstTs: undefined
+		}
+		this.nextSrcSpec = {
+			source: undefined,
+			transition: JSON.parse(DefaultTransitionSpec),
+			firstTs: undefined
+		}
 		// eslint-disable-next-line @typescript-eslint/no-empty-function
 		this.channelUpdate = () => {}
-		this.background = null
-		this.foreground = null
+		this.transitioner = new Transitioner(
+			this.clContext,
+			this.layerID,
+			this.consumerConfig.format,
+			this.clJobs,
+			this.endEvent,
+			this.layerUpdate.bind(this)
+		)
+	}
+
+	async initialise(): Promise<void> {
+		await this.transitioner?.initialise()
+	}
+
+	update(): void {
+		const audioPipes: RedioPipe<Frame | RedioEnd>[] = []
+		const transitionSpec = this.curSrcSpec.transition
+
+		if (this.curSrcSpec.source) {
+			audioPipes.push(this.curSrcSpec.source.getMixer().getAudioPipe())
+			if (transitionSpec.source && transitionSpec.type !== 'cut') {
+				audioPipes.push(transitionSpec.source.getMixer().getAudioPipe())
+				// if (transitionSpec.mask) audioPipes.push(transitionSpec.mask.getMixer().getAudioPipe())
+			}
+		}
+
+		const videoPipes: RedioPipe<OpenCLBuffer | RedioEnd>[] = []
+		if (this.curSrcSpec.source) {
+			videoPipes.push(this.curSrcSpec.source.getMixer().getVideoPipe())
+			if (transitionSpec.source && transitionSpec.type !== 'cut') {
+				videoPipes.push(transitionSpec.source.getMixer().getVideoPipe())
+				if (transitionSpec.mask) videoPipes.push(transitionSpec.mask.getMixer().getVideoPipe())
+			}
+		}
+
+		this.transitioner?.update(transitionSpec.type, transitionSpec.len, audioPipes, videoPipes)
+	}
+
+	layerUpdate(ts: number[]): void {
+		if (this.layerTick && ts.length) this.layerTick('tick')
+		if (this.curSrcSpec.transition.type !== 'cut' && ts.length > 1) {
+			if (!this.curSrcSpec.firstTs) this.curSrcSpec.firstTs = ts[1]
+			const numEnds = ts.reduce((n, t) => (n += t < 0 ? 1 : 0), 0)
+			if (ts[1] - this.curSrcSpec.firstTs === this.curSrcSpec.transition.len - 2) {
+				this.curSrcSpec.transition.mask?.release()
+				this.curSrcSpec.source?.release()
+			} else if (
+				(this.curSrcSpec.transition.type === 'wipe' && numEnds > 1) ||
+				(this.curSrcSpec.transition.type === 'dissolve' && numEnds > 0)
+			) {
+				this.curSrcSpec.source = this.curSrcSpec.transition.source
+				this.curSrcSpec.transition = JSON.parse(DefaultTransitionSpec)
+				this.update()
+				this.endEvent.emit('transitionComplete')
+			}
+		} else if (
+			this.curSrcSpec.source &&
+			this.curSrcSpec.transition.type === 'cut' &&
+			ts.length === 1 &&
+			ts[0] < 0
+		) {
+			this.curSrcSpec.transition.mask?.release()
+			this.curSrcSpec.source?.release()
+			this.curSrcSpec.source = undefined
+			this.curSrcSpec.transition = JSON.parse(DefaultTransitionSpec)
+			this.endEvent.emit('end')
+			if (this.nextSrcSpec.source === undefined && this.layerTick) this.layerTick('end')
+		}
 	}
 
 	async load(
 		producer: Producer,
+		transitionSpec: TransitionSpec,
 		preview: boolean,
 		autoPlay: boolean,
 		channelUpdate: () => void
 	): Promise<boolean> {
-		this.background = producer
+		this.nextSrcSpec = { source: producer, transition: transitionSpec, firstTs: undefined }
 		this.autoPlay = autoPlay
 		this.channelUpdate = channelUpdate
 
 		if (this.autoPlay) {
-			if (this.foreground) {
+			if (this.curSrcSpec.source) {
 				this.endEvent.once('end', () => {
-					this.foreground = null
+					this.curSrcSpec.source = undefined
 					this.play()
 				})
 			} else {
 				this.play()
 			}
 		} else if (preview) {
-			if (this.foreground) {
-				this.foreground.release()
+			if (this.curSrcSpec.source) {
+				this.curSrcSpec.source.release()
 				await once(this.endEvent, 'end')
 			}
-			this.foreground = this.background
-			this.background = null
+			this.curSrcSpec.source = this.nextSrcSpec.source
+			this.nextSrcSpec.source = undefined
+			await this.update()
 			this.channelUpdate()
 		}
-		console.log(`Layer load: preview ${preview}, autoPlay ${autoPlay}`)
 		return true
 	}
 
-	async play(): Promise<void> {
-		if (this.background) {
-			if (this.foreground) {
-				this.foreground.release()
+	async play(ticker?: (t: string) => void): Promise<void> {
+		if (this.nextSrcSpec.source && this.nextSrcSpec.transition?.type === 'cut') {
+			if (this.curSrcSpec.source) {
+				this.curSrcSpec.source.release()
 				await once(this.endEvent, 'end')
 			}
-			this.foreground = this.background
-			this.background = null
-			this.autoPlay = false
-			this.channelUpdate()
+			this.curSrcSpec.source = this.nextSrcSpec.source
 		}
 
-		this.endEvent.once('end', () => (this.foreground = null))
-		this.foreground?.setPaused(false)
+		this.curSrcSpec.transition = this.nextSrcSpec.transition
+		if (this.curSrcSpec.transition.type !== 'cut') {
+			this.curSrcSpec.transition.source = this.nextSrcSpec.source
+		}
+		this.nextSrcSpec.source = undefined
+		this.nextSrcSpec.transition = JSON.parse(DefaultTransitionSpec)
+
+		this.autoPlay = false
+		this.layerTick = ticker
+		this.curSrcSpec.source?.setPaused(false)
+		this.curSrcSpec.transition?.source?.setPaused(false)
+		this.curSrcSpec.transition?.mask?.setPaused(false)
+
+		await this.update()
+		this.channelUpdate()
+
+		// delay further commands until any transition has completed - reduces demand on cpu/gpu
+		if (this.curSrcSpec.transition.type !== 'cut') await once(this.endEvent, 'transitionComplete')
 	}
 
 	pause(): void {
-		this.foreground?.setPaused(true)
+		this.curSrcSpec.source?.setPaused(true)
 	}
 
 	resume(): void {
-		this.foreground?.setPaused(false)
+		this.curSrcSpec.source?.setPaused(false)
 	}
 
 	async stop(): Promise<void> {
-		if (this.foreground) {
-			this.foreground.release()
+		if (this.curSrcSpec.source) {
+			this.curSrcSpec.source.release()
 			await once(this.endEvent, 'end')
 		}
-		this.foreground = null
+		this.curSrcSpec.source = undefined
 		this.autoPlay = false
 	}
 
 	anchor(params: string[]): void {
-		const mixer = this.foreground ? this.foreground.getMixer() : this.background?.getMixer()
+		const mixer = this.curSrcSpec.source
+			? this.curSrcSpec.source.getMixer()
+			: this.nextSrcSpec.source?.getMixer()
 		if (params.length) {
 			this.mixerParams.anchor = { x: +params[0], y: +params[1] }
 			mixer?.setMixParams(this.mixerParams)
@@ -117,7 +235,9 @@ export class Layer {
 	}
 
 	rotation(params: string[]): void {
-		const mixer = this.foreground ? this.foreground.getMixer() : this.background?.getMixer()
+		const mixer = this.curSrcSpec.source
+			? this.curSrcSpec.source.getMixer()
+			: this.nextSrcSpec.source?.getMixer()
 		if (params.length) {
 			this.mixerParams.rotation = +params[0]
 			mixer?.setMixParams(this.mixerParams)
@@ -127,7 +247,9 @@ export class Layer {
 	}
 
 	fill(params: string[]): void {
-		const mixer = this.foreground ? this.foreground.getMixer() : this.background?.getMixer()
+		const mixer = this.curSrcSpec.source
+			? this.curSrcSpec.source.getMixer()
+			: this.nextSrcSpec.source?.getMixer()
 		if (params.length) {
 			this.mixerParams.fill = {
 				xOffset: +params[0],
@@ -142,7 +264,9 @@ export class Layer {
 	}
 
 	volume(params: string[]): void {
-		const mixer = this.foreground ? this.foreground.getMixer() : this.background?.getMixer()
+		const mixer = this.curSrcSpec.source
+			? this.curSrcSpec.source.getMixer()
+			: this.nextSrcSpec.source?.getMixer()
 		if (params.length) {
 			this.mixerParams.volume = +params[0]
 			mixer?.setMixParams(this.mixerParams)
@@ -152,14 +276,18 @@ export class Layer {
 	}
 
 	getAudioPipe(): RedioPipe<Frame | RedioEnd> | undefined {
-		const mixer = this.foreground ? this.foreground.getMixer() : this.background?.getMixer()
-		return mixer?.getAudioPipe()
+		return this.transitioner?.getAudioPipe()
 	}
 	getVideoPipe(): RedioPipe<OpenCLBuffer | RedioEnd> | undefined {
-		const mixer = this.foreground ? this.foreground.getMixer() : this.background?.getMixer()
-		return mixer?.getVideoPipe()
+		return this.transitioner?.getVideoPipe()
 	}
 	getEndEvent(): EventEmitter {
 		return this.endEvent
+	}
+
+	async release(): Promise<void> {
+		this.curSrcSpec.source = undefined
+		await this.transitioner?.release()
+		this.transitioner = null
 	}
 }

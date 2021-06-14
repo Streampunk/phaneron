@@ -22,6 +22,7 @@ import { EventEmitter, once } from 'events'
 import { Channel } from '../channel'
 import { Osc } from '../osc/osc'
 import fs from 'fs'
+import { StreamParams, TransitionParams } from '../chanLayer'
 
 type HeadsControls = { load?: string; take?: string }
 
@@ -34,7 +35,10 @@ export type HeadsConfig = {
 type LayerSpec = {
 	layerNum: number
 	url: string
-	seek: number
+	streams?: StreamParams
+	seek?: number
+	length?: number
+	transition?: TransitionParams
 }
 
 type EventSpec = {
@@ -43,6 +47,7 @@ type EventSpec = {
 }
 
 type HeadsSpec = {
+	tickLayer: number
 	events: EventSpec[]
 }
 
@@ -59,6 +64,7 @@ export class Heads {
 	private readonly osc: Osc
 	private readonly channel: Channel
 	private readonly eventDone: EventEmitter
+	private lastSpec: string | undefined
 	private headsSpec: HeadsSpec | undefined
 	private eventTimeout: NodeJS.Timeout | undefined
 	private running = false
@@ -67,10 +73,12 @@ export class Heads {
 		this.osc = osc
 		this.channel = channel
 		this.eventDone = new EventEmitter()
-
 		if (controls.load)
 			this.osc.addControl(controls.load, (msg) => {
-				if (msg.value !== 0) this.loadSpec(msg.value as string)
+				if (msg.value !== 0) {
+					const spec = typeof msg.value === 'string' ? msg.value : this.lastSpec
+					if (spec) this.loadSpec(spec)
+				}
 			})
 
 		if (controls.take)
@@ -94,26 +102,35 @@ export class Heads {
 		} else {
 			console.log(`Heads: source URL or JSON '${urlOrJson}' could not be loaded`)
 		}
+		this.lastSpec = urlOrJson
 	}
 
 	async loadEvent(eventSpec: EventSpec): Promise<void> {
-		await Promise.all(
-			eventSpec.layers.map((l) =>
-				this.channel.loadSource({
-					url: l.url,
-					layer: l.layerNum,
-					loop: false,
-					preview: false,
-					autoPlay: false,
-					seek: l.seek
-				})
-			)
-		)
+		for (const l of eventSpec.layers) {
+			// console.log('load event:', l.url, l.transition ? l.transition.type : 'cut')
+			await this.channel.loadSource({
+				url: l.url,
+				streams: l.streams,
+				layer: l.layerNum,
+				loop: false,
+				preview: false,
+				autoPlay: false,
+				seek: l.seek,
+				length: l.length,
+				transition: l.transition
+			})
+		}
 	}
 
 	async runEvent(eventSpec: EventSpec): Promise<void> {
-		await Promise.all(eventSpec.layers.map((l) => this.channel.play(l.layerNum)))
-		this.eventTimeout = setTimeout(() => this.eventDone.emit('done'), eventSpec.duration)
+		let frameCount = 0
+		// Event is slightly long because it takes a few frames to start the next event
+		const ticker = () => (frameCount++ === eventSpec.duration ? this.eventDone.emit('done') : {})
+		await Promise.all(
+			eventSpec.layers.map((l) =>
+				this.channel.play(l.layerNum, l.layerNum === this.headsSpec?.tickLayer ? ticker : undefined)
+			)
+		)
 	}
 
 	async runEvents(): Promise<void> {
@@ -129,7 +146,7 @@ export class Heads {
 
 				await once(this.eventDone, 'done')
 				if (eventId === this.headsSpec.events.length) {
-					this.channel.clear(0)
+					await this.channel.clear(0)
 					this.running = false
 				}
 			}

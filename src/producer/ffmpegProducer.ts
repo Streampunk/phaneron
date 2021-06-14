@@ -63,7 +63,6 @@ export class FFmpegProducer implements Producer {
 	private audSource: RedioPipe<AudioMixFrame | RedioEnd> | undefined
 	private vidSource: RedioPipe<OpenCLBuffer | RedioEnd> | undefined
 	private running = true
-	private paused = true
 
 	constructor(
 		id: number,
@@ -87,7 +86,6 @@ export class FFmpegProducer implements Producer {
 			console.log(err)
 			throw new InvalidProducerError(err)
 		}
-		if (this.loadParams.seek) await this.demuxer.seek({ time: this.loadParams.seek })
 
 		const audioStreams: Stream[] = []
 		const videoStreams: Stream[] = []
@@ -97,17 +95,39 @@ export class FFmpegProducer implements Producer {
 		const numVidChannels = 1
 		const audioPackets: Packet[] = []
 		const videoPackets: Packet[] = []
-		let monoStreams = true
 
-		this.demuxer.streams.forEach((s) => {
-			if (s.codecpar.codec_type === 'audio' && monoStreams) {
+		const demuxAudioStreams = this.demuxer.streams.filter((s) => s.codecpar.codec_type === 'audio')
+		let astreams = this.loadParams.streams === undefined ? demuxAudioStreams : []
+		if (this.loadParams.streams && this.loadParams.streams.audio)
+			astreams = demuxAudioStreams.filter(
+				(_s, i) =>
+					this.loadParams.streams?.audio?.find((loadIndex) => loadIndex === i) !== undefined
+			)
+
+		const demuxVideoStreams = this.demuxer.streams.filter((s) => s.codecpar.codec_type === 'video')
+		let vstreams = this.loadParams.streams === undefined ? demuxVideoStreams : []
+		if (this.loadParams.streams && this.loadParams.streams.video)
+			vstreams = demuxVideoStreams.filter(
+				(_s, i) =>
+					this.loadParams.streams?.video?.find((loadIndex) => loadIndex === i) !== undefined
+			)
+
+		let monoStreams = true
+		astreams.forEach((s) => {
+			if (monoStreams) {
 				// allow mxf-style mono channel per stream or a single stream of multiple channels
 				s.discard = 'default'
 				audioStreams.push(s)
 				audioIndexes.push(s.index)
 				decoders.set(s.index, decoder({ demuxer: this.demuxer as Demuxer, stream_index: s.index }))
 				monoStreams &&= s.codecpar.channel_layout === 'mono'
-			} else if (s.codecpar.codec_type === 'video' && videoStreams.length < numVidChannels) {
+			} else {
+				s.discard = 'all'
+			}
+		})
+
+		vstreams.forEach((s) => {
+			if (videoStreams.length < numVidChannels) {
 				s.discard = 'default'
 				videoStreams.push(s)
 				videoIndexes.push(s.index)
@@ -116,6 +136,11 @@ export class FFmpegProducer implements Producer {
 				s.discard = 'all'
 			}
 		})
+
+		const primaryIndex = videoIndexes.length ? videoIndexes[0] : audioIndexes[0]
+		if (this.loadParams.seek)
+			await this.demuxer.seek({ stream_index: primaryIndex, frame: this.loadParams.seek })
+		const maxFrame = this.loadParams.length ? this.loadParams.length : 0
 
 		let silentFrame: Frame | null = null
 		let audFilterer: Filterer | null = null
@@ -214,10 +239,21 @@ export class FFmpegProducer implements Producer {
 		if (vidStream) {
 			width = vidStream.codecpar.width
 			height = vidStream.codecpar.height
-			squareWidth = (width * vidStream.sample_aspect_ratio[0]) / vidStream.sample_aspect_ratio[1]
+			if (vidStream.codecpar.sample_aspect_ratio[0] && vidStream.codecpar.sample_aspect_ratio[1]) {
+				squareWidth =
+					(width * vidStream.codecpar.sample_aspect_ratio[0]) /
+					vidStream.codecpar.sample_aspect_ratio[1]
+			}
 			squareHeight = height
-			vidTimescale = vidStream.time_base[1] * (progressive ? 1 : 2)
-			vidDuration = vidStream.time_base[0]
+			const fieldOrder = vidStream.codecpar.field_order
+			if (vidStream.avg_frame_rate[0] / vidStream.avg_frame_rate[1] > 30) {
+				console.log(
+					'Stream field_order flag not set for framerate greater than 30fps - setting to progressive'
+				)
+				progressive = true
+			} else progressive = fieldOrder === 'progressive'
+			vidTimescale = vidStream.avg_frame_rate[0] * (progressive ? 1 : 2)
+			vidDuration = vidStream.avg_frame_rate[1]
 
 			let filterOutputFormat = vidStream.codecpar.format
 			let readImpl: PackImpl
@@ -279,12 +315,10 @@ export class FFmpegProducer implements Producer {
 						pixelFormat: filterOutputFormat
 					}
 				],
-				filterSpec: `fps=fps=${chanTb[1] / 2}/${chanTb[0]}`
+				filterSpec: `fps=fps=${chanTb[1] / (progressive ? 1 : 2)}/${chanTb[0]}`
 			})
 			// console.log('\nFFmpeg producer video:\n', vidFilterer.graph.dump())
 
-			const fieldOrder = vidStream.codecpar.field_order
-			progressive = fieldOrder === 'progressive'
 			const tff = fieldOrder === 'unknown' || fieldOrder.split(', ', 2)[1] === 'top displayed first'
 			const yadifMode = progressive ? 'send_frame' : 'send_field'
 			yadif = new Yadif(
@@ -369,7 +403,7 @@ export class FFmpegProducer implements Producer {
 				if (!this.running) return nil
 				const ff = await audFilterer.filter(frames)
 				if (ff.reduce((acc, f) => acc && f.frames && f.frames.length > 0, true)) {
-					return { frames: ff.map((f) => f.frames), mute: false }
+					return { frames: ff.map((f) => f.frames) }
 				} else return nil
 			} else {
 				return frames as RedioEnd
@@ -421,7 +455,12 @@ export class FFmpegProducer implements Producer {
 				if (!this.running) return nil
 				const convert = toRGBA as ToRGBA
 				const clSources = await convert.createSources()
-				clSources.forEach((s) => (s.timestamp = progressive ? frame.pts : frame.pts * 2))
+				// const now = process.hrtime()
+				// const nowms = now[0] * 1000.0 + now[1] / 1000000.0
+				clSources.forEach((s) => {
+					// s.loadstamp = nowms
+					s.timestamp = progressive ? frame.pts : frame.pts * 2
+				})
 				await convert.loadFrame(frame.data, clSources, this.clContext.queue.load)
 				await this.clContext.waitFinish(this.clContext.queue.load)
 				return clSources
@@ -440,6 +479,7 @@ export class FFmpegProducer implements Producer {
 				}
 				const convert = toRGBA as ToRGBA
 				const clDest = await convert.createDest({ width: width, height: height })
+				// clDest.loadstamp = clSources[0].loadstamp
 				clDest.timestamp = clSources[0].timestamp
 				convert.processFrame(this.sourceID, clSources, clDest)
 				return clDest
@@ -450,6 +490,7 @@ export class FFmpegProducer implements Producer {
 			}
 		}
 
+		let curFrame = 0
 		const vidDeint: Valve<OpenCLBuffer | RedioEnd, OpenCLBuffer | RedioEnd> = async (frame) => {
 			if (isValue(frame)) {
 				if (!this.running) {
@@ -458,6 +499,10 @@ export class FFmpegProducer implements Producer {
 				}
 				const yadifDests: OpenCLBuffer[] = []
 				await yadif?.processFrame(frame, yadifDests, this.sourceID)
+
+				if (maxFrame && maxFrame === curFrame) this.release()
+				curFrame += yadifDests.length
+
 				return yadifDests.length > 0 ? yadifDests : nil
 			} else {
 				yadif?.release()
@@ -467,9 +512,13 @@ export class FFmpegProducer implements Producer {
 			}
 		}
 
+		let blackCurFrame = 0
 		const blackPipe: RedioPipe<OpenCLBuffer | RedioEnd> = redio(
 			async () => {
 				if (this.running) {
+					if (maxFrame && maxFrame === blackCurFrame) this.release()
+					if (black) black.timestamp = blackCurFrame
+					blackCurFrame++
 					black?.addRef()
 					return black
 				} else return end
@@ -492,30 +541,20 @@ export class FFmpegProducer implements Producer {
 
 		const ffPackets = redio(demux, { bufferSizeMax: this.demuxer.streams.length * 2 })
 
-		let audSrc: RedioPipe<RedioEnd | AudioMixFrame> | undefined
 		if (audioStreams.length) {
-			audSrc = ffPackets
+			this.audSource = ffPackets
 				.fork({ bufferSizeMax: 10 })
 				.valve(audPacketFilter)
 				.valve(audDecode, { bufferSizeMax: 2 })
 				.valve(audFilter, { oneToMany: true })
 		} else {
 			// eslint-disable-next-line prettier/prettier
-			audSrc = redio(silence, { bufferSizeMax: 2 })
+			this.audSource = redio(silence, { bufferSizeMax: 2 })
 				.valve(audFilter, { oneToMany: true })
 		}
-		this.audSource = audSrc.pause((frame) => {
-			if (!this.running) {
-				frame = nil
-				return false
-			}
-			if (this.paused && isValue(frame)) (frame as AudioMixFrame).mute = true
-			return this.paused
-		})
 
-		let vidSrc: RedioPipe<RedioEnd | OpenCLBuffer> | undefined
 		if (videoStreams.length) {
-			vidSrc = ffPackets
+			this.vidSource = ffPackets
 				.fork({ bufferSizeMax: 10 })
 				.valve(vidPacketFilter)
 				.valve(vidDecode, { oneToMany: true, bufferSizeMax: 2 })
@@ -524,17 +563,8 @@ export class FFmpegProducer implements Producer {
 				.valve(vidProcess)
 				.valve(vidDeint, { oneToMany: true })
 		} else {
-			vidSrc = blackPipe
+			this.vidSource = blackPipe
 		}
-
-		this.vidSource = vidSrc.pause((frame) => {
-			if (!this.running) {
-				frame = nil
-				return false
-			}
-			if (this.paused && isValue(frame)) (frame as OpenCLBuffer).addRef()
-			return this.paused
-		})
 
 		await this.mixer.init(this.sourceID, this.audSource, this.vidSource, srcFormat)
 
@@ -546,7 +576,7 @@ export class FFmpegProducer implements Producer {
 	}
 
 	setPaused(pause: boolean): void {
-		this.paused = pause
+		this.mixer.setPaused(pause)
 	}
 
 	release(): void {

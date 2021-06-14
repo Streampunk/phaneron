@@ -28,7 +28,6 @@ import Transform from '../process/transform'
 
 export interface AudioMixFrame {
 	frames: Frame[][]
-	mute: boolean
 }
 
 export interface AnchorParams {
@@ -109,12 +108,12 @@ export class Mixer {
 	private readonly consumerFormat: VideoFormat
 	private readonly clJobs: ClJobs
 	private transform: ImageProcess | null
-	private mixAudio: RedioPipe<Frame | RedioEnd> | undefined
-	private mixVideo: RedioPipe<OpenCLBuffer | RedioEnd> | undefined
+	private mixAudio!: RedioPipe<Frame | RedioEnd>
+	private mixVideo!: RedioPipe<OpenCLBuffer | RedioEnd>
 	private audMixFilterer: Filterer | null = null
 	private mixParams = JSON.parse(MixerDefaults)
 	private srcLevels: number[] = []
-	private muted = false
+	private paused = true
 	private running = true
 	private audDone = false
 	private vidDone = false
@@ -194,10 +193,7 @@ export class Mixer {
 			if (isValue(frame)) {
 				if (!this.running) return nil
 				if (!this.audMixFilterer) return nil
-				if (frame.mute != this.muted) {
-					this.muted = frame.mute
-					this.setVolume(this.mixParams.volume, this.muted)
-				}
+				this.setVolume(this.mixParams.volume, this.paused)
 
 				const inSpec: { name: string; frames: Frame[] }[] = []
 				frame.frames.forEach((f, i) => {
@@ -233,9 +229,10 @@ export class Mixer {
 						width: this.consumerFormat.width,
 						height: this.consumerFormat.height
 					},
-					'transform'
+					`mixer ${sourceID} ${timestamp}`
 				)
-				xfDest.timestamp = frame.timestamp
+				// xfDest.loadstamp = frame.loadstamp
+				xfDest.timestamp = timestamp
 
 				await this.transform?.run(
 					{
@@ -255,7 +252,6 @@ export class Mixer {
 					() => frame.release()
 				)
 				await this.clJobs.runQueue({ source: sourceID, timestamp: timestamp })
-
 				return xfDest
 			} else {
 				this.clJobs.clearQueue(sourceID)
@@ -267,13 +263,24 @@ export class Mixer {
 			}
 		}
 
-		// eslint-disable-next-line prettier/prettier
 		this.mixAudio = srcAudio
+			.pause(() => this.paused && this.running)
 			.valve(audMixFilter, { oneToMany: true })
 
-		// eslint-disable-next-line prettier/prettier
 		this.mixVideo = srcVideo
+			.pause((frame) => {
+				if (!this.running) {
+					frame = nil
+					return false
+				}
+				if (this.paused && isValue(frame)) (frame as OpenCLBuffer).addRef()
+				return this.paused
+			})
 			.valve(mixVidValve)
+	}
+
+	setPaused(pause: boolean): void {
+		this.paused = pause
 	}
 
 	release(): void {
@@ -293,10 +300,10 @@ export class Mixer {
 		return true
 	}
 
-	getAudioPipe(): RedioPipe<Frame | RedioEnd> | undefined {
+	getAudioPipe(): RedioPipe<Frame | RedioEnd> {
 		return this.mixAudio
 	}
-	getVideoPipe(): RedioPipe<OpenCLBuffer | RedioEnd> | undefined {
+	getVideoPipe(): RedioPipe<OpenCLBuffer | RedioEnd> {
 		return this.mixVideo
 	}
 }

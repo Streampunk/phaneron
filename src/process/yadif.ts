@@ -93,6 +93,7 @@ export default class Yadif {
 		srcs.forEach((s) => s.addRef())
 
 		const out = this.out as OpenCLBuffer
+		// out.loadstamp = srcs[1].loadstamp
 		out.timestamp = srcs[1].timestamp + (isSecond ? 1 : 0)
 
 		await this.yadifCl.run(

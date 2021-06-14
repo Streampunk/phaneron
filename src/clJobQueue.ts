@@ -108,6 +108,7 @@ export class ClProcessJobs {
 		this.clJobs = new ClJobs(this)
 
 		this.runEvents.once('run', async () => this.processQueue())
+		// setInterval(() => this.logRequests(), 2000)
 	}
 
 	async processQueue(): Promise<void> {
@@ -117,7 +118,7 @@ export class ClProcessJobs {
 			const chan = curReq.value[0]
 			const req = curReq.value[1]
 			const timings = new Map<string, RunTimings>()
-			const queued = process.hrtime(req.start)
+			const jobQueued = process.hrtime(req.start)
 			for (let i = 0; i < req.jobs.length; ++i) {
 				const job = req.jobs[i]
 				timings.set(
@@ -126,10 +127,11 @@ export class ClProcessJobs {
 				)
 			}
 
+			const submit = process.hrtime(req.start)
 			await this.clContext.waitFinish(this.clContext.queue.process)
 			req.jobs.forEach((j) => j.cb())
 			const end = process.hrtime(req.start)
-			this.logTimings(req.id, queued, end, timings)
+			this.logTimings(req.id, jobQueued, submit, end, timings)
 			req.done()
 			this.requests.delete(chan)
 			curReq = reqIt.next()
@@ -147,7 +149,23 @@ export class ClProcessJobs {
 		this.runEvents.emit('run')
 	}
 
-	logTimings(id: string, queued: number[], end: number[], timings: Map<string, RunTimings>): void {
+	logRequests(): void {
+		let i = 0
+		this.requests.forEach((r) => {
+			console.log(`${i++}: ${r.id} ${r.jobs.map((j) => j.name)}`)
+		})
+	}
+
+	logTimings(
+		id: string,
+		jobQueued: number[],
+		submit: number[],
+		end: number[],
+		timings: Map<string, RunTimings>
+	): void {
+		const submitms = submit.reduce((sec, nano) => sec * 1e3 + nano / 1e6)
+		const endms = end.reduce((sec, nano) => sec * 1e3 + nano / 1e6)
+		const executems = endms - submitms
 		const idLim = id.slice(-20).concat(':').padEnd(21, ' ')
 		const idSp = new Array(25 - idLim.length).fill(' ').join('')
 		if (this.showTimings > 1) {
@@ -172,6 +190,13 @@ export class ClProcessJobs {
 				ttTotal += t.totalTime
 				curTs = tsIt.next()
 			}
+
+			const executeus = (executems * 1000) >>> 0
+			ttTotal += executeus
+			const pSp = new Array(26 + 20 - 'execute'.length).fill(' ').join('')
+			const exSp = new Array(7 - executeus.toString().length).fill(' ').join('')
+			console.log(`execute${pSp}| ${exSp}${executeus}`)
+
 			const tSp = new Array(26 - 'TOTALS'.length).fill(' ').join('')
 			const d2kSp = new Array(7 - d2kTotal.toString().length).fill(' ').join('')
 			const keSp = new Array(7 - keTotal.toString().length).fill(' ').join('')
@@ -181,11 +206,10 @@ export class ClProcessJobs {
 		}
 
 		if (this.showTimings > 0) {
-			const queuedms = queued[0] * 1000.0 + queued[1] / 1000000.0
-			const elapsedms = end[0] * 1000.0 + end[1] / 1000000.0
+			const jobqueuedms = jobQueued.reduce((sec, nano) => sec * 1e3 + nano / 1e6)
 			console.log(
 				// eslint-disable-next-line prettier/prettier
-				`${idLim}${elapsedms < 10.0 ? idSp : idSp.slice(1)}  ${elapsedms.toFixed(2)}ms elapsed (${queuedms.toFixed(2)}ms queued)`
+				`${idLim}${endms < 10.0 ? idSp : idSp.slice(1)}  ${endms.toFixed(2)}ms elapsed (${jobqueuedms.toFixed(2)}ms job queued, ${(submitms - jobqueuedms).toFixed(2)}ms submit, ${executems.toFixed(2)}ms execute)`
 			)
 		}
 	}

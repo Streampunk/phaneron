@@ -1,67 +1,62 @@
 {
+	"tickLayer": 2,
 	"events": [
 		{
-			"duration": 10000,
+			"duration": 1000,
 			"layers": [
 				{
-					"layerNum": 3,
-					"url": "url3.mov",
-					"seek": 0
+					"layerNum": 1,
+					"url": "url1.wav",
+					"streams": { "audio": [0, 1] },
+					"seek": 0,
+					"length": 5000
 				},
 				{
 					"layerNum": 2,
 					"url": "url2.mxf",
-					"seek": 0
-				},
-				{
-					"layerNum": 1,
-					"url": "url1.wav",
-					"seek": 0
+					"streams": { "video": [0], "audio": [0, 1, 2, 3] },
+					"seek": 0,
+					"length": 1050
 				}
 			]
 		},
 		{
-			"duration": 10000,
+			"duration": 1000,
 			"layers": [
-				{
-					"layerNum": 3,
-					"url": "url3.mov",
-					"seek": 0
-				},
 				{
 					"layerNum": 2,
+					"url": "url3.mov",
+					"streams": { "video": [0], "audio": [0, 1, 2, 3] },
+					"seek": 0,
+					"length": 1050,
+					"transition": { "type": "wipe", "length": 24, "url": "M:/NRK/heads/wipe1_punktum_mask.mov", "streams": { "video": [0] } }
+				},
+				{
+					"layerNum": 3,
 					"url": "url4.mov",
-					"seek": 0
+					"streams": { "video": [0], "audio": [0, 1, 2, 3] },
+					"seek": 0,
+					"length": 24
 				}
 			]
 		},
 		{
-			"duration": 10000,
+			"duration": 1000,
 			"layers": [
-				{
-					"layerNum": 3,
-					"url": "url3.mov",
-					"seek": 0
-				},
 				{
 					"layerNum": 2,
 					"url": "url5.mov",
-					"seek": 0
-				}
-			]
-		},
-		{
-			"duration": 10000,
-			"layers": [
-				{
-					"layerNum": 3,
-					"url": "url3.mov",
-					"seek": 0
+					"streams": { "video": [0], "audio": [0, 1, 2, 3] },
+					"seek": 0,
+					"length": 1050,
+					"transition": { "type": "wipe", "length": 24, "url": "M:/NRK/heads/wipe1_punktum_mask.mov", "streams": { "video": [0] } }
 				},
 				{
-					"layerNum": 2,
-					"url": "url6.mov",
-					"seek": 0
+					"layerNum": 3,
+					"url": "url4.mov",
+					"streams": { "video": [0], "audio": [0, 1, 2, 3] },
+					"seek": 0,
+					"length": 24
 				}
 			]
 		}

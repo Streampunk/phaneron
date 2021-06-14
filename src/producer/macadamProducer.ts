@@ -45,7 +45,6 @@ export class MacadamProducer implements Producer {
 	private toRGBA: ToRGBA | null = null
 	private yadif: Yadif | null = null
 	private running = true
-	private paused = true
 
 	constructor(
 		id: number,
@@ -168,7 +167,7 @@ export class MacadamProducer implements Producer {
 				})
 				const ff = await this.audFilterer.filter([{ name: 'in0:a', frames: [ffFrame] }])
 				if (ff.reduce((acc, f) => acc && f.frames && f.frames.length > 0, true)) {
-					return { frames: ff.map((f) => f.frames), mute: false }
+					return { frames: ff.map((f) => f.frames) }
 				} else return nil
 			} else {
 				return captureFrame as RedioEnd
@@ -246,20 +245,12 @@ export class MacadamProducer implements Producer {
 		this.audSource = macadamFrames
 			.fork({ bufferSizeMax: 1 })
 			.valve(audFilter, { bufferSizeMax: 2, oneToMany: true })
-			.pause((frame) => {
-				if (this.paused && isValue(frame)) (frame as AudioMixFrame).mute = true
-				return this.paused
-			})
 
 		this.vidSource = macadamFrames
 			.fork({ bufferSizeMax: 1 })
 			.valve(vidLoader, { bufferSizeMax: 1 })
 			.valve(vidProcess, { bufferSizeMax: 1 })
 			.valve(vidDeint, { bufferSizeMax: 1, oneToMany: true })
-			.pause((frame) => {
-				if (this.paused && isValue(frame)) (frame as OpenCLBuffer).addRef()
-				return this.paused
-			})
 
 		await this.mixer.init(this.sourceID, this.audSource, this.vidSource, srcFormat)
 
@@ -271,7 +262,7 @@ export class MacadamProducer implements Producer {
 	}
 
 	setPaused(pause: boolean): void {
-		this.paused = pause
+		this.mixer.setPaused(pause)
 	}
 
 	release(): void {

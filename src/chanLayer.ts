@@ -24,6 +24,18 @@ export interface ChanLayer {
 	layer: number
 }
 
+export type StreamParams = {
+	audio?: number[]
+	video?: number[]
+}
+
+export type TransitionParams = {
+	type: 'cut' | 'dissolve' | 'wipe'
+	length: number
+	url?: string
+	streams?: StreamParams
+}
+
 export interface LoadParams {
 	url: string
 	layer: number
@@ -31,5 +43,8 @@ export interface LoadParams {
 	loop?: boolean
 	preview?: boolean
 	autoPlay?: boolean
+	streams?: StreamParams
 	seek?: number
+	length?: number
+	transition?: TransitionParams
 }
