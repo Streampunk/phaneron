@@ -27,6 +27,7 @@ import { ConsumerRegistry, Consumer } from './consumer/consumer'
 import { CombineLayer, Combiner } from './combiner'
 import { ClJobs } from './clJobQueue'
 import { TransitionSpec } from './transitioner'
+import { SourcePipes } from './routeSource'
 
 export class Channel {
 	private readonly clContext: nodenCLContext
@@ -161,7 +162,7 @@ export class Channel {
 		}
 
 		if (!producer || error.length > 0) {
-			console.log(`Failed to create source for params ${params}`)
+			console.log('Failed to create source for params', params, error)
 			return false
 		}
 
@@ -263,5 +264,17 @@ export class Channel {
 		const layer = this.layers.get(layerNum)
 		layer?.volume(params)
 		return layer !== undefined
+	}
+
+	async getRoutePipes(layerNum: number): Promise<SourcePipes> {
+		let sourcePipes: SourcePipes | undefined
+		if (layerNum === 0) {
+			sourcePipes = await this.combiner.getSourcePipes()
+		} else {
+			const layer = this.layers.get(layerNum)
+			sourcePipes = await layer?.getSourcePipes()
+		}
+		if (!sourcePipes) throw new Error(`Failed to find source pipes for layer ${layerNum}`)
+		return sourcePipes
 	}
 }

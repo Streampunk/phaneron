@@ -26,10 +26,6 @@ import { ClJobs } from '../clJobQueue'
 import ImageProcess from '../process/imageProcess'
 import Transform from '../process/transform'
 
-export interface AudioMixFrame {
-	frames: Frame[][]
-}
-
 export interface AnchorParams {
 	x: number
 	y: number
@@ -131,7 +127,7 @@ export class Mixer {
 
 	async init(
 		sourceID: string,
-		srcAudio: RedioPipe<AudioMixFrame | RedioEnd>,
+		srcAudio: RedioPipe<Frame[] | RedioEnd>,
 		srcVideo: RedioPipe<OpenCLBuffer | RedioEnd>,
 		srcFormat: VideoFormat
 	): Promise<void> {
@@ -189,23 +185,20 @@ export class Mixer {
 		// )
 		// filtContexts.forEach((c) => console.log(getFilterParams(c)))
 
-		const audMixFilter: Valve<AudioMixFrame | RedioEnd, Frame | RedioEnd> = async (frame) => {
-			if (isValue(frame)) {
+		const audMixFilter: Valve<Frame[] | RedioEnd, Frame | RedioEnd> = async (frames) => {
+			if (isValue(frames)) {
 				if (!this.running) return nil
 				if (!this.audMixFilterer) return nil
-				this.setVolume(this.mixParams.volume, this.paused)
 
 				const inSpec: { name: string; frames: Frame[] }[] = []
-				frame.frames.forEach((f, i) => {
-					inSpec.push({ name: `in${i}:a`, frames: f })
-				})
+				frames.forEach((f, i) => inSpec.push({ name: `in${i}:a`, frames: [f] }))
 				const ff = await this.audMixFilterer.filter(inSpec)
 				return ff[0] && ff[0].frames.length > 0 ? ff[0].frames : nil
 			} else {
 				this.audMixFilterer = null
 				this.audDone = true
 				if (this.audDone && this.vidDone) this.running = false
-				return frame
+				return frames
 			}
 		}
 
@@ -281,6 +274,7 @@ export class Mixer {
 
 	setPaused(pause: boolean): void {
 		this.paused = pause
+		this.setVolume(this.mixParams.volume, this.paused)
 	}
 
 	release(): void {

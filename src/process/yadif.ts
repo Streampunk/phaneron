@@ -109,6 +109,7 @@ export default class Yadif {
 			{ source: sourceID, timestamp: out.timestamp },
 			() => srcs.forEach((s) => s.release())
 		)
+		await this.clJobs.runQueue({ source: sourceID, timestamp: out.timestamp })
 	}
 
 	async processFrame(

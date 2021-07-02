@@ -27,6 +27,7 @@ import { MixerDefaults } from './producer/mixer'
 import { Transitioner, TransitionSpec } from './transitioner'
 import { ConsumerConfig } from './config'
 import { ClJobs } from './clJobQueue'
+import { SourcePipes } from './routeSource'
 
 export const DefaultTransitionSpec = '{ "type": "cut", "len": 0 }'
 
@@ -273,6 +274,10 @@ export class Layer {
 		} else {
 			console.dir(this.mixerParams.volume, { colors: true })
 		}
+	}
+
+	async getSourcePipes(): Promise<SourcePipes | undefined> {
+		return this.curSrcSpec.source?.getSourcePipes()
 	}
 
 	getAudioPipe(): RedioPipe<Frame | RedioEnd> | undefined {

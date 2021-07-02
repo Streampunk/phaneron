@@ -124,6 +124,8 @@ rl.on('SIGINT', () => {
 console.log('\nWelcome to Phaneron\n')
 
 const commands = new Commands()
+export const channels: Channel[] = []
+
 initialiseOpenCL()
 	.then(async (clContext) => {
 		const consReg = new ConsumerRegistry(clContext)
@@ -141,7 +143,6 @@ initialiseOpenCL()
 		if (threadsStr) numThreads = +threadsStr
 		console.log(`Using ${numThreads} worker threads`)
 
-		const channels: Channel[] = []
 		config.consumers.forEach((consConfig, i) => {
 			try {
 				channels.push(

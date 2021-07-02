@@ -45,7 +45,8 @@ import { Reader as rgba8Reader } from '../process/rgba8'
 import { Reader as bgra8Reader } from '../process/bgra8'
 import Yadif from '../process/yadif'
 import { PackImpl } from '../process/packer'
-import { Mixer, AudioMixFrame } from './mixer'
+import { Mixer } from './mixer'
+import { SourcePipes } from '../routeSource'
 
 interface AudioChannel {
 	name: string
@@ -60,8 +61,10 @@ export class FFmpegProducer implements Producer {
 	private readonly consumerFormat: VideoFormat
 	private readonly mixer: Mixer
 	private demuxer: Demuxer | null = null
-	private audSource: RedioPipe<AudioMixFrame | RedioEnd> | undefined
+	private audSource: RedioPipe<Frame[] | RedioEnd> | undefined
 	private vidSource: RedioPipe<OpenCLBuffer | RedioEnd> | undefined
+	private srcFormat: VideoFormat | undefined
+	private numForks = 0
 	private running = true
 
 	constructor(
@@ -91,10 +94,11 @@ export class FFmpegProducer implements Producer {
 		const videoStreams: Stream[] = []
 		const audioIndexes: number[] = []
 		const videoIndexes: number[] = []
-		const decoders: Map<number, Decoder> = new Map()
 		const numVidChannels = 1
 		const audioPackets: Packet[] = []
 		const videoPackets: Packet[] = []
+		let audioDecoder: Decoder | undefined
+		let videoDecoder: Decoder | undefined
 
 		const demuxAudioStreams = this.demuxer.streams.filter((s) => s.codecpar.codec_type === 'audio')
 		let astreams = this.loadParams.streams === undefined ? demuxAudioStreams : []
@@ -119,7 +123,8 @@ export class FFmpegProducer implements Producer {
 				s.discard = 'default'
 				audioStreams.push(s)
 				audioIndexes.push(s.index)
-				decoders.set(s.index, decoder({ demuxer: this.demuxer as Demuxer, stream_index: s.index }))
+				if (!audioDecoder)
+					audioDecoder = decoder({ demuxer: this.demuxer as Demuxer, stream_index: s.index })
 				monoStreams &&= s.codecpar.channel_layout === 'mono'
 			} else {
 				s.discard = 'all'
@@ -131,7 +136,8 @@ export class FFmpegProducer implements Producer {
 				s.discard = 'default'
 				videoStreams.push(s)
 				videoIndexes.push(s.index)
-				decoders.set(s.index, decoder({ demuxer: this.demuxer as Demuxer, stream_index: s.index }))
+				if (!videoDecoder)
+					videoDecoder = decoder({ demuxer: this.demuxer as Demuxer, stream_index: s.index })
 			} else {
 				s.discard = 'all'
 			}
@@ -386,27 +392,26 @@ export class FFmpegProducer implements Producer {
 
 		const audDecode: Valve<Packet[] | RedioEnd, AudioChannel[] | RedioEnd> = async (packets) => {
 			if (isValue(packets)) {
-				if (!this.running) return nil
-				const frames = await Promise.all(
-					packets.map((p) => (decoders.get(p.stream_index) as Decoder).decode(p))
-				)
-				return frames.map((f, i) => ({ name: `in${i}:a`, frames: f.frames }))
+				if (!(this.running && audioDecoder)) return nil
+				const decodedFrames = await audioDecoder.decode(packets)
+				return decodedFrames.frames.map((f, i) => ({ name: `in${i}:a`, frames: [f] }))
 			} else {
 				return packets
 			}
 		}
 
-		const audFilter: Valve<AudioChannel[] | RedioEnd, AudioMixFrame | RedioEnd> = async (
-			frames
-		) => {
-			if (isValue(frames) && audFilterer) {
-				if (!this.running) return nil
+		const audFilter: Valve<AudioChannel[] | RedioEnd, Frame[] | RedioEnd> = async (frames) => {
+			if (isValue(frames)) {
+				if (!(this.running && audFilterer)) return nil
 				const ff = await audFilterer.filter(frames)
 				if (ff.reduce((acc, f) => acc && f.frames && f.frames.length > 0, true)) {
-					return { frames: ff.map((f) => f.frames) }
+					const l = ff[0].frames.length
+					const result: Frame[][] = Array.from(Array(l), () => new Array(ff.length))
+					ff.forEach((chan, c) => chan.frames.forEach((f, i) => (result[i][c] = f)))
+					return result
 				} else return nil
 			} else {
-				return frames as RedioEnd
+				return frames
 			}
 		}
 
@@ -431,8 +436,8 @@ export class FFmpegProducer implements Producer {
 
 		const vidDecode: Valve<Packet[] | RedioEnd, Frame | RedioEnd> = async (packets) => {
 			if (isValue(packets)) {
-				if (!this.running) return nil
-				const frm = await (decoders.get(packets[0].stream_index) as Decoder).decode(packets[0])
+				if (!(this.running && videoDecoder)) return nil
+				const frm = await videoDecoder.decode(packets)
 				return frm.frames.length > 0 ? frm.frames : nil
 			} else {
 				return packets
@@ -441,7 +446,7 @@ export class FFmpegProducer implements Producer {
 
 		const vidFilter: Valve<Frame | RedioEnd, Frame | RedioEnd> = async (decFrame) => {
 			if (isValue(decFrame)) {
-				if (!this.running || !vidFilterer) return nil
+				if (!(this.running && vidFilterer)) return nil
 				const ff = await vidFilterer.filter([decFrame])
 				if (!ff[0]) return nil
 				return ff[0].frames.length > 0 ? ff[0].frames : nil
@@ -503,6 +508,10 @@ export class FFmpegProducer implements Producer {
 				if (maxFrame && maxFrame === curFrame) this.release()
 				curFrame += yadifDests.length
 
+				yadifDests.forEach((d) => {
+					for (let f = 0; f < this.numForks; ++f) d.addRef()
+				})
+
 				return yadifDests.length > 0 ? yadifDests : nil
 			} else {
 				yadif?.release()
@@ -526,7 +535,7 @@ export class FFmpegProducer implements Producer {
 			{ bufferSizeMax: 1 }
 		)
 
-		const srcFormat = {
+		this.srcFormat = {
 			name: 'ffmpeg',
 			fields: 1,
 			width: width,
@@ -566,9 +575,25 @@ export class FFmpegProducer implements Producer {
 			this.vidSource = blackPipe
 		}
 
-		await this.mixer.init(this.sourceID, this.audSource, this.vidSource, srcFormat)
+		await this.mixer.init(
+			this.sourceID,
+			this.audSource.fork(),
+			this.vidSource.fork(),
+			this.srcFormat
+		)
 
 		console.log(`Created FFmpeg producer for path ${this.loadParams.url}`)
+	}
+
+	async getSourcePipes(): Promise<SourcePipes> {
+		if (!(this.audSource && this.vidSource && this.srcFormat))
+			throw new Error(`Route producer failed to find source pipes for route`)
+		this.numForks++
+		return Promise.resolve({
+			audio: this.audSource.fork(),
+			video: this.vidSource.fork(),
+			format: this.srcFormat
+		})
 	}
 
 	getMixer(): Mixer {

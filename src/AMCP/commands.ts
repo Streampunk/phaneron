@@ -18,23 +18,7 @@
   14 Ormiscaig, Aultbea, Achnasheen, IV22 2JJ  U.K.
 */
 
-import { ChanLayer } from '../chanLayer'
-
-function chanLayerFromString(chanLayStr: string): ChanLayer {
-	let valid = false
-	let channel = 0
-	let layer = 0
-	const match = chanLayStr?.match('(?<channel>\\d+)-?(?<layer>\\d*)')
-	if (match?.groups) {
-		valid = true
-		const chanLay = match.groups
-		channel = parseInt(chanLay.channel)
-		if (chanLay.layer !== '') {
-			layer = parseInt(chanLay.layer)
-		}
-	}
-	return { valid: valid, channel: channel, layer: layer }
-}
+import { ChanLayer, chanLayerFromString } from '../chanLayer'
 
 export interface CmdEntry {
 	cmd: string

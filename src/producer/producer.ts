@@ -24,9 +24,11 @@ import { LoadParams } from '../chanLayer'
 import { VideoFormat } from '../config'
 import { FFmpegProducerFactory } from './ffmpegProducer'
 import { MacadamProducerFactory } from './macadamProducer'
+import { RouteProducerFactory } from './routeProducer'
 import { Mixer } from './mixer'
+import { RouteSource } from '../routeSource'
 
-export interface Producer {
+export interface Producer extends RouteSource {
 	initialise(): void
 	getMixer(): Mixer
 	setPaused(pause: boolean): void
@@ -53,6 +55,7 @@ export class ProducerRegistry {
 	constructor(clContext: nodenCLContext) {
 		this.producerFactories = []
 		this.producerFactories.push(new MacadamProducerFactory(clContext))
+		this.producerFactories.push(new RouteProducerFactory(clContext))
 		this.producerFactories.push(new FFmpegProducerFactory(clContext))
 	}
 

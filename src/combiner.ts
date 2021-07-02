@@ -29,6 +29,7 @@ import { ClJobs } from './clJobQueue'
 import ImageProcess from './process/imageProcess'
 import Combine from './process/combine'
 import { Silence, Black } from './blackSilence'
+import { SourcePipes, RouteSource } from './routeSource'
 
 export class CombineLayer {
 	private readonly audioPipe: RedioPipe<Frame | RedioEnd>
@@ -84,7 +85,7 @@ export class CombineLayer {
 	}
 }
 
-export class Combiner {
+export class Combiner implements RouteSource {
 	private readonly clContext: nodenCLContext
 	private readonly chanID: string
 	private readonly consumerFormat: VideoFormat
@@ -99,7 +100,9 @@ export class Combiner {
 	private combineLayers: CombineLayer[] = []
 	private audLayerPipes: RedioPipe<Frame | RedioEnd>[] = []
 	private vidLayerPipes: RedioPipe<OpenCLBuffer | RedioEnd>[] = []
+	private audRoutePipe: RedioPipe<Frame[] | RedioEnd> | undefined
 	private vidTimestamp = 0
+	private numForks = 0
 
 	constructor(
 		clContext: nodenCLContext,
@@ -136,49 +139,47 @@ export class Combiner {
 			}
 		}
 
-		const combineAudValve: Valve<
-			[Frame | RedioEnd, ...(Frame | RedioEnd)[]],
-			Frame | RedioEnd
-		> = async (frames) => {
-			if (isValue(frames)) {
-				const numLayers = frames.length - 1
-				const layerFrames = frames.slice(1) as Frame[]
-				const doFilter = layerFrames.reduce((acc, f) => acc && isValue(f), true)
+		const combineAudValve: Valve<[Frame | RedioEnd, ...(Frame | RedioEnd)[]], Frame | RedioEnd> =
+			async (frames) => {
+				if (isValue(frames)) {
+					const numLayers = frames.length - 1
+					const layerFrames = frames.slice(1) as Frame[]
+					const doFilter = layerFrames.reduce((acc, f) => acc && isValue(f), true)
 
-				const numCombineLayers = numLayers < 2 ? 0 : numLayers
-				if (numCombineLayers && this.lastNumAudLayers !== numCombineLayers) {
-					await this.makeAudCombiner(numCombineLayers)
-					this.lastNumAudLayers = numCombineLayers
-				}
+					const numCombineLayers = numLayers < 2 ? 0 : numLayers
+					if (numCombineLayers && this.lastNumAudLayers !== numCombineLayers) {
+						await this.makeAudCombiner(numCombineLayers)
+						this.lastNumAudLayers = numCombineLayers
+					}
 
-				const srcFrames = frames as Frame[]
-				if (!isValue(frames[0])) return end
-				const refFrame = srcFrames[0]
+					const srcFrames = frames as Frame[]
+					if (!isValue(frames[0])) return end
+					const refFrame = srcFrames[0]
 
-				if (numLayers === 0) {
-					return srcFrames[0]
-				} else if (numLayers === 1) {
-					if (isValue(srcFrames[1])) srcFrames[1].pts = refFrame.pts
-					return srcFrames[1]
-				} else if (doFilter && this.audCombiner) {
-					const filterFrames = layerFrames.map((f, i) => {
-						f.pts = refFrame.pts
-						return {
-							name: `in${i}:a`,
-							frames: [f]
-						}
-					})
-					const ff = await this.audCombiner.filter(filterFrames)
-					return ff[0].frames.length > 0 ? ff[0].frames : nil
+					if (numLayers === 0) {
+						return srcFrames[0]
+					} else if (numLayers === 1) {
+						if (isValue(srcFrames[1])) srcFrames[1].pts = refFrame.pts
+						return srcFrames[1]
+					} else if (doFilter && this.audCombiner) {
+						const filterFrames = layerFrames.map((f, i) => {
+							f.pts = refFrame.pts
+							return {
+								name: `in${i}:a`,
+								frames: [f]
+							}
+						})
+						const ff = await this.audCombiner.filter(filterFrames)
+						return ff[0].frames.length > 0 ? ff[0].frames : nil
+					} else {
+						return end
+					}
 				} else {
-					return end
+					this.audCombiner = undefined
+					silence.release()
+					return frames
 				}
-			} else {
-				this.audCombiner = undefined
-				silence.release()
-				return frames
 			}
-		}
 
 		const vidEndValve: Valve<
 			[OpenCLBuffer | RedioEnd, ...(OpenCLBuffer | RedioEnd)[]],
@@ -215,13 +216,13 @@ export class Combiner {
 				}
 
 				if (numLayers === 0) {
-					for (let d = 0; d < this.numConsumers; ++d) frames[0].addRef()
+					for (let d = 0; d < this.numConsumers + this.numForks; ++d) frames[0].addRef()
 					frames[0].timestamp = timestamp
 					return frames[0]
 				} else if (numLayers === 1) {
 					if (!isEnd(frames[1])) {
 						frames[1].timestamp = timestamp
-						for (let d = 1; d < this.numConsumers; ++d) frames[1].addRef()
+						for (let d = 1; d < this.numConsumers + this.numForks; ++d) frames[1].addRef()
 					}
 					return frames[1]
 				}
@@ -239,7 +240,7 @@ export class Combiner {
 					)
 					// combineDest.loadstamp = Math.min(...layerFrames.map((f) => f.loadstamp))
 					combineDest.timestamp = timestamp
-					for (let d = 1; d < this.numConsumers; ++d) combineDest.addRef()
+					for (let d = 1; d < this.numConsumers + this.numForks; ++d) combineDest.addRef()
 
 					await this.vidCombiner?.run(
 						{
@@ -340,6 +341,68 @@ export class Combiner {
 
 	removeConsumer(): void {
 		this.numConsumers--
+	}
+
+	async getSourcePipes(): Promise<SourcePipes> {
+		if (!(this.audioPipe && this.videoPipe && this.consumerFormat))
+			throw new Error(`Combiner failed to find source pipes for route`)
+		if (this.numForks === 0) {
+			let audFilterer: Filterer | null = null
+			let filtStr = ''
+			const numAudChannels = this.consumerFormat.audioChannels
+			const sampleRate = this.consumerFormat.audioSampleRate
+			filtStr += `[in${0}:a]channelsplit=channel_layout=${numAudChannels}c`
+			for (let s = 0; s < numAudChannels; ++s) filtStr += `[out${s}:a]`
+			// console.log(filtStr)
+
+			const outParams = []
+			for (let s = 0; s < numAudChannels; ++s) {
+				outParams.push({
+					name: `out${s}:a`,
+					sampleRate: this.consumerFormat.audioSampleRate,
+					sampleFormat: 'fltp',
+					channelLayout: '1c'
+				})
+			}
+
+			audFilterer = await filterer({
+				filterType: 'audio',
+				inputParams: [
+					{
+						name: 'in0:a',
+						timeBase: [1, sampleRate],
+						sampleRate: sampleRate,
+						sampleFormat: 'fltp',
+						channelLayout: `${numAudChannels}c`
+					}
+				],
+				outputParams: outParams,
+				filterSpec: filtStr
+			})
+			// console.log('\nCombiner route source audio:\n', audFilterer.graph.dump())
+
+			const audFilter: Valve<Frame | RedioEnd, Frame[] | RedioEnd> = async (frame) => {
+				if (isValue(frame)) {
+					if (!audFilterer) return nil
+					const ff = await audFilterer.filter([{ name: 'in0:a', frames: [frame] }])
+					if (ff.reduce((acc, f) => acc && f.frames && f.frames.length > 0, true)) {
+						return ff.map((f) => f.frames[0])
+					} else return nil
+				} else {
+					return frame
+				}
+			}
+
+			this.audRoutePipe = this.audioPipe.fork().valve(audFilter)
+		}
+		this.numForks++
+
+		if (!this.audRoutePipe) throw new Error(`Combiner failed to create audio filter for route`)
+		return {
+			audio: this.audRoutePipe.fork(),
+			video: this.videoPipe.fork(),
+			format: this.consumerFormat
+		}
 	}
 
 	getAudioPipe(): RedioPipe<Frame | RedioEnd> | undefined {
