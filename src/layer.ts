@@ -120,6 +120,7 @@ export class Layer {
 			if (ts[1] - this.curSrcSpec.firstTs === this.curSrcSpec.transition.len - 2) {
 				this.curSrcSpec.transition.mask?.release()
 				this.curSrcSpec.source?.release()
+				this.curSrcSpec.source = undefined
 			} else if (
 				(this.curSrcSpec.transition.type === 'wipe' && numEnds > 1) ||
 				(this.curSrcSpec.transition.type === 'dissolve' && numEnds > 0)
@@ -167,6 +168,7 @@ export class Layer {
 		} else if (preview) {
 			if (this.curSrcSpec.source) {
 				this.curSrcSpec.source.release()
+				this.curSrcSpec.source = undefined
 				await once(this.endEvent, 'end')
 			}
 			this.curSrcSpec.source = this.nextSrcSpec.source
@@ -217,9 +219,9 @@ export class Layer {
 	async stop(): Promise<void> {
 		if (this.curSrcSpec.source) {
 			this.curSrcSpec.source.release()
+			this.curSrcSpec.source = undefined
 			await once(this.endEvent, 'end')
 		}
-		this.curSrcSpec.source = undefined
 		this.autoPlay = false
 	}
 

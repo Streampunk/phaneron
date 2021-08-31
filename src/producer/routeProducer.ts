@@ -37,8 +37,12 @@ export class RouteProducer implements Producer {
 	private readonly clJobs: ClJobs
 	private readonly consumerFormat: VideoFormat
 	private readonly mixer: Mixer
+	private srcPipes: SourcePipes | undefined
+	private routeAudSource: RedioPipe<Frame[] | RedioEnd> | undefined
+	private routeVidSource: RedioPipe<OpenCLBuffer | RedioEnd> | undefined
 	private audSource: RedioPipe<Frame[] | RedioEnd> | undefined
 	private vidSource: RedioPipe<OpenCLBuffer | RedioEnd> | undefined
+	private vidFork: RedioPipe<OpenCLBuffer | RedioEnd> | undefined
 	private srcFormat: VideoFormat | undefined
 	private numForks = 0
 
@@ -76,8 +80,10 @@ export class RouteProducer implements Producer {
 		if (!channel)
 			throw new Error(`Route producer failed to find source of channel ${chanLayer.channel}`)
 
-		const srcPipes = await channel.getRoutePipes(chanLayer.layer)
-		this.audSource = srcPipes.audio
+		this.srcPipes = await channel.getRoutePipes(chanLayer.layer)
+
+		this.routeAudSource = this.srcPipes.audio
+		this.audSource = this.routeAudSource.fork()
 
 		const vidForkRef: Valve<OpenCLBuffer | RedioEnd, OpenCLBuffer | RedioEnd> = async (frame) => {
 			if (isValue(frame)) {
@@ -87,8 +93,11 @@ export class RouteProducer implements Producer {
 				return frame
 			}
 		}
-		this.vidSource = srcPipes.video.valve(vidForkRef)
-		this.srcFormat = srcPipes.format
+		this.routeVidSource = this.srcPipes.video
+		this.vidFork = this.routeVidSource.fork()
+		this.vidSource = this.vidFork.valve(vidForkRef)
+
+		this.srcFormat = this.srcPipes.format
 
 		await this.mixer.init(
 			this.sourceID,
@@ -97,7 +106,10 @@ export class RouteProducer implements Producer {
 			this.srcFormat
 		)
 
-		console.log(`Created Route producer from channel ${chanLayer.channel}`)
+		console.log(
+			`Created Route producer from channel ${chanLayer.channel}`,
+			chanLayer.layer > 0 ? `layer ${chanLayer.layer}` : ''
+		)
 	}
 
 	async getSourcePipes(): Promise<SourcePipes> {
@@ -105,9 +117,10 @@ export class RouteProducer implements Producer {
 			throw new Error(`Route producer failed to find source pipes for route`)
 		this.numForks++
 		return Promise.resolve({
-			audio: this.audSource.fork(),
-			video: this.vidSource.fork(),
-			format: this.srcFormat
+			audio: this.audSource,
+			video: this.vidSource,
+			format: this.srcFormat,
+			release: () => this.numForks--
 		})
 	}
 
@@ -120,6 +133,9 @@ export class RouteProducer implements Producer {
 	}
 
 	release(): void {
+		if (this.audSource) this.routeAudSource?.unfork(this.audSource)
+		if (this.vidFork) this.routeVidSource?.unfork(this.vidFork)
+		this.srcPipes?.release()
 		this.mixer.release()
 	}
 }

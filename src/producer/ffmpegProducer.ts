@@ -590,9 +590,10 @@ export class FFmpegProducer implements Producer {
 			throw new Error(`Route producer failed to find source pipes for route`)
 		this.numForks++
 		return Promise.resolve({
-			audio: this.audSource.fork(),
-			video: this.vidSource.fork(),
-			format: this.srcFormat
+			audio: this.audSource,
+			video: this.vidSource,
+			format: this.srcFormat,
+			release: () => this.numForks--
 		})
 	}
 

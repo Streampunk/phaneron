@@ -401,7 +401,8 @@ export class Combiner implements RouteSource {
 		return {
 			audio: this.audRoutePipe.fork(),
 			video: this.videoPipe.fork(),
-			format: this.consumerFormat
+			format: this.consumerFormat,
+			release: () => this.numForks--
 		}
 	}
 

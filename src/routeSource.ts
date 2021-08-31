@@ -27,6 +27,7 @@ export type SourcePipes = {
 	audio: RedioPipe<Frame[] | RedioEnd>
 	video: RedioPipe<OpenCLBuffer | RedioEnd>
 	format: VideoFormat
+	release(): void
 }
 
 export interface RouteSource {
