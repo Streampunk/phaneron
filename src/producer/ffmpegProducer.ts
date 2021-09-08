@@ -86,8 +86,13 @@ export class FFmpegProducer implements Producer {
 		try {
 			this.demuxer = await demuxer(this.loadParams.url)
 		} catch (err) {
-			console.log(err)
-			throw new InvalidProducerError(err)
+			if (typeof err === 'string') throw new InvalidProducerError(err)
+			console.log(
+				`Error in FFmpeg producer initialise: ${
+					err instanceof Error ? err.message : 'Unknown error'
+				}`
+			)
+			throw err
 		}
 
 		const audioStreams: Stream[] = []

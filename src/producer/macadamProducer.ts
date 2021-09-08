@@ -136,7 +136,12 @@ export class MacadamProducer implements Producer {
 			)
 			await yadif.init()
 		} catch (err) {
-			throw new Error(err)
+			console.log(
+				`Error in Macadam producer initialise: ${
+					err instanceof Error ? err.message : 'Unknown error'
+				}`
+			)
+			throw err
 		}
 
 		const frameSource: Generator<Macadam.CaptureFrame | RedioEnd> = async () => {

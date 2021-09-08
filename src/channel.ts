@@ -158,7 +158,8 @@ export class Channel {
 				transitionSpec.len = params.transition.length
 			}
 		} catch (err) {
-			error = err
+			if (typeof err === 'string') error = err
+			else error = err instanceof Error ? err.message : 'Unknown error'
 		}
 
 		if (!producer || error.length > 0) {

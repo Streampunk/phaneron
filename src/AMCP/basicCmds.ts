@@ -207,7 +207,11 @@ export class BasicCmds implements CmdList {
 			await consumer.initialise()
 			channel.addConsumer(consumer)
 		} catch (err) {
-			console.log(`Error adding consumer to configured channel ${chanLay.channel}: ${err.message}`)
+			console.log(
+				`Error adding consumer to configured channel ${chanLay.channel}: ${
+					err instanceof Error ? err.message : 'Unknown error'
+				}`
+			)
 			return Promise.resolve(false)
 		}
 
@@ -229,7 +233,9 @@ export class BasicCmds implements CmdList {
 			)
 		} catch (err) {
 			console.log(
-				`Error removing consumer from configured channel ${chanLay.channel}: ${err.message}`
+				`Error removing consumer from configured channel ${chanLay.channel}: ${
+					err instanceof Error ? err.message : 'Unknown error'
+				}`
 			)
 			return Promise.resolve(false)
 		}

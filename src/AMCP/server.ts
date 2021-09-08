@@ -68,9 +68,9 @@ export async function processCommand(command: string[] | null, token = ''): Prom
 			} else if (responseFn.number && command.length >= 2) {
 				response = (responseFn.number as (req: string[]) => string | null)(command)
 			} else if (responseFn.layer && command.length >= 3) {
-				response = ((responseFn.layer as Responses)[command[2]] as (
-					req: string[]
-				) => string | null)(command)
+				response = (
+					(responseFn.layer as Responses)[command[2]] as (req: string[]) => string | null
+				)(command)
 			} else if (command.length >= 2 && responseFn[command[1]]) {
 				response = (responseFn[command[1]] as (req: string[]) => string | null)(command)
 			}

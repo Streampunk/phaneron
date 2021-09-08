@@ -71,10 +71,8 @@ export class ProducerRegistry {
 				await producer.initialise()
 				return producer
 			} catch (err) {
-				producerErr = err.message
-				if (!(err instanceof InvalidProducerError)) {
-					throw err
-				}
+				if (err instanceof InvalidProducerError) producerErr = err.message
+				else throw err
 			}
 		}
 

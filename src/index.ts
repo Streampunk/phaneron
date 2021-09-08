@@ -149,7 +149,11 @@ initialiseOpenCL()
 					new Channel(clContext, `ch${i + 1}`, i + 1, consConfig, consReg, prodReg, clJobs)
 				)
 			} catch (err) {
-				console.log(`Error creating configured channel ${i + 1}: ${err.message}`)
+				console.log(
+					`Error creating configured channel ${i + 1}: ${
+						err instanceof Error ? err.message : 'Unknown error'
+					}`
+				)
 			}
 		})
 
