@@ -76,15 +76,15 @@ export class BasicCmds implements CmdList {
 		if (!channel) return Promise.resolve(false)
 
 		const url = params[0]
-		const chanNum = url === 'DECKLINK' ? +params[1] : 0
+		const chanNum = url.toUpperCase() === 'DECKLINK' ? +params[1] : 0
 
-		const loop = params.find((param) => param === 'LOOP') !== undefined
-		const autoPlay = params.find((param) => param === 'AUTO') !== undefined
+		const loop = params.find((param) => param.toUpperCase() === 'LOOP') !== undefined
+		const autoPlay = params.find((param) => param.toUpperCase() === 'AUTO') !== undefined
 
-		const seekIndex = params.findIndex((param) => param === 'SEEK')
+		const seekIndex = params.findIndex((param) => param.toUpperCase() === 'SEEK')
 		const seek = seekIndex < 0 ? 0 : +params[seekIndex + 1]
 
-		const lengthIndex = params.findIndex((param) => param === 'LENGTH')
+		const lengthIndex = params.findIndex((param) => param.toUpperCase() === 'LENGTH')
 		const length = seekIndex < 0 ? 0 : +params[lengthIndex + 1]
 
 		const loadParams: LoadParams = {

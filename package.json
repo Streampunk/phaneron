@@ -18,9 +18,9 @@
     "@koa/cors": "3",
     "beamcoder": "^0.6.14",
     "koa": "^2.13.0",
-    "macadam": "^2.0.14",
+    "macadam": "^2.0.16",
     "naudiodon": "^2.3.5",
-    "nodencl": "^1.3.1",
+    "nodencl": "^1.4.0",
     "redioactive": "0.0.18",
     "ts-osc": "^0.3.1"
   },

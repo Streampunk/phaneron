@@ -1351,10 +1351,10 @@ lru-cache@^6.0.0:
   dependencies:
     yallist "^4.0.0"
 
-macadam@^2.0.14:
-  version "2.0.14"
-  resolved "https://registry.yarnpkg.com/macadam/-/macadam-2.0.14.tgz#79af83cdd391ff978338db0d0b39f367c0ab5610"
-  integrity sha512-abUhRmvPo4UraIBJ5bfVBEpDSrL4TVmp8K9JflvXJ/myGhk/jMh7rCeiXob+v+G5HwO240zIx/p4dblsKq65Aw==
+macadam@^2.0.16:
+  version "2.0.16"
+  resolved "https://registry.yarnpkg.com/macadam/-/macadam-2.0.16.tgz#221037d506cfd716f7593b0894bdcb74d4bef9e4"
+  integrity sha512-VcW3ofMUzStrZFd/wi7biK6md3nhGEnNCOy2shxtgB92HGhWGkz3C1qUNw2/m4+qRcZ9oEwZnsTRptSOfecbKg==
   dependencies:
     bindings "^1.5.0"
     highland "^2.13.5"
@@ -1509,10 +1509,10 @@ negotiator@0.6.2:
   resolved "https://registry.yarnpkg.com/negotiator/-/negotiator-0.6.2.tgz#feacf7ccf525a77ae9634436a64883ffeca346fb"
   integrity sha512-hZXc7K2e+PgeI1eDBe/10Ard4ekbfrrqG8Ep+8Jmf4JID2bNg7NvCPOZN+kfF574pFQI7mum2AUqDidoKqcTOw==
 
-nodencl@^1.3.1:
-  version "1.3.1"
-  resolved "https://registry.yarnpkg.com/nodencl/-/nodencl-1.3.1.tgz#1d750dba63a7a136fc7bf582f6cb7c31352348ff"
-  integrity sha512-ktFon6Zt0SZlMd//SBIzIBYWrfDyxaYRn7fEAOxwLZynOgEhfP+Sq7Fwn4EUmWrA3vQoHzniQNustyJhG6PL/A==
+nodencl@^1.4.0:
+  version "1.4.0"
+  resolved "https://registry.yarnpkg.com/nodencl/-/nodencl-1.4.0.tgz#80dbf95f2f8a7cb63271fc9b38355f4ae2103aba"
+  integrity sha512-+JezYk5pw2MvO/vXalitf1mrzPJSO1VbrHdEawmH00QmvpVW8Gexw4Lall4fK9694Vn/h6M/KbaaEtvJZnYmkg==
   dependencies:
     bindings "^1.5.0"
     segfault-handler "^1.3.0"
@@ -1778,10 +1778,10 @@ redent@^3.0.0:
     indent-string "^4.0.0"
     strip-indent "^3.0.0"
 
-redioactive@0.0.17:
-  version "0.0.17"
-  resolved "https://registry.yarnpkg.com/redioactive/-/redioactive-0.0.17.tgz#84718f9e6471e9634b1f18f75597bfd30071e4cb"
-  integrity sha512-0Zt4wLgZw13e4mdzjlFIPHu7LWTDJN+7gVWyCdZ+nVxe6YfmtBlKjiHPw6f3UAlzE94HCQDfFpde2JZskxF58w==
+redioactive@0.0.18:
+  version "0.0.18"
+  resolved "https://registry.yarnpkg.com/redioactive/-/redioactive-0.0.18.tgz#7a260d7a1dd413ffc4490c4faaf92b49a9c7b89d"
+  integrity sha512-5bnbDId8Kzhyd9TLOb7NjZ4izXjuYTCmTLXg8n535LKJfdHCRN404s6Kzgd1VUF4cbYSvpeZDl0vVHjdeBWUMw==
 
 regexpp@^3.1.0:
   version "3.2.0"

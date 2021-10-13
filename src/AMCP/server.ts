@@ -29,14 +29,14 @@ export async function processCommand(command: string[] | null, token = ''): Prom
 	if (!command) {
 		return '400 ERROR'
 	}
-	if (command[0] === 'REQ') {
-		if (command[2] !== 'PING') {
+	if (command[0].toUpperCase() === 'REQ') {
+		if (command[2].toUpperCase() !== 'PING') {
 			return processCommand(command.slice(2), command[1])
 		} else {
 			token = command[1]
 		}
 	}
-	if (command[0] === 'SWITCH') {
+	if (command[0].toUpperCase() === 'SWITCH') {
 		if (command[1] === '207') {
 			ccgResponses = responses207
 			return '202 SWITCH 207 OK'
@@ -51,14 +51,14 @@ export async function processCommand(command: string[] | null, token = ''): Prom
 		}
 		return '400 SWITCH ERROR'
 	}
-	if (command[0] === 'BYE') {
+	if (command[0].toUpperCase() === 'BYE') {
 		return '***BYE***'
 	}
-	if (ccgResponses[command[0]]) {
+	if (ccgResponses[command[0].toUpperCase()]) {
 		if (!(await cmds?.process(command))) {
 			return `400 ERROR\r\n${command.join(' ')} NOT IMPLEMENTED`
 		}
-		const responseFn = ccgResponses[command[0]]
+		const responseFn = ccgResponses[command[0].toUpperCase()]
 		let response: string | null = null
 		if (typeof responseFn === 'function') {
 			response = responseFn(command)
@@ -138,7 +138,7 @@ server.on('connection', (sock) => {
 		while (eol > -1) {
 			const command = chunk.substring(0, eol)
 			console.log(command)
-			const result = await processCommand(command.toUpperCase().match(/"[^"]+"|""|\S+/g))
+			const result = await processCommand(command.match(/"[^"]+"|""|\S+/g))
 			if (result === '***BYE***') {
 				sock.destroy()
 				break

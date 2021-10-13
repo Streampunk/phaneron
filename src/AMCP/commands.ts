@@ -49,14 +49,14 @@ export class Commands {
 		let result = false
 
 		let cmdIndex = 2
-		let group = this.map.find(({ group }) => group === command[0])
+		let group = this.map.find(({ group }) => group === command[0].toUpperCase())
 		if (!group) {
 			group = this.map.find(({ group }) => group === '')
 			cmdIndex = 0
 		}
 
 		if (group) {
-			const entry = group.entries.find(({ cmd }) => cmd === command[cmdIndex])
+			const entry = group.entries.find(({ cmd }) => cmd === command[cmdIndex].toUpperCase())
 			if (entry) {
 				const chanLayer = chanLayerFromString(command[1])
 				result = await entry.fn(chanLayer, command.slice(cmdIndex == 2 ? 3 : 2))
