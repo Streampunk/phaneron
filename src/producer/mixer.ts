@@ -204,8 +204,6 @@ export class Mixer {
 
 		await this.transform?.init()
 		const numBytesRGBA = this.consumerFormat.width * this.consumerFormat.height * 4 * 4
-		const srcXscale = this.consumerFormat.squareWidth / srcFormat.squareWidth
-		const srcYscale = this.consumerFormat.squareHeight / srcFormat.squareHeight
 
 		const mixVidValve: Valve<OpenCLBuffer | RedioEnd, OpenCLBuffer | RedioEnd> = async (frame) => {
 			if (isValue(frame)) {
@@ -234,8 +232,8 @@ export class Mixer {
 						flipV: false,
 						anchorX: this.mixParams.anchor.x - 0.5,
 						anchorY: this.mixParams.anchor.y - 0.5,
-						scaleX: srcXscale * this.mixParams.fill.xScale,
-						scaleY: srcYscale * this.mixParams.fill.yScale,
+						scaleX: this.mixParams.fill.xScale,
+						scaleY: this.mixParams.fill.yScale,
 						rotate: -this.mixParams.rotation / 360.0,
 						offsetX: -this.mixParams.fill.xOffset,
 						offsetY: -this.mixParams.fill.yOffset,

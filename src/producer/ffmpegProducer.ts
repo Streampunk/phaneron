@@ -141,8 +141,14 @@ export class FFmpegProducer implements Producer {
 				s.discard = 'default'
 				videoStreams.push(s)
 				videoIndexes.push(s.index)
-				if (!videoDecoder)
-					videoDecoder = decoder({ demuxer: this.demuxer as Demuxer, stream_index: s.index })
+				if (!videoDecoder) {
+					videoDecoder = decoder({
+						demuxer: this.demuxer as Demuxer,
+						stream_index: s.index,
+						thread_count: 4,
+						thread_type: { FRAME: false, SLICE: true }
+					})
+				}
 			} else {
 				s.discard = 'all'
 			}
@@ -257,17 +263,17 @@ export class FFmpegProducer implements Producer {
 			}
 			squareHeight = height
 			const fieldOrder = vidStream.codecpar.field_order
-			if (vidStream.avg_frame_rate[0] / vidStream.avg_frame_rate[1] > 30) {
-				console.log(
-					'Stream field_order flag not set for framerate greater than 30fps - setting to progressive'
-				)
+			progressive = fieldOrder === 'progressive'
+			if (!progressive && vidStream.avg_frame_rate[0] / vidStream.avg_frame_rate[1] > 30) {
+				console.log('Framerate greater than 30fps - forcing to progressive')
 				progressive = true
-			} else progressive = fieldOrder === 'progressive'
+			}
 			vidTimescale = vidStream.avg_frame_rate[0] * (progressive ? 1 : 2)
 			vidDuration = vidStream.avg_frame_rate[1]
 
 			let filterOutputFormat = vidStream.codecpar.format
 			let readImpl: PackImpl
+			let needFilter = false // !!! needs more - eg fps mismatch?
 			switch (vidStream.codecpar.format) {
 				case 'yuv420p':
 					console.log('Using native yuv420p loader')
@@ -298,10 +304,12 @@ export class FFmpegProducer implements Producer {
 						console.log(`Non-native loader for ${vidStream.codecpar.format} - using yuv422p10`)
 						filterOutputFormat = 'yuv422p10le'
 						readImpl = new yuv422p10Reader(width, height)
+						needFilter = true
 					} else if (vidStream.codecpar.format.includes('rgb')) {
 						console.log(`Non-native loader for ${vidStream.codecpar.format} - using rgba8`)
 						filterOutputFormat = 'rgba'
 						readImpl = new rgba8Reader(width, height)
+						needFilter = true
 					} else
 						throw new Error(
 							`Unsupported video format '${vidStream.codecpar.format}' from FFmpeg decoder`
@@ -310,26 +318,27 @@ export class FFmpegProducer implements Producer {
 			toRGBA = new ToRGBA(this.clContext, '709', '709', readImpl, this.clJobs)
 			await toRGBA.init()
 			const chanTb = [this.consumerFormat.duration, this.consumerFormat.timescale]
-			vidFilterer = await filterer({
-				filterType: 'video',
-				inputParams: [
-					{
-						timeBase: vidStream.time_base,
-						width: width,
-						height: height,
-						pixelFormat: vidStream.codecpar.format,
-						pixelAspect: vidStream.codecpar.sample_aspect_ratio
-					}
-				],
-				outputParams: [
-					{
-						pixelFormat: filterOutputFormat
-					}
-				],
-				filterSpec: `fps=fps=${chanTb[1] / (progressive ? 1 : 2)}/${chanTb[0]}`
-			})
-			// console.log('\nFFmpeg producer video:\n', vidFilterer.graph.dump())
-
+			if (needFilter) {
+				vidFilterer = await filterer({
+					filterType: 'video',
+					inputParams: [
+						{
+							timeBase: vidStream.time_base,
+							width: width,
+							height: height,
+							pixelFormat: vidStream.codecpar.format,
+							pixelAspect: vidStream.codecpar.sample_aspect_ratio
+						}
+					],
+					outputParams: [
+						{
+							pixelFormat: filterOutputFormat
+						}
+					],
+					filterSpec: `fps=fps=${chanTb[1] / (progressive ? 1 : 2)}/${chanTb[0]}`
+				})
+				// console.log('\nFFmpeg producer video:\n', vidFilterer.graph.dump())
+			}
 			const tff = fieldOrder === 'unknown' || fieldOrder.split(', ', 2)[1] === 'top displayed first'
 			const yadifMode = progressive ? 'send_frame' : 'send_field'
 			yadif = new Yadif(
@@ -451,7 +460,8 @@ export class FFmpegProducer implements Producer {
 
 		const vidFilter: Valve<Frame | RedioEnd, Frame | RedioEnd> = async (decFrame) => {
 			if (isValue(decFrame)) {
-				if (!(this.running && vidFilterer)) return nil
+				if (!vidFilterer) return decFrame
+				if (!this.running) return nil
 				const ff = await vidFilterer.filter([decFrame])
 				if (!ff[0]) return nil
 				return ff[0].frames.length > 0 ? ff[0].frames : nil
