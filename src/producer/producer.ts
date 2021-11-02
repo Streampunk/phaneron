@@ -28,6 +28,12 @@ import { RouteProducerFactory } from './routeProducer'
 import { Mixer } from './mixer'
 import { RouteSource } from '../routeSource'
 
+export type ProducerConfig = {
+	ffmpeg: {
+		[key: string]: unknown
+	}
+}
+
 export interface Producer extends RouteSource {
 	initialise(): void
 	getMixer(): Mixer
@@ -36,7 +42,13 @@ export interface Producer extends RouteSource {
 }
 
 export interface ProducerFactory<T extends Producer> {
-	createProducer(id: number, params: LoadParams, clJobs: ClJobs, consumerFormat: VideoFormat): T
+	createProducer(
+		id: number,
+		params: LoadParams,
+		clJobs: ClJobs,
+		consumerFormat: VideoFormat,
+		config: ProducerConfig
+	): T
 }
 
 export class InvalidProducerError extends Error {
@@ -50,13 +62,15 @@ export class InvalidProducerError extends Error {
 
 export class ProducerRegistry {
 	private readonly producerFactories: ProducerFactory<Producer>[]
+	private readonly config: ProducerConfig
 	private producerID = 0
 
-	constructor(clContext: nodenCLContext) {
+	constructor(clContext: nodenCLContext, config: ProducerConfig) {
 		this.producerFactories = []
 		this.producerFactories.push(new MacadamProducerFactory(clContext))
 		this.producerFactories.push(new RouteProducerFactory(clContext))
 		this.producerFactories.push(new FFmpegProducerFactory(clContext))
+		this.config = config
 	}
 
 	async createSource(
@@ -67,7 +81,13 @@ export class ProducerRegistry {
 		let producerErr = ''
 		for (const f of this.producerFactories) {
 			try {
-				const producer = f.createProducer(this.producerID++, params, clJobs, consumerFormat)
+				const producer = f.createProducer(
+					this.producerID++,
+					params,
+					clJobs,
+					consumerFormat,
+					this.config
+				)
 				await producer.initialise()
 				return producer
 			} catch (err) {

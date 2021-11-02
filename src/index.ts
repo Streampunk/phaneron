@@ -27,7 +27,7 @@ import { Channel } from './channel'
 import { BasicCmds } from './AMCP/basicCmds'
 import { MixerCmds } from './AMCP/mixerCmds'
 import { ConsumerRegistry } from './consumer/consumer'
-import { ProducerRegistry } from './producer/producer'
+import { ProducerConfig, ProducerRegistry } from './producer/producer'
 import { ConsumerConfig, VideoFormats } from './config'
 import readline from 'readline'
 import { Osc, OscConfig } from './osc/osc'
@@ -36,6 +36,7 @@ import { Heads, HeadsConfig } from './heads/heads'
 class Config {
 	private readonly videoFormats: VideoFormats
 	readonly consumers: ConsumerConfig[]
+	readonly producerConfig: ProducerConfig
 	readonly oscConfig: OscConfig
 	readonly headsConfig: HeadsConfig
 
@@ -68,6 +69,15 @@ class Config {
 				]
 			}
 		]
+		this.producerConfig = {
+			ffmpeg: {
+				videoDecoder: {
+					hwaccel: 'auto',
+					thread_count: 4,
+					thread_type: { FRAME: false, SLICE: true }
+				}
+			}
+		}
 		this.oscConfig = {
 			serverPort: 9876,
 			clientPort: 9877,
@@ -128,12 +138,12 @@ export const channels: Channel[] = []
 
 initialiseOpenCL()
 	.then(async (clContext) => {
+		const config = new Config()
 		const consReg = new ConsumerRegistry(clContext)
-		const prodReg = new ProducerRegistry(clContext)
+		const prodReg = new ProducerRegistry(clContext, config.producerConfig)
 
 		const clProcessJobs = new ClProcessJobs(clContext)
 		const clJobs = clProcessJobs.getJobs()
-		const config = new Config()
 
 		let osc: Osc | undefined
 		if (config.oscConfig) osc = new Osc(config.oscConfig)

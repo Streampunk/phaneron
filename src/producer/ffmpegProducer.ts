@@ -18,7 +18,7 @@
   14 Ormiscaig, Aultbea, Achnasheen, IV22 2JJ  U.K.
 */
 
-import { ProducerFactory, Producer, InvalidProducerError } from './producer'
+import { ProducerFactory, Producer, InvalidProducerError, ProducerConfig } from './producer'
 import { clContext as nodenCLContext, OpenCLBuffer } from 'nodencl'
 import {
 	Demuxer,
@@ -32,11 +32,21 @@ import {
 	Frame,
 	frame
 } from 'beamcoder'
-import redio, { RedioPipe, nil, end, isValue, RedioEnd, Generator, Valve } from 'redioactive'
+import redio, {
+	RedioPipe,
+	nil,
+	end,
+	isValue,
+	RedioEnd,
+	Generator,
+	Valve,
+	RedioNil
+} from 'redioactive'
 import { ClJobs } from '../clJobQueue'
 import { LoadParams } from '../chanLayer'
 import { VideoFormat } from '../config'
 import { ToRGBA } from '../process/io'
+import { Reader as nv12Reader } from '../process/nv12'
 import { Reader as yuv422p10Reader } from '../process/yuv422p10'
 import { Reader as yuv422p8Reader } from '../process/yuv422p8'
 import { Reader as yuv420pReader } from '../process/yuv420p'
@@ -59,6 +69,7 @@ export class FFmpegProducer implements Producer {
 	private readonly clContext: nodenCLContext
 	private readonly clJobs: ClJobs
 	private readonly consumerFormat: VideoFormat
+	private readonly config: ProducerConfig
 	private readonly mixer: Mixer
 	private demuxer: Demuxer | null = null
 	private audSource: RedioPipe<Frame[] | RedioEnd> | undefined
@@ -72,13 +83,15 @@ export class FFmpegProducer implements Producer {
 		loadParams: LoadParams,
 		context: nodenCLContext,
 		clJobs: ClJobs,
-		consumerFormat: VideoFormat
+		consumerFormat: VideoFormat,
+		config: ProducerConfig
 	) {
 		this.sourceID = `P${id} FFmpeg ${loadParams.url} L${loadParams.layer}`
 		this.loadParams = loadParams
 		this.clContext = context
 		this.clJobs = clJobs
 		this.consumerFormat = consumerFormat
+		this.config = config
 		this.mixer = new Mixer(this.clContext, this.consumerFormat, this.clJobs)
 	}
 
@@ -142,12 +155,12 @@ export class FFmpegProducer implements Producer {
 				videoStreams.push(s)
 				videoIndexes.push(s.index)
 				if (!videoDecoder) {
-					videoDecoder = decoder({
-						demuxer: this.demuxer as Demuxer,
-						stream_index: s.index,
-						thread_count: 4,
-						thread_type: { FRAME: false, SLICE: true }
-					})
+					videoDecoder = decoder(
+						Object.assign(
+							{ demuxer: this.demuxer as Demuxer, stream_index: s.index },
+							this.config.ffmpeg.videoDecoder
+						)
+					)
 				}
 			} else {
 				s.discard = 'all'
@@ -271,74 +284,6 @@ export class FFmpegProducer implements Producer {
 			vidTimescale = vidStream.avg_frame_rate[0] * (progressive ? 1 : 2)
 			vidDuration = vidStream.avg_frame_rate[1]
 
-			let filterOutputFormat = vidStream.codecpar.format
-			let readImpl: PackImpl
-			let needFilter = false // !!! needs more - eg fps mismatch?
-			switch (vidStream.codecpar.format) {
-				case 'yuv420p':
-					console.log('Using native yuv420p loader')
-					readImpl = new yuv420pReader(width, height)
-					break
-				case 'yuv422p':
-					console.log('Using native yuv422p8 loader')
-					readImpl = new yuv422p8Reader(width, height)
-					break
-				case 'yuv422p10le':
-					console.log('Using native yuv422p10 loader')
-					readImpl = new yuv422p10Reader(width, height)
-					break
-				case 'v210':
-					console.log('Using native v210 loader')
-					readImpl = new v210Reader(width, height)
-					break
-				case 'rgba':
-					console.log('Using native rgba8 loader')
-					readImpl = new rgba8Reader(width, height)
-					break
-				case 'bgra':
-					console.log('Using native bgra8 loader')
-					readImpl = new bgra8Reader(width, height)
-					break
-				default:
-					if (vidStream.codecpar.format.includes('yuv')) {
-						console.log(`Non-native loader for ${vidStream.codecpar.format} - using yuv422p10`)
-						filterOutputFormat = 'yuv422p10le'
-						readImpl = new yuv422p10Reader(width, height)
-						needFilter = true
-					} else if (vidStream.codecpar.format.includes('rgb')) {
-						console.log(`Non-native loader for ${vidStream.codecpar.format} - using rgba8`)
-						filterOutputFormat = 'rgba'
-						readImpl = new rgba8Reader(width, height)
-						needFilter = true
-					} else
-						throw new Error(
-							`Unsupported video format '${vidStream.codecpar.format}' from FFmpeg decoder`
-						)
-			}
-			toRGBA = new ToRGBA(this.clContext, '709', '709', readImpl, this.clJobs)
-			await toRGBA.init()
-			const chanTb = [this.consumerFormat.duration, this.consumerFormat.timescale]
-			if (needFilter) {
-				vidFilterer = await filterer({
-					filterType: 'video',
-					inputParams: [
-						{
-							timeBase: vidStream.time_base,
-							width: width,
-							height: height,
-							pixelFormat: vidStream.codecpar.format,
-							pixelAspect: vidStream.codecpar.sample_aspect_ratio
-						}
-					],
-					outputParams: [
-						{
-							pixelFormat: filterOutputFormat
-						}
-					],
-					filterSpec: `fps=fps=${chanTb[1] / (progressive ? 1 : 2)}/${chanTb[0]}`
-				})
-				// console.log('\nFFmpeg producer video:\n', vidFilterer.graph.dump())
-			}
 			const tff = fieldOrder === 'unknown' || fieldOrder.split(', ', 2)[1] === 'top displayed first'
 			const yadifMode = progressive ? 'send_frame' : 'send_field'
 			yadif = new Yadif(
@@ -448,11 +393,97 @@ export class FFmpegProducer implements Producer {
 			}
 		}
 
+		const makevidLoader = async (format: string) => {
+			let filterOutputFormat = format
+			let readImpl: PackImpl
+			let needFilter = false // !!! needs more - eg fps mismatch?
+			switch (format) {
+				case 'nv12':
+					console.log('Using native nv12 loader')
+					readImpl = new nv12Reader(width, height)
+					break
+				case 'yuv420p':
+					console.log('Using native yuv420p loader')
+					readImpl = new yuv420pReader(width, height)
+					break
+				case 'yuv422p':
+					console.log('Using native yuv422p8 loader')
+					readImpl = new yuv422p8Reader(width, height)
+					break
+				case 'yuv422p10le':
+					console.log('Using native yuv422p10 loader')
+					readImpl = new yuv422p10Reader(width, height)
+					break
+				case 'v210':
+					console.log('Using native v210 loader')
+					readImpl = new v210Reader(width, height)
+					break
+				case 'rgba':
+					console.log('Using native rgba8 loader')
+					readImpl = new rgba8Reader(width, height)
+					break
+				case 'bgra':
+					console.log('Using native bgra8 loader')
+					readImpl = new bgra8Reader(width, height)
+					break
+				default:
+					if (vidStream.codecpar.format.includes('yuv')) {
+						console.log(`Non-native loader for ${vidStream.codecpar.format} - using yuv422p10`)
+						filterOutputFormat = 'yuv422p10le'
+						readImpl = new yuv422p10Reader(width, height)
+						needFilter = true
+					} else if (vidStream.codecpar.format.includes('rgb')) {
+						console.log(`Non-native loader for ${vidStream.codecpar.format} - using rgba8`)
+						filterOutputFormat = 'rgba'
+						readImpl = new rgba8Reader(width, height)
+						needFilter = true
+					} else
+						throw new Error(
+							`Unsupported video format '${vidStream.codecpar.format}' from FFmpeg decoder`
+						)
+			}
+			toRGBA = new ToRGBA(this.clContext, '709', '709', readImpl, this.clJobs)
+			await toRGBA.init()
+			const chanTb = [this.consumerFormat.duration, this.consumerFormat.timescale]
+			if (needFilter) {
+				vidFilterer = await filterer({
+					filterType: 'video',
+					inputParams: [
+						{
+							timeBase: vidStream.time_base,
+							width: width,
+							height: height,
+							pixelFormat: vidStream.codecpar.format,
+							pixelAspect: vidStream.codecpar.sample_aspect_ratio
+						}
+					],
+					outputParams: [
+						{
+							pixelFormat: filterOutputFormat
+						}
+					],
+					filterSpec: `fps=fps=${chanTb[1] / (progressive ? 1 : 2)}/${chanTb[0]}`
+				})
+				// console.log('\nFFmpeg producer video:\n', vidFilterer.graph.dump())
+			}
+		}
+
 		const vidDecode: Valve<Packet[] | RedioEnd, Frame | RedioEnd> = async (packets) => {
 			if (isValue(packets)) {
 				if (!(this.running && videoDecoder)) return nil
+
+				let result: Frame[] | RedioNil = nil
 				const frm = await videoDecoder.decode(packets)
-				return frm.frames.length > 0 ? frm.frames : nil
+				if (frm.frames.length > 0) {
+					if (!toRGBA) {
+						const decodedFormat = videoDecoder.sw_pix_fmt
+							? videoDecoder.sw_pix_fmt
+							: vidStream.codecpar.format
+						await makevidLoader(decodedFormat)
+					}
+					result = frm.frames
+				}
+				return result
 			} else {
 				return packets
 			}
@@ -637,8 +668,9 @@ export class FFmpegProducerFactory implements ProducerFactory<FFmpegProducer> {
 		id: number,
 		loadParams: LoadParams,
 		clJobs: ClJobs,
-		consumerFormat: VideoFormat
+		consumerFormat: VideoFormat,
+		config: ProducerConfig
 	): FFmpegProducer {
-		return new FFmpegProducer(id, loadParams, this.clContext, clJobs, consumerFormat)
+		return new FFmpegProducer(id, loadParams, this.clContext, clJobs, consumerFormat, config)
 	}
 }
