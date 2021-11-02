@@ -168,9 +168,10 @@ export class FFmpegProducer implements Producer {
 		})
 
 		const primaryIndex = videoIndexes.length ? videoIndexes[0] : audioIndexes[0]
-		if (this.loadParams.seek)
-			await this.demuxer.seek({ stream_index: primaryIndex, frame: this.loadParams.seek })
-		const maxFrame = this.loadParams.length ? this.loadParams.length : 0
+		const start = this.loadParams.seek ? this.loadParams.seek : 0
+		if (start > 0) await this.demuxer.seek({ stream_index: primaryIndex, frame: start })
+		const maxFrame = this.loadParams.length ? this.loadParams.length : Number.MAX_SAFE_INTEGER
+		const loop = this.loadParams.loop ? this.loadParams.loop : false
 
 		let silentFrame: Frame | null = null
 		let audFilterer: Filterer | null = null
@@ -323,10 +324,18 @@ export class FFmpegProducer implements Producer {
 			Buffer.from(blackFloat.buffer).copy(black)
 		}
 
+		let packetFrame = 0
 		const demux: Generator<Packet | RedioEnd> = async () => {
 			let packet: Packet | RedioEnd = end
 			if (this.demuxer && this.running) {
 				packet = await this.demuxer.read()
+				if (packet && packet.stream_index === primaryIndex) {
+					packetFrame++
+					if (loop && packetFrame === maxFrame) {
+						await this.demuxer.seek({ stream_index: primaryIndex, frame: start })
+						packetFrame = 0
+					}
+				}
 			} else {
 				this.demuxer = null
 			}
@@ -551,7 +560,7 @@ export class FFmpegProducer implements Producer {
 				const yadifDests: OpenCLBuffer[] = []
 				await yadif?.processFrame(frame, yadifDests, this.sourceID)
 
-				if (maxFrame && maxFrame === curFrame) this.release()
+				if (!loop && maxFrame === curFrame) this.release()
 				curFrame += yadifDests.length
 
 				yadifDests.forEach((d) => {
@@ -571,7 +580,7 @@ export class FFmpegProducer implements Producer {
 		const blackPipe: RedioPipe<OpenCLBuffer | RedioEnd> = redio(
 			async () => {
 				if (this.running) {
-					if (maxFrame && maxFrame === blackCurFrame) this.release()
+					if (!loop && maxFrame === blackCurFrame) this.release()
 					if (black) black.timestamp = blackCurFrame
 					blackCurFrame++
 					black?.addRef()

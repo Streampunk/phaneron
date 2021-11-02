@@ -85,7 +85,7 @@ export class BasicCmds implements CmdList {
 		const seek = seekIndex < 0 ? 0 : +params[seekIndex + 1]
 
 		const lengthIndex = params.findIndex((param) => param.toUpperCase() === 'LENGTH')
-		const length = seekIndex < 0 ? 0 : +params[lengthIndex + 1]
+		const length = lengthIndex < 0 ? 0 : +params[lengthIndex + 1]
 
 		const loadParams: LoadParams = {
 			url: url,
