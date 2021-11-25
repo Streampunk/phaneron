@@ -16,7 +16,7 @@
   },
   "dependencies": {
     "@koa/cors": "3",
-    "beamcoder": "^0.6.11",
+    "beamcoder": "^0.6.12",
     "koa": "^2.13.0",
     "macadam": "^2.0.14",
     "naudiodon": "^2.3.4",
