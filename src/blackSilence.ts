@@ -132,16 +132,15 @@ export class Black {
 		}
 		await black.hostAccess('writeonly')
 		Buffer.from(blackFloat.buffer).copy(black)
-		black.addRef()
 
 		const blackPipe: RedioPipe<OpenCLBuffer | RedioEnd> = redio(
 			() => {
 				if (this.running) {
+					black?.addRef()
 					return black
 				} else {
 					if (black) {
-						black?.release()
-						black?.release()
+						black.release()
 						black = null
 					}
 					return end

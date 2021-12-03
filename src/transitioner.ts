@@ -19,7 +19,7 @@
 */
 
 import { clContext as nodenCLContext, KernelParams } from 'nodencl'
-import { RedioPipe, RedioEnd, isValue, Valve, nil, isEnd, RedioNil } from 'redioactive'
+import { RedioPipe, RedioEnd, isValue, Valve, nil, isEnd, RedioNil, end } from 'redioactive'
 import { OpenCLBuffer } from 'nodencl'
 import { AudioInputParam, filterer, Filterer, Frame } from 'beamcoder'
 import { VideoFormat } from './config'
@@ -38,6 +38,7 @@ export class Transitioner {
 	private readonly consumerFormat: VideoFormat
 	private readonly clJobs: ClJobs
 	private readonly endEvent: EventEmitter
+	private readonly layerUpdate: (ts: number[]) => void
 	private silence: Silence | null
 	private black: Black | null
 	private audType: string
@@ -53,8 +54,6 @@ export class Transitioner {
 	private readonly audSourcePipes: RedioPipe<Frame | RedioEnd>[] = []
 	private readonly vidSourcePipes: RedioPipe<OpenCLBuffer | RedioEnd>[] = []
 	private updating = true
-	// eslint-disable-next-line @typescript-eslint/no-empty-function
-	private layerUpdate: (ts: number[]) => void = () => {}
 
 	constructor(
 		clContext: nodenCLContext,
@@ -126,81 +125,81 @@ export class Transitioner {
 			[OpenCLBuffer | RedioEnd, ...(OpenCLBuffer | RedioEnd)[]],
 			OpenCLBuffer | RedioEnd
 		> = async (frames) => {
-			if (isValue(frames)) {
+			let transitionResult: OpenCLBuffer | RedioEnd = end
+			if (isValue(frames) && isValue(frames[0])) {
 				const srcFrames = frames.slice(1)
+				const numSrcs = srcFrames.length
 
-				// eslint-disable-next-line prettier/prettier
 				this.layerUpdate(srcFrames.map((f) => (isValue(f) ? f.timestamp : this.updating ? 0 : -1)))
 
-				if (srcFrames.length === 0) {
-					if (isValue(frames[0])) frames[0].addRef()
-					return frames[0]
-				}
-
-				if (this.vidType !== this.nextType && srcFrames.length === this.vidSourcePipes.length) {
-					this.vidType = this.nextType
-					this.numFrames = this.nextNumFrames
-					this.curFrame = 0
-					await this.makeVidTransition()
-				}
-
-				let transitionResult = srcFrames[0]
-				if (srcFrames.reduce((acc, f) => acc && isValue(f), true)) {
-					this.updating = false
-					if (srcFrames.length === 1) {
-						if (isValue(transitionResult)) transitionResult.addRef()
-					} else {
-						const transitionDest = await this.clContext.createBuffer(
-							this.consumerFormat.width * this.consumerFormat.height * 4 * 4,
-							'readwrite',
-							'coarse',
-							{
-								width: this.consumerFormat.width,
-								height: this.consumerFormat.height
-							},
-							'transition'
-						)
-
-						const timestamp = (srcFrames[1] as OpenCLBuffer).timestamp
-						// transitionDest.loadstamp = Math.min(...srcFrames.map((f) => f.loadstamp))
-						transitionDest.timestamp = timestamp
-
-						const params: KernelParams = {
-							inputs: srcFrames.slice(0, 2),
-							output: transitionDest
-						}
-						if (srcFrames.length === 2) {
-							params.mix = this.numFrames > 0 ? 1.0 - this.curFrame / this.numFrames : 0.0
-						} else {
-							params.mask = srcFrames[2]
-						}
-
-						this.curFrame++
-						await this.vidTransition?.run(
-							params,
-							{ source: this.layerID, timestamp: timestamp },
-							// eslint-disable-next-line @typescript-eslint/no-empty-function
-							() => {}
-						)
-						await this.clJobs.runQueue({ source: this.layerID, timestamp: timestamp })
-						transitionResult = transitionDest
-					}
-				} else {
-					transitionResult =
-						srcFrames.length > 1 && isValue(srcFrames[1]) ? srcFrames[1] : srcFrames[0]
-					if (isValue(transitionResult)) transitionResult.addRef()
-				}
-
-				srcFrames.forEach((f) => (isValue(f) ? f.release() : {}))
-				if (isEnd(transitionResult)) {
+				if (numSrcs === 0) {
 					transitionResult = frames[0]
-					if (isValue(transitionResult)) transitionResult.addRef()
+					transitionResult.addRef()
+				} else {
+					if (this.vidType !== this.nextType && numSrcs === this.vidSourcePipes.length) {
+						this.vidType = this.nextType
+						this.numFrames = this.nextNumFrames
+						this.curFrame = 0
+						await this.makeVidTransition()
+					}
+
+					if (srcFrames.reduce((acc, f) => acc && isValue(f), true)) {
+						this.updating = false
+						if (numSrcs === 1) {
+							transitionResult = srcFrames[0] as OpenCLBuffer
+							transitionResult.addRef()
+						} else {
+							const transitionDest = await this.clContext.createBuffer(
+								this.consumerFormat.width * this.consumerFormat.height * 4 * 4,
+								'readwrite',
+								'coarse',
+								{
+									width: this.consumerFormat.width,
+									height: this.consumerFormat.height
+								},
+								'transition'
+							)
+
+							const timestamp = (srcFrames[1] as OpenCLBuffer).timestamp
+							// transitionDest.loadstamp = Math.min(...srcFrames.map((f) => f.loadstamp))
+							transitionDest.timestamp = timestamp
+
+							const params: KernelParams = {
+								inputs: srcFrames.slice(0, 2),
+								output: transitionDest
+							}
+							if (numSrcs === 2) {
+								params.mix = this.numFrames > 0 ? 1.0 - this.curFrame / this.numFrames : 0.0
+							} else {
+								params.mask = srcFrames[2]
+							}
+
+							this.curFrame++
+							await this.vidTransition?.run(
+								params,
+								{ source: this.layerID, timestamp: timestamp },
+								// eslint-disable-next-line @typescript-eslint/no-empty-function
+								() => {}
+							)
+							await this.clJobs.runQueue({ source: this.layerID, timestamp: timestamp })
+							transitionResult = transitionDest
+						}
+					} else {
+						transitionResult = numSrcs > 1 && isValue(srcFrames[1]) ? srcFrames[1] : srcFrames[0]
+						if (isValue(transitionResult)) transitionResult.addRef()
+					}
+
+					if (isEnd(transitionResult)) {
+						transitionResult = frames[0]
+						if (isValue(transitionResult)) transitionResult.addRef()
+					}
 				}
-				return transitionResult
+				frames.forEach((f) => (isValue(f) ? f.release() : {}))
 			} else {
 				this.layerUpdate([])
-				return frames
 			}
+
+			return transitionResult
 		}
 
 		this.audioPipe = silencePipe

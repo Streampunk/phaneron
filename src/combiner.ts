@@ -202,11 +202,11 @@ export class Combiner implements RouteSource {
 			[OpenCLBuffer | RedioEnd, ...(OpenCLBuffer | RedioEnd)[]],
 			OpenCLBuffer | RedioEnd
 		> = async (frames) => {
-			if (isValue(frames)) {
-				const numLayers = frames.length - 1
-				const layerFrames = frames.slice(1) as OpenCLBuffer[]
+			let result: OpenCLBuffer | RedioEnd = end
+			if (isValue(frames) && isValue(frames[0])) {
+				const layerFrames = frames.slice(1)
+				const numLayers = layerFrames.length
 
-				if (!isValue(frames[0])) return end
 				const timestamp = this.vidTimestamp++
 
 				const numCombineLayers = numLayers < 2 ? 0 : numLayers
@@ -216,18 +216,16 @@ export class Combiner implements RouteSource {
 				}
 
 				if (numLayers === 0) {
-					for (let d = 0; d < this.numConsumers + this.numForks; ++d) frames[0].addRef()
 					frames[0].timestamp = timestamp
-					return frames[0]
+					frames[0].addRef()
+					result = frames[0]
 				} else if (numLayers === 1) {
 					if (!isEnd(frames[1])) {
 						frames[1].timestamp = timestamp
-						for (let d = 1; d < this.numConsumers + this.numForks; ++d) frames[1].addRef()
+						frames[1].addRef()
 					}
-					return frames[1]
-				}
-
-				if (frames.reduce((acc, f) => acc && isValue(f), true)) {
+					result = frames[1]
+				} else if (layerFrames.reduce((acc, f) => acc && isValue(f), true)) {
 					const combineDest = await this.clContext.createBuffer(
 						this.consumerFormat.width * this.consumerFormat.height * 4 * 4,
 						'readwrite',
@@ -240,7 +238,6 @@ export class Combiner implements RouteSource {
 					)
 					// combineDest.loadstamp = Math.min(...layerFrames.map((f) => f.loadstamp))
 					combineDest.timestamp = timestamp
-					for (let d = 1; d < this.numConsumers + this.numForks; ++d) combineDest.addRef()
 
 					await this.vidCombiner?.run(
 						{
@@ -248,21 +245,25 @@ export class Combiner implements RouteSource {
 							output: combineDest
 						},
 						{ source: this.chanID, timestamp: timestamp },
-						() => layerFrames.forEach((f) => f.release())
+						// eslint-disable-next-line @typescript-eslint/no-empty-function
+						() => {}
 					)
 					await this.clJobs.runQueue({ source: this.chanID, timestamp: timestamp })
-					return combineDest
-				} else {
-					return end
+					result = combineDest
 				}
+
+				if (isValue(result))
+					for (let d = 1; d < this.numConsumers + this.numForks; ++d) result.addRef()
+				frames.forEach((f) => (isValue(f) ? f.release() : {}))
 			} else {
 				if (this.vidCombiner) {
 					this.clJobs.clearQueue(this.chanID)
 					black.release()
 					this.vidCombiner = undefined
 				}
-				return frames
 			}
+
+			return result
 		}
 
 		this.audioPipe = silencePipe
