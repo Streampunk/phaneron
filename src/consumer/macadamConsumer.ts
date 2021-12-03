@@ -76,6 +76,8 @@ export class MacadamConsumer implements Consumer {
 	private readonly audioTimebase: number[]
 	private readonly videoTimebase: number[]
 	private audFilterer: Filterer | null = null
+	private combineAudio: RedioPipe<Frame | RedioEnd> | undefined
+	private combineVideo: RedioPipe<OpenCLBuffer | RedioEnd> | undefined
 
 	constructor(
 		context: nodenCLContext,
@@ -194,10 +196,16 @@ export class MacadamConsumer implements Consumer {
 		)
 	}
 
+	deviceConfig(): DeviceConfig {
+		return this.device
+	}
+
 	connect(
 		combineAudio: RedioPipe<Frame | RedioEnd>,
 		combineVideo: RedioPipe<OpenCLBuffer | RedioEnd>
 	): void {
+		this.combineAudio = combineAudio
+		this.combineVideo = combineVideo
 		this.vidField = 0
 
 		const audFilter: Valve<Frame | RedioEnd, AudioBuffer | RedioEnd> = async (frame) => {
@@ -284,11 +292,18 @@ export class MacadamConsumer implements Consumer {
 			}
 		}
 
-		combineVideo
+		this.combineVideo
 			.valve(vidProcess)
 			.valve(vidSaver)
-			.zip(combineAudio.valve(audFilter, { oneToMany: true }))
+			.zip(this.combineAudio.valve(audFilter, { oneToMany: true }))
 			.spout(macadamSpout)
+	}
+
+	release(audio: RedioPipe<Frame | RedioEnd>, video: RedioPipe<OpenCLBuffer | RedioEnd>): void {
+		if (this.combineAudio !== undefined && this.combineVideo !== undefined) {
+			audio.unfork(this.combineAudio)
+			video.unfork(this.combineVideo)
+		}
 	}
 }
 

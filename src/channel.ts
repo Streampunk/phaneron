@@ -83,22 +83,15 @@ export class Channel {
 
 	addConsumer(consumer: Consumer): void {
 		if (!this.consumers.find((c) => c === consumer)) this.consumers.push(consumer)
-
-		const combinerAudio = this.combiner.getAudioPipe()
-		const combinerVideo = this.combiner.getVideoPipe()
-		if (!(combinerAudio !== undefined && combinerVideo !== undefined)) {
-			throw new Error('Failed to get combiner connection pipes')
-		}
-		consumer.connect(combinerAudio.fork(), combinerVideo.fork())
-		this.combiner.addConsumer()
+		this.combiner.connect(consumer)
 	}
 
 	removeConsumer(consumer: Consumer): void {
 		if (!this.consumers.some((c) => c === consumer))
 			throw new Error('remove consumer - consumer not found')
 		const i = this.consumers.indexOf(consumer)
-		this.consumers.splice(i, i + 1) // should be consumer.destroy()
-		this.combiner.removeConsumer()
+		this.consumers.splice(i, 1)
+		this.combiner.release(consumer)
 	}
 
 	updateLayers(): void {
@@ -123,7 +116,7 @@ export class Channel {
 					const aid = audPipe.fittingId
 					const curLayer = curLayers.find((cl) => aid === cl.getAudioPipe().fittingId)
 					if (curLayer) newLayers.push(curLayer)
-					else newLayers.push(new CombineLayer(layer, audPipe, vidPipe))
+					newLayers.push(new CombineLayer(layer, audPipe, vidPipe))
 				}
 			}
 		})

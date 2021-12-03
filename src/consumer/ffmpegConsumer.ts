@@ -47,6 +47,8 @@ export class FFmpegConsumer implements Consumer {
 	private audFilterer: Filterer | undefined
 	private muxer: Muxer
 	private encoder: Encoder
+	private combineAudio: RedioPipe<Frame | RedioEnd> | undefined
+	private combineVideo: RedioPipe<OpenCLBuffer | RedioEnd> | undefined
 
 	constructor(
 		context: nodenCLContext,
@@ -154,10 +156,17 @@ export class FFmpegConsumer implements Consumer {
 		return Promise.resolve()
 	}
 
+	deviceConfig(): DeviceConfig {
+		return this.device
+	}
+
 	connect(
 		combineAudio: RedioPipe<Frame | RedioEnd>,
 		combineVideo: RedioPipe<OpenCLBuffer | RedioEnd>
 	): void {
+		this.combineAudio = combineAudio
+		this.combineVideo = combineVideo
+
 		const audFilter: Valve<Frame | RedioEnd, AudioBuffer | RedioEnd> = async (frame) => {
 			if (isValue(frame)) {
 				const audFilt = this.audFilterer as Filterer
@@ -244,12 +253,19 @@ export class FFmpegConsumer implements Consumer {
 			}
 		}
 
-		combineVideo
+		this.combineVideo
 			.valve(vidProcess)
 			.valve(vidSaver)
 			.valve(vidEncode, { oneToMany: true })
-			.zip(combineAudio.valve(audFilter, { oneToMany: true }))
+			.zip(this.combineAudio.valve(audFilter, { oneToMany: true }))
 			.spout(ffmpegSpout)
+	}
+
+	release(audio: RedioPipe<Frame | RedioEnd>, video: RedioPipe<OpenCLBuffer | RedioEnd>): void {
+		if (this.combineAudio !== undefined && this.combineVideo !== undefined) {
+			audio.unfork(this.combineAudio)
+			video.unfork(this.combineVideo)
+		}
 	}
 }
 

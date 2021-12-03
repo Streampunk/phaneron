@@ -30,7 +30,15 @@ import { ClJobs } from '../clJobQueue'
 
 export interface Consumer {
 	initialise(): Promise<void>
-	connect(mixAudio: RedioPipe<Frame | RedioEnd>, mixVideo: RedioPipe<OpenCLBuffer | RedioEnd>): void
+	deviceConfig(): DeviceConfig
+	connect(
+		combineAudio: RedioPipe<Frame | RedioEnd>,
+		combineVideo: RedioPipe<OpenCLBuffer | RedioEnd>
+	): void
+	release(
+		combineAudio: RedioPipe<Frame | RedioEnd>,
+		combineVideo: RedioPipe<OpenCLBuffer | RedioEnd>
+	): void
 }
 
 export interface ConsumerFactory<T extends Consumer> {
@@ -48,7 +56,7 @@ export class ConsumerRegistry {
 	private readonly consumers: Map<number, Consumer>
 	private readonly chanIDs: Map<number, string>
 	private readonly formats: Map<number, VideoFormat>
-	private consumerIndex = 0
+	private consumerIndex = 1
 
 	constructor(clContext: nodenCLContext) {
 		this.consumerFactories = new Map()
@@ -71,7 +79,8 @@ export class ConsumerRegistry {
 			throw new Error(
 				`${device.name} consumer device ${device.deviceIndex} consumerIndex ${consumerIndex} is already registered`
 			)
-		if (consumerIndex === -1) consumerIndex = this.consumerIndex++
+		if (consumerIndex === 0) consumerIndex = ++this.consumerIndex
+		else this.consumerIndex = consumerIndex
 
 		const factory = this.consumerFactories.get(device.name.toLowerCase())
 		if (!factory) throw new Error(`device name '${device.name}' not recognised`)
@@ -95,23 +104,39 @@ export class ConsumerRegistry {
 
 	removeConsumer(
 		chanNum: number,
-		_channel: Channel,
+		channel: Channel,
 		consumerIndex: number,
-		params: ConfigParams
+		device: DeviceConfig
 	): void {
 		const chanID = this.chanIDs.get(chanNum)
-		if (!chanID)
-			throw new Error(`Failed to remove consumer from channel ${chanNum} - channel not found`)
+		if (!chanID) throw new Error(`channel not found`)
 
-		const consumer = this.consumers.get(consumerIndex)
-		if (consumer) {
-			// channel.removeConsumer(consumer)
-			// this.consumers.delete(consumerIndex)
-			throw new Error(`Remove consumer not implemented`)
-		} else if (Object.keys(params).length > 0) {
-			console.log('Remove consumer with options', params)
-			throw new Error(`Remove consumer by matching params not implemented`)
-		} else throw new Error(`Failed to remove consumer - no consumerIndex and no parameters`)
+		let consumer: Consumer | undefined = undefined
+		if (consumerIndex === 0) {
+			if (device.name != '') {
+				console.log('Remove consumer with device', device)
+				this.consumers.forEach((c, i) => {
+					const config = c.deviceConfig()
+					if (
+						!consumerIndex &&
+						config.name === device.name &&
+						config.deviceIndex === device.deviceIndex
+					) {
+						consumer = c
+						consumerIndex = i
+					}
+				})
+				if (!consumer) throw new Error(`cannot find consumer with device ${device}`)
+			} else throw new Error(`no consumerIndex and no parameters`)
+		} else {
+			consumer = this.consumers.get(consumerIndex)
+			if (!consumer) throw new Error(`consumer index ${consumerIndex} not found`)
+		}
+
+		if (consumerIndex && consumer) {
+			channel.removeConsumer(consumer)
+			this.consumers.delete(consumerIndex)
+		} else throw new Error(`consumerIndex ${consumerIndex} and device ${device}`)
 	}
 
 	createConsumers(

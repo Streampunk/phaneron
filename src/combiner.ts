@@ -30,6 +30,7 @@ import ImageProcess from './process/imageProcess'
 import Combine from './process/combine'
 import { Silence, Black } from './blackSilence'
 import { SourcePipes, RouteSource } from './routeSource'
+import { Consumer } from './consumer/consumer'
 
 export class CombineLayer {
 	private readonly audioPipe: RedioPipe<Frame | RedioEnd>
@@ -198,6 +199,7 @@ export class Combiner implements RouteSource {
 			}
 		}
 
+		// let lastTime: [number, number] = [0, 0]
 		const combineVidValve: Valve<
 			[OpenCLBuffer | RedioEnd, ...(OpenCLBuffer | RedioEnd)[]],
 			OpenCLBuffer | RedioEnd
@@ -336,11 +338,19 @@ export class Combiner implements RouteSource {
 		})
 	}
 
-	addConsumer(): void {
+	connect(consumer: Consumer): void {
+		if (!(this.audioPipe !== undefined && this.videoPipe !== undefined)) {
+			throw new Error('Failed to get combiner connection pipes')
+		}
+		consumer.connect(this.audioPipe.fork(), this.videoPipe.fork())
 		this.numConsumers++
 	}
 
-	removeConsumer(): void {
+	release(consumer: Consumer): void {
+		if (!(this.audioPipe !== undefined && this.videoPipe !== undefined)) {
+			throw new Error('Failed to get combiner connection pipes')
+		}
+		consumer.release(this.audioPipe, this.videoPipe)
 		this.numConsumers--
 	}
 
@@ -400,8 +410,8 @@ export class Combiner implements RouteSource {
 
 		if (!this.audRoutePipe) throw new Error(`Combiner failed to create audio filter for route`)
 		return {
-			audio: this.audRoutePipe.fork(),
-			video: this.videoPipe.fork(),
+			audio: this.audRoutePipe,
+			video: this.videoPipe,
 			format: this.consumerFormat,
 			release: () => this.numForks--
 		}

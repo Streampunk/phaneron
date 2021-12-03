@@ -40,6 +40,7 @@ export class ScreenConsumer implements Consumer {
 	private readonly chanID: string
 	private readonly params: ConfigParams
 	private readonly format: VideoFormat
+	private readonly device: DeviceConfig
 	private readonly clJobs: ClJobs
 	private fromRGBA: FromRGBA | undefined
 	private readonly audioOutChannels: number
@@ -49,18 +50,22 @@ export class ScreenConsumer implements Consumer {
 	private audFilterer: Filterer | undefined
 	private readonly kapp: Koa<Koa.DefaultState, Koa.DefaultContext>
 	private readonly lastWeb: Buffer
+	private combineAudio: RedioPipe<Frame | RedioEnd> | undefined
+	private combineVideo: RedioPipe<OpenCLBuffer | RedioEnd> | undefined
 
 	constructor(
 		context: nodenCLContext,
 		chanID: string,
 		params: ConfigParams,
 		format: VideoFormat,
+		device: DeviceConfig,
 		clJobs: ClJobs
 	) {
 		this.clContext = context
 		this.chanID = `${chanID} screen`
 		this.params = params
 		this.format = format
+		this.device = device
 		this.clJobs = clJobs
 		this.audioOutChannels = 2
 		this.audioTimebase = [1, this.format.audioSampleRate]
@@ -132,10 +137,17 @@ export class ScreenConsumer implements Consumer {
 		return Promise.resolve()
 	}
 
+	deviceConfig(): DeviceConfig {
+		return this.device
+	}
+
 	connect(
 		combineAudio: RedioPipe<Frame | RedioEnd>,
 		combineVideo: RedioPipe<OpenCLBuffer | RedioEnd>
 	): void {
+		this.combineAudio = combineAudio
+		this.combineVideo = combineVideo
+
 		const audFilter: Valve<Frame | RedioEnd, AudioBuffer | RedioEnd> = async (frame) => {
 			if (isValue(frame)) {
 				const audFilt = this.audFilterer as Filterer
@@ -221,11 +233,18 @@ export class ScreenConsumer implements Consumer {
 
 		this.audioOut.start()
 
-		combineVideo
+		this.combineVideo
 			.valve(vidProcess)
 			.valve(vidSaver)
-			.zip(combineAudio.valve(audFilter, { oneToMany: true }))
+			.zip(this.combineAudio.valve(audFilter, { oneToMany: true }))
 			.spout(screenSpout)
+	}
+
+	release(audio: RedioPipe<Frame | RedioEnd>, video: RedioPipe<OpenCLBuffer | RedioEnd>): void {
+		if (this.combineAudio !== undefined && this.combineVideo !== undefined) {
+			audio.unfork(this.combineAudio)
+			video.unfork(this.combineVideo)
+		}
 	}
 }
 
@@ -240,10 +259,10 @@ export class ScreenConsumerFactory implements ConsumerFactory<ScreenConsumer> {
 		chanID: string,
 		params: ConfigParams,
 		format: VideoFormat,
-		_device: DeviceConfig,
+		device: DeviceConfig,
 		clJobs: ClJobs
 	): ScreenConsumer {
-		const consumer = new ScreenConsumer(this.clContext, chanID, params, format, clJobs)
+		const consumer = new ScreenConsumer(this.clContext, chanID, params, format, device, clJobs)
 		return consumer
 	}
 }

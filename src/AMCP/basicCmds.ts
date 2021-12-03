@@ -193,7 +193,7 @@ export class BasicCmds implements CmdList {
 		if (params.length === 0) return Promise.resolve(false)
 		let consumerName = params[0].toLowerCase()
 		if (consumerName === 'file' || consumerName === 'stream') consumerName = 'ffmpeg'
-		const consumerIndex = chanLay.layer ? chanLay.layer : -1
+		const consumerIndex = chanLay.layer ? chanLay.layer : 0
 		const deviceIndex = +params[1] || 0
 
 		try {
@@ -222,15 +222,20 @@ export class BasicCmds implements CmdList {
 		if (!chanLay.valid) return Promise.resolve(false)
 		const channel = this.channels[chanLay.channel - 1]
 		if (!channel) return Promise.resolve(false)
-		const consumerIndex = chanLay.layer ? chanLay.layer : -1
+		let consumerName = ''
+		let deviceIndex = 0
+		if (params.length > 0) {
+			consumerName = params[0].toLowerCase()
+			if (consumerName === 'file' || consumerName === 'stream') consumerName = 'ffmpeg'
+			deviceIndex = +params[1] || 0
+		}
+		const consumerIndex = chanLay.layer ? chanLay.layer : 0
 
 		try {
-			this.consumerRegistry.removeConsumer(
-				chanLay.channel,
-				channel,
-				consumerIndex,
-				this.parseParams(params)
-			)
+			this.consumerRegistry.removeConsumer(chanLay.channel, channel, consumerIndex, {
+				name: consumerName,
+				deviceIndex: deviceIndex
+			})
 		} catch (err) {
 			console.log(
 				`Error removing consumer from configured channel ${chanLay.channel}: ${
@@ -240,6 +245,6 @@ export class BasicCmds implements CmdList {
 			return Promise.resolve(false)
 		}
 
-		return Promise.resolve(false)
+		return Promise.resolve(true)
 	}
 }
