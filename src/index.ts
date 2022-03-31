@@ -72,7 +72,7 @@ class Config {
 		this.producerConfig = {
 			ffmpeg: {
 				videoDecoder: {
-					hwaccel: 'auto',
+					hwaccel: false,
 					thread_count: 4,
 					thread_type: { FRAME: false, SLICE: true }
 				}
