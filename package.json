@@ -1,6 +1,6 @@
 {
   "name": "phaneron",
-  "version": "0.0.14",
+  "version": "0.0.15",
   "description": "Clustered, accelerated and cloud-fit video server, pre-assembled and in kit form.",
   "main": "dist/index.js",
   "repository": "https://github.com/Streampunk/phaneron.git",
@@ -16,13 +16,13 @@
   },
   "dependencies": {
     "@koa/cors": "3",
-    "beamcoder": "^0.6.15",
-    "koa": "^2.13.0",
-    "macadam": "^2.0.16",
-    "naudiodon": "^2.3.5",
-    "nodencl": "^1.4.1",
-    "redioactive": "0.0.18",
-    "ts-osc": "^0.3.1"
+    "beamcoder": "^0.7.1",
+    "koa": "^2.13.4",
+    "macadam": "^2.0.18",
+    "naudiodon": "^2.3.6",
+    "nodencl": "^1.4.2",
+    "redioactive": "0.0.19",
+    "ts-osc": "^0.3.2"
   },
   "devDependencies": {
     "@types/koa": "2.13.3",
@@ -30,12 +30,12 @@
     "@types/node": "^16.11.6",
     "@typescript-eslint/eslint-plugin": "^5.3.0",
     "@typescript-eslint/parser": "^5.3.0",
-    "eslint": "^8.1.0",
-    "eslint-config-prettier": "^8.3.0",
+    "eslint": "^8.12.0",
+    "eslint-config-prettier": "^8.5.0",
     "eslint-plugin-prettier": "^4.0.0",
-    "prettier": "^2.4.1",
-    "trash-cli": "^4.0.0",
-    "ts-node": "^10.4.0",
-    "typescript": "^4.4.4"
+    "prettier": "^2.6.1",
+    "trash-cli": "^5.0.0",
+    "ts-node": "^10.7.0",
+    "typescript": "^4.6.3"
   }
 }
