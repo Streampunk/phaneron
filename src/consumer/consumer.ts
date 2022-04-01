@@ -56,7 +56,7 @@ export class ConsumerRegistry {
 	private readonly consumers: Map<number, Consumer>
 	private readonly chanIDs: Map<number, string>
 	private readonly formats: Map<number, VideoFormat>
-	private consumerIndex = 1
+	private consumerIndex = 0
 
 	constructor(clContext: nodenCLContext) {
 		this.consumerFactories = new Map()
@@ -79,8 +79,13 @@ export class ConsumerRegistry {
 			throw new Error(
 				`${device.name} consumer device ${device.deviceIndex} consumerIndex ${consumerIndex} is already registered`
 			)
-		if (consumerIndex === 0) consumerIndex = ++this.consumerIndex
-		else this.consumerIndex = consumerIndex
+
+		if (consumerIndex === 0) {
+			const indexes: number[] = []
+			// find the next available map index
+			this.consumers.forEach((_consumer, index) => indexes.push(index))
+			consumerIndex = indexes.reduce((prev, cur) => (cur > prev ? cur : prev), 1) + 1
+		}
 
 		const factory = this.consumerFactories.get(device.name.toLowerCase())
 		if (!factory) throw new Error(`device name '${device.name}' not recognised`)
@@ -149,7 +154,7 @@ export class ConsumerRegistry {
 		this.formats.set(chanNum, config.format)
 
 		return config.devices.map((device) =>
-			this.createConsumer(chanNum, this.consumerIndex++, {}, device, clJobs)
+			this.createConsumer(chanNum, ++this.consumerIndex, {}, device, clJobs)
 		)
 	}
 }
