@@ -1726,10 +1726,10 @@ redent@^4.0.0:
     indent-string "^5.0.0"
     strip-indent "^4.0.0"
 
-redioactive@0.0.19:
-  version "0.0.19"
-  resolved "https://registry.yarnpkg.com/redioactive/-/redioactive-0.0.19.tgz#60972cbbeda67e7c3b74fde2cb2806a431fb3aaa"
-  integrity sha512-RsqQUmE/djg7teEwAcGheTdu8CZNAAz+kQu4vcBBhB++V/UkOii9Ao0evuVvvPm8SbZKohXj0gpidus000Z1xg==
+redioactive@0.0.20:
+  version "0.0.20"
+  resolved "https://registry.yarnpkg.com/redioactive/-/redioactive-0.0.20.tgz#f5a8762f14ddd4e94e6e2178a21fb662a4af631f"
+  integrity sha512-C9B31pkzBF6ntwcyzLrBVcfYr8cQ/8HH6Qd917j7NSmcclIqyEZAf6EWU0warlc/P57SPxj72KUugWZgL/w1tA==
 
 regexpp@^3.2.0:
   version "3.2.0"

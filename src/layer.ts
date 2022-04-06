@@ -140,6 +140,7 @@ export class Layer {
 			this.curSrcSpec.source?.release()
 			this.curSrcSpec.source = undefined
 			this.curSrcSpec.transition = JSON.parse(DefaultTransitionSpec)
+			this.update()
 			this.endEvent.emit('end')
 			if (this.nextSrcSpec.source === undefined && this.layerTick) this.layerTick('end')
 		}
@@ -219,7 +220,6 @@ export class Layer {
 	async stop(): Promise<void> {
 		if (this.curSrcSpec.source) {
 			this.curSrcSpec.source.release()
-			this.curSrcSpec.source = undefined
 			await once(this.endEvent, 'end')
 		}
 		this.autoPlay = false

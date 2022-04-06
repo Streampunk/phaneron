@@ -83,43 +83,45 @@ export class Transitioner {
 		const silencePipe = (await this.silence?.initialise()) as RedioPipe<Frame | RedioEnd>
 		const blackPipe = (await this.black?.initialise()) as RedioPipe<OpenCLBuffer | RedioEnd>
 
-		const transitionAudValve: Valve<[Frame | RedioEnd, ...(Frame | RedioEnd)[]], Frame | RedioEnd> =
-			async (frames) => {
-				if (isValue(frames)) {
-					const srcFrames = frames.slice(1, 3)
-					if (srcFrames.length === 0) return frames[0]
+		const transitionAudValve: Valve<
+			[Frame | RedioEnd, ...(Frame | RedioEnd)[]],
+			Frame | RedioEnd
+		> = async (frames) => {
+			if (isValue(frames)) {
+				const srcFrames = frames.slice(1, 3)
+				if (srcFrames.length === 0) return frames[0]
 
-					if (this.audType !== this.nextType && srcFrames.length === this.audSourcePipes.length) {
-						this.audType = this.nextType
-						await this.makeAudTransition()
-					}
-
-					let transitionResult: (Frame | RedioEnd | RedioNil)[] = [srcFrames[0]]
-					if (srcFrames.reduce((acc, f) => acc && isValue(f), true)) {
-						if (srcFrames.length > 1) {
-							const srcs = srcFrames as Frame[]
-							const pts = srcs[0].pts
-							const filterFrames = srcs.map((f, i) => {
-								f.pts = pts
-								return {
-									name: `in${i}:a`,
-									frames: [f]
-								}
-							})
-							const ff = await this.audTransition?.filter(filterFrames)
-							transitionResult = ff && ff[0] && ff[0].frames.length > 0 ? ff[0].frames : [nil]
-						}
-					} else {
-						transitionResult =
-							srcFrames.length > 1 && isValue(srcFrames[1]) ? [srcFrames[1]] : [srcFrames[0]]
-					}
-
-					if (isEnd(transitionResult[0])) transitionResult = [frames[0]]
-					return transitionResult
-				} else {
-					return frames
+				if (this.audType !== this.nextType && srcFrames.length === this.audSourcePipes.length) {
+					this.audType = this.nextType
+					await this.makeAudTransition()
 				}
+
+				let transitionResult: (Frame | RedioEnd | RedioNil)[] = [srcFrames[0]]
+				if (srcFrames.reduce((acc, f) => acc && isValue(f), true)) {
+					if (srcFrames.length > 1) {
+						const srcs = srcFrames as Frame[]
+						const pts = srcs[0].pts
+						const filterFrames = srcs.map((f, i) => {
+							f.pts = pts
+							return {
+								name: `in${i}:a`,
+								frames: [f]
+							}
+						})
+						const ff = await this.audTransition?.filter(filterFrames)
+						transitionResult = ff && ff[0] && ff[0].frames.length > 0 ? ff[0].frames : [nil]
+					}
+				} else {
+					transitionResult =
+						srcFrames.length > 1 && isValue(srcFrames[1]) ? [srcFrames[1]] : [srcFrames[0]]
+				}
+
+				if (isEnd(transitionResult[0])) transitionResult = [frames[0]]
+				return transitionResult
+			} else {
+				return frames
 			}
+		}
 
 		const transitionVidValve: Valve<
 			[OpenCLBuffer | RedioEnd, ...(OpenCLBuffer | RedioEnd)[]],

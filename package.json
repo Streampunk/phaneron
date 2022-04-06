@@ -21,7 +21,7 @@
     "macadam": "^2.0.18",
     "naudiodon": "^2.3.6",
     "nodencl": "^1.4.2",
-    "redioactive": "0.0.19",
+    "redioactive": "0.0.20",
     "ts-osc": "^0.3.2"
   },
   "devDependencies": {

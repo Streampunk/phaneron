@@ -140,47 +140,49 @@ export class Combiner implements RouteSource {
 			}
 		}
 
-		const combineAudValve: Valve<[Frame | RedioEnd, ...(Frame | RedioEnd)[]], Frame | RedioEnd> =
-			async (frames) => {
-				if (isValue(frames)) {
-					const numLayers = frames.length - 1
-					const layerFrames = frames.slice(1) as Frame[]
-					const doFilter = layerFrames.reduce((acc, f) => acc && isValue(f), true)
+		const combineAudValve: Valve<
+			[Frame | RedioEnd, ...(Frame | RedioEnd)[]],
+			Frame | RedioEnd
+		> = async (frames) => {
+			if (isValue(frames)) {
+				const numLayers = frames.length - 1
+				const layerFrames = frames.slice(1) as Frame[]
+				const doFilter = layerFrames.reduce((acc, f) => acc && isValue(f), true)
 
-					const numCombineLayers = numLayers < 2 ? 0 : numLayers
-					if (numCombineLayers && this.lastNumAudLayers !== numCombineLayers) {
-						await this.makeAudCombiner(numCombineLayers)
-						this.lastNumAudLayers = numCombineLayers
-					}
-
-					const srcFrames = frames as Frame[]
-					if (!isValue(frames[0])) return end
-					const refFrame = srcFrames[0]
-
-					if (numLayers === 0) {
-						return srcFrames[0]
-					} else if (numLayers === 1) {
-						if (isValue(srcFrames[1])) srcFrames[1].pts = refFrame.pts
-						return srcFrames[1]
-					} else if (doFilter && this.audCombiner) {
-						const filterFrames = layerFrames.map((f, i) => {
-							f.pts = refFrame.pts
-							return {
-								name: `in${i}:a`,
-								frames: [f]
-							}
-						})
-						const ff = await this.audCombiner.filter(filterFrames)
-						return ff[0].frames.length > 0 ? ff[0].frames : nil
-					} else {
-						return end
-					}
-				} else {
-					this.audCombiner = undefined
-					silence.release()
-					return frames
+				const numCombineLayers = numLayers < 2 ? 0 : numLayers
+				if (numCombineLayers && this.lastNumAudLayers !== numCombineLayers) {
+					await this.makeAudCombiner(numCombineLayers)
+					this.lastNumAudLayers = numCombineLayers
 				}
+
+				const srcFrames = frames as Frame[]
+				if (!isValue(frames[0])) return end
+				const refFrame = srcFrames[0]
+
+				if (numLayers === 0) {
+					return srcFrames[0]
+				} else if (numLayers === 1) {
+					if (isValue(srcFrames[1])) srcFrames[1].pts = refFrame.pts
+					return srcFrames[1]
+				} else if (doFilter && this.audCombiner) {
+					const filterFrames = layerFrames.map((f, i) => {
+						f.pts = refFrame.pts
+						return {
+							name: `in${i}:a`,
+							frames: [f]
+						}
+					})
+					const ff = await this.audCombiner.filter(filterFrames)
+					return ff[0].frames.length > 0 ? ff[0].frames : nil
+				} else {
+					return end
+				}
+			} else {
+				this.audCombiner = undefined
+				silence.release()
+				return frames
 			}
+		}
 
 		const vidEndValve: Valve<
 			[OpenCLBuffer | RedioEnd, ...(OpenCLBuffer | RedioEnd)[]],
