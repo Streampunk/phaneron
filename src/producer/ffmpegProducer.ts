@@ -72,9 +72,10 @@ export class FFmpegProducer implements Producer {
 	private readonly config: ProducerConfig
 	private readonly mixer: Mixer
 	private demuxer: Demuxer | null = null
-	private audSource: RedioPipe<Frame[] | RedioEnd> | undefined
+	private audSource: RedioPipe<Frame | RedioEnd> | undefined
 	private vidSource: RedioPipe<OpenCLBuffer | RedioEnd> | undefined
 	private srcFormat: VideoFormat | undefined
+	private srcLevels: number[] = []
 	private numForks = 0
 	private running = true
 
@@ -176,7 +177,8 @@ export class FFmpegProducer implements Producer {
 		let silentFrame: Frame | null = null
 		let audFilterer: Filterer | null = null
 		const audStream = audioStreams[0]
-		let numAudChannels = 0
+		let srcAudChannels = monoStreams ? audioStreams.length : audStream.codecpar.channels
+		const dstAudChannels = this.consumerFormat.audioChannels
 
 		if (audStream) {
 			const inParams = audioStreams.map((_s, i) => {
@@ -189,37 +191,36 @@ export class FFmpegProducer implements Producer {
 				}
 			})
 
+			let panStr = ''
+			panStr += `pan=${dstAudChannels}c`
+			for (let c = 0; c < Math.min(srcAudChannels, dstAudChannels); ++c) {
+				this.srcLevels.push(1.0)
+				panStr += `| c${c % dstAudChannels}=${this.srcLevels[c]}*c${c}`
+			}
+
 			let filtStr = ''
 			if (monoStreams) {
-				numAudChannels = audioStreams.length
-				for (let c = 0; c < numAudChannels; ++c)
-					filtStr += (c === 0 ? '' : ';\n') + `[in${c}:a]asetnsamples=n=1024:p=1[out${c}:a]`
-			} else {
-				numAudChannels = audStream.codecpar.channels
-				filtStr += `[in${0}:a]asetnsamples=n=1024:p=1, channelsplit=channel_layout=${numAudChannels}c`
-				for (let s = 0; s < numAudChannels; ++s) filtStr += `[c${s}:a]`
-				for (let s = 0; s < numAudChannels; ++s)
-					filtStr += `;\n[c${s}:a]aformat=channel_layouts=1c[out${s}:a]`
-			}
-			// console.log(filtStr)
-
-			const outParams = []
-			for (let s = 0; s < numAudChannels; ++s)
-				outParams.push({
-					name: `out${s}:a`,
-					sampleRate: this.consumerFormat.audioSampleRate,
-					sampleFormat: 'fltp',
-					channelLayout: '1c'
-				})
+				for (let c = 0; c < srcAudChannels; ++c) filtStr += `[in${c}:a]`
+				filtStr += `amerge=inputs=${srcAudChannels}, `
+			} else filtStr += `[in0:a]`
+			filtStr += `asetnsamples=n=1024:p=1, ${panStr}[out0:a]`
+			// console.log(`ffmpegProducer:\n${filtStr}`)
 
 			audFilterer = await filterer({
 				filterType: 'audio',
 				inputParams: inParams,
-				outputParams: outParams,
+				outputParams: [
+					{
+						name: 'out0:a',
+						sampleRate: this.consumerFormat.audioSampleRate,
+						sampleFormat: 'fltp',
+						channelLayout: `${dstAudChannels}c`
+					}
+				],
 				filterSpec: filtStr
 			})
 		} else {
-			numAudChannels = 1
+			srcAudChannels = 1
 			silentFrame = frame({
 				nb_samples: 1024,
 				format: 's32',
@@ -246,7 +247,7 @@ export class FFmpegProducer implements Producer {
 						name: 'out0:a',
 						sampleRate: this.consumerFormat.audioSampleRate,
 						sampleFormat: 'fltp',
-						channelLayout: '1c'
+						channelLayout: `${dstAudChannels}c`
 					}
 				],
 				filterSpec: '[in0:a] asetpts=N/SR/TB [out0:a]'
@@ -259,7 +260,6 @@ export class FFmpegProducer implements Producer {
 		let squareWidth = width
 		let squareHeight = height
 		let vidTimescale = this.consumerFormat.timescale
-		let vidDuration = this.consumerFormat.duration
 		let toRGBA: ToRGBA | null = null
 		let vidFilterer: Filterer | null = null
 		let progressive = true
@@ -283,7 +283,6 @@ export class FFmpegProducer implements Producer {
 				progressive = true
 			}
 			vidTimescale = vidStream.avg_frame_rate[0] * (progressive ? 1 : 2)
-			vidDuration = vidStream.avg_frame_rate[1]
 
 			const tff = fieldOrder === 'unknown' || fieldOrder.split(', ', 2)[1] === 'top displayed first'
 			const yadifMode = progressive ? 'send_frame' : 'send_field'
@@ -368,16 +367,11 @@ export class FFmpegProducer implements Producer {
 			}
 		}
 
-		const audFilter: Valve<AudioChannel[] | RedioEnd, Frame[] | RedioEnd> = async (frames) => {
+		const audFilter: Valve<AudioChannel[] | RedioEnd, Frame | RedioEnd> = async (frames) => {
 			if (isValue(frames)) {
 				if (!(this.running && audFilterer)) return nil
 				const ff = await audFilterer.filter(frames)
-				if (ff.reduce((acc, f) => acc && f.frames && f.frames.length > 0, true)) {
-					const l = ff[0].frames.length
-					const result: Frame[][] = Array.from(Array(l), () => new Array(ff.length))
-					ff.forEach((chan, c) => chan.frames.forEach((f, i) => (result[i][c] = f)))
-					return result
-				} else return nil
+				return ff[0] && ff[0].frames.length > 0 ? ff[0].frames : nil
 			} else {
 				return frames
 			}
@@ -560,6 +554,18 @@ export class FFmpegProducer implements Producer {
 				const yadifDests: OpenCLBuffer[] = []
 				await yadif?.processFrame(frame, yadifDests, this.sourceID)
 
+				// duplicate frame eg if source is 25fps and consumer is 50fps
+				if (
+					this.srcFormat &&
+					progressive &&
+					this.consumerFormat.timescale / vidTimescale === 2 &&
+					yadifDests.length === 1
+				) {
+					const dupDest = yadifDests[0]
+					dupDest.addRef()
+					yadifDests.push(dupDest)
+				}
+
 				if (!loop && maxFrame === curFrame) this.release()
 				curFrame += yadifDests.length
 
@@ -597,10 +603,10 @@ export class FFmpegProducer implements Producer {
 			height: height,
 			squareWidth: squareWidth,
 			squareHeight: squareHeight,
-			timescale: vidTimescale,
-			duration: vidDuration,
-			audioSampleRate: 48000,
-			audioChannels: numAudChannels
+			timescale: this.consumerFormat.timescale,
+			duration: this.consumerFormat.duration,
+			audioSampleRate: this.consumerFormat.audioSampleRate,
+			audioChannels: this.consumerFormat.audioChannels
 		}
 
 		const ffPackets = redio(demux, { bufferSizeMax: this.demuxer.streams.length * 2 })
@@ -630,24 +636,18 @@ export class FFmpegProducer implements Producer {
 			this.vidSource = blackPipe
 		}
 
-		await this.mixer.init(
-			this.sourceID,
-			this.audSource.fork(),
-			this.vidSource.fork(),
-			this.srcFormat
-		)
+		await this.mixer.init(this.sourceID, this.audSource.fork(), this.vidSource.fork())
 
 		console.log(`Created FFmpeg producer for path ${this.loadParams.url}`)
 	}
 
 	async getSourcePipes(): Promise<SourcePipes> {
-		if (!(this.audSource && this.vidSource && this.srcFormat))
+		if (!(this.audSource && this.vidSource))
 			throw new Error(`Route producer failed to find source pipes for route`)
 		this.numForks++
 		return Promise.resolve({
 			audio: this.audSource,
 			video: this.vidSource,
-			format: this.srcFormat,
 			release: () => this.numForks--
 		})
 	}

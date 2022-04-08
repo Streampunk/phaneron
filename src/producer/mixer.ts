@@ -108,7 +108,6 @@ export class Mixer {
 	private mixVideo!: RedioPipe<OpenCLBuffer | RedioEnd>
 	private audMixFilterer: Filterer | null = null
 	private mixParams = JSON.parse(MixerDefaults)
-	private srcLevels: number[] = []
 	private paused = true
 	private running = true
 	private audDone = false
@@ -127,46 +126,27 @@ export class Mixer {
 
 	async init(
 		sourceID: string,
-		srcAudio: RedioPipe<Frame[] | RedioEnd>,
-		srcVideo: RedioPipe<OpenCLBuffer | RedioEnd>,
-		srcFormat: VideoFormat
+		srcAudio: RedioPipe<Frame | RedioEnd>,
+		srcVideo: RedioPipe<OpenCLBuffer | RedioEnd>
 	): Promise<void> {
-		const srcSampleRate = srcFormat.audioSampleRate
-		const srcAudChannels = srcFormat.audioChannels
-
 		const dstSampleRate = this.consumerFormat.audioSampleRate
 		const dstAudChannels = this.consumerFormat.audioChannels
 		const dstAudLayout = `${dstAudChannels}c`
 
-		let filtSpec = ''
-		for (let c = 0; c < srcAudChannels; ++c) {
-			this.srcLevels.push(1.0)
-			const panSpec = `pan=${dstAudLayout}|c${c % dstAudChannels}=${this.srcLevels[c]}*c0`
-			filtSpec +=
-				(c === 0 ? '' : ';\n') +
-				`[in${c}:a]highpass=mix=0, adelay=delays='', acompressor=threshold=1:mix=0, aformat=sample_fmts=fltp, ${panSpec}[c${c}:a]`
-		}
-		filtSpec += ';\n'
-		for (let c = 0; c < srcAudChannels; ++c) filtSpec += `[c${c}:a]`
-		filtSpec += `amix=inputs=${srcAudChannels}:duration=shortest:weights=`
-		for (let c = 0; c < srcAudChannels; ++c)
-			filtSpec += (c === 0 ? '' : ' ') + (c < dstAudChannels ? '1' : '0')
-		filtSpec += `, volume=1.0:eval=frame:precision=float[out0:a]`
-		// console.log(filtSpec)
-
-		const inParams = []
-		for (let s = 0; s < srcAudChannels; ++s)
-			inParams.push({
-				name: `in${s}:a`,
-				timeBase: [1, srcSampleRate],
-				sampleRate: srcSampleRate,
-				sampleFormat: 'fltp',
-				channelLayout: '1c'
-			})
+		const filtSpec = `[in${0}:a]highpass=mix=0, adelay=delays='', acompressor=threshold=1:mix=0, aformat=sample_fmts=fltp, volume=1.0:eval=frame:precision=float[out0:a]`
+		// console.log(`mixer:\n${filtSpec}`)
 
 		this.audMixFilterer = await filterer({
 			filterType: 'audio',
-			inputParams: inParams,
+			inputParams: [
+				{
+					name: 'in0:a',
+					timeBase: [1, dstSampleRate],
+					sampleRate: dstSampleRate,
+					sampleFormat: 'fltp',
+					channelLayout: `${dstAudChannels}c`
+				}
+			],
 			outputParams: [
 				{
 					name: 'out0:a',
@@ -177,28 +157,19 @@ export class Mixer {
 			],
 			filterSpec: filtSpec
 		})
-		// console.log('\nChannel audio:\n', this.audMixFilterer.graph.dump())
+		// console.log('\nMixer audio:\n', this.audMixFilterer.graph.dump())
 
-		// console.log(getFilters(this.audMixFilterer))
-		// const filtContexts = this.audMixFilterer.graph.filters.filter(
-		// 	(filt) => filt.filter.name === 'pan'
-		// )
-		// filtContexts.forEach((c) => console.log(getFilterParams(c)))
-
-		const audMixFilter: Valve<Frame[] | RedioEnd, Frame | RedioEnd> = async (frames) => {
-			if (isValue(frames)) {
+		const audMixFilter: Valve<Frame | RedioEnd, Frame | RedioEnd> = async (frame) => {
+			if (isValue(frame)) {
 				if (!this.running) return nil
 				if (!this.audMixFilterer) return nil
-
-				const inSpec: { name: string; frames: Frame[] }[] = []
-				frames.forEach((f, i) => inSpec.push({ name: `in${i}:a`, frames: [f] }))
-				const ff = await this.audMixFilterer.filter(inSpec)
+				const ff = await this.audMixFilterer.filter([{ name: 'in0:a', frames: [frame] }])
 				return ff[0] && ff[0].frames.length > 0 ? ff[0].frames : nil
 			} else {
 				this.audMixFilterer = null
 				this.audDone = true
 				if (this.audDone && this.vidDone) this.running = false
-				return frames
+				return frame
 			}
 		}
 

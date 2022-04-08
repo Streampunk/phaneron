@@ -38,12 +38,11 @@ export class RouteProducer implements Producer {
 	private readonly consumerFormat: VideoFormat
 	private readonly mixer: Mixer
 	private srcPipes: SourcePipes | undefined
-	private routeAudSource: RedioPipe<Frame[] | RedioEnd> | undefined
+	private routeAudSource: RedioPipe<Frame | RedioEnd> | undefined
 	private routeVidSource: RedioPipe<OpenCLBuffer | RedioEnd> | undefined
-	private audSource: RedioPipe<Frame[] | RedioEnd> | undefined
+	private audSource: RedioPipe<Frame | RedioEnd> | undefined
 	private vidSource: RedioPipe<OpenCLBuffer | RedioEnd> | undefined
 	private vidFork: RedioPipe<OpenCLBuffer | RedioEnd> | undefined
-	private srcFormat: VideoFormat | undefined
 	private numForks = 0
 
 	constructor(
@@ -60,7 +59,7 @@ export class RouteProducer implements Producer {
 		this.consumerFormat = consumerFormat
 		this.mixer = new Mixer(this.clContext, this.consumerFormat, this.clJobs)
 
-		if (this.params.url.slice(0, 5) !== 'ROUTE')
+		if (this.params.url.slice(0, 5).toUpperCase() !== 'ROUTE')
 			throw new InvalidProducerError('Route producer supports route command')
 	}
 
@@ -97,14 +96,7 @@ export class RouteProducer implements Producer {
 		this.vidFork = this.routeVidSource.fork()
 		this.vidSource = this.vidFork.valve(vidForkRef)
 
-		this.srcFormat = this.srcPipes.format
-
-		await this.mixer.init(
-			this.sourceID,
-			this.audSource.fork(),
-			this.vidSource.fork(),
-			this.srcFormat
-		)
+		await this.mixer.init(this.sourceID, this.audSource.fork(), this.vidSource.fork())
 
 		console.log(
 			`Created Route producer from channel ${chanLayer.channel}`,
@@ -113,13 +105,12 @@ export class RouteProducer implements Producer {
 	}
 
 	async getSourcePipes(): Promise<SourcePipes> {
-		if (!(this.audSource && this.vidSource && this.srcFormat))
+		if (!(this.audSource && this.vidSource))
 			throw new Error(`Route producer failed to find source pipes for route`)
 		this.numForks++
 		return Promise.resolve({
 			audio: this.audSource,
 			video: this.vidSource,
-			format: this.srcFormat,
 			release: () => this.numForks--
 		})
 	}

@@ -41,9 +41,10 @@ export class MacadamProducer implements Producer {
 	private readonly mixer: Mixer
 	private capture: Macadam.CaptureChannel | null = null
 	private audFilterer: Filterer | null = null
-	private audSource: RedioPipe<Frame[] | RedioEnd> | undefined
+	private audSource: RedioPipe<Frame | RedioEnd> | undefined
 	private vidSource: RedioPipe<OpenCLBuffer | RedioEnd> | undefined
 	private srcFormat: VideoFormat | undefined
+	private srcLevels: number[] = []
 	private numForks = 0
 	private running = true
 
@@ -61,7 +62,7 @@ export class MacadamProducer implements Producer {
 		this.consumerFormat = consumerFormat
 		this.mixer = new Mixer(this.clContext, this.consumerFormat, this.clJobs)
 
-		if (this.params.url !== 'DECKLINK')
+		if (this.params.url.toUpperCase() !== 'DECKLINK')
 			throw new InvalidProducerError('Macadam producer supports decklink devices')
 	}
 
@@ -73,7 +74,7 @@ export class MacadamProducer implements Producer {
 		const tff = true
 		let toRGBA: ToRGBA | null = null
 		let yadif: Yadif | null = null
-		const sampleRate = this.consumerFormat.audioSampleRate
+		const sampleRate = Macadam.bmdAudioSampleRate48kHz
 		const numAudChannels = this.consumerFormat.audioChannels
 		const audLayout = `${numAudChannels}c`
 		try {
@@ -81,27 +82,21 @@ export class MacadamProducer implements Producer {
 			this.capture = await Macadam.capture({
 				deviceIndex: (this.params.channel as number) - 1,
 				channels: numAudChannels,
-				sampleRate: Macadam.bmdAudioSampleRate48kHz,
+				sampleRate: sampleRate,
 				sampleType: Macadam.bmdAudioSampleType32bitInteger,
 				displayMode: displayMode,
 				pixelFormat: Macadam.bmdFormat10BitYUV
 			})
 
-			let filtStr = ''
-			filtStr += `[in${0}:a]asetnsamples=n=1024:p=1, channelsplit=channel_layout=${numAudChannels}c`
-			for (let s = 0; s < numAudChannels; ++s) filtStr += `[c${s}:a]`
-			for (let s = 0; s < numAudChannels; ++s)
-				filtStr += `;\n[c${s}:a]aformat=channel_layouts=1c[out${s}:a]`
-			// console.log(filtStr)
+			let panStr = ''
+			panStr += `pan=${numAudChannels}c`
+			for (let c = 0; c < numAudChannels; ++c) {
+				this.srcLevels.push(1.0)
+				panStr += `| c${c % numAudChannels}=${this.srcLevels[c]}*c${c}`
+			}
 
-			const outParams = []
-			for (let s = 0; s < numAudChannels; ++s)
-				outParams.push({
-					name: `out${s}:a`,
-					sampleRate: this.consumerFormat.audioSampleRate,
-					sampleFormat: 'fltp',
-					channelLayout: '1c'
-				})
+			const filtStr = `[in${0}:a]asetnsamples=n=1024:p=1, ${panStr}[out${0}:a]`
+			// console.log(filtStr)
 
 			this.audFilterer = await filterer({
 				filterType: 'audio',
@@ -114,7 +109,14 @@ export class MacadamProducer implements Producer {
 						channelLayout: audLayout
 					}
 				],
-				outputParams: outParams,
+				outputParams: [
+					{
+						name: 'out0:a',
+						sampleRate: this.consumerFormat.audioSampleRate,
+						sampleFormat: 'fltp',
+						channelLayout: audLayout
+					}
+				],
 				filterSpec: filtStr
 			})
 			// console.log('\nMacadam producer audio:\n', this.audFilterer.graph.dump())
@@ -154,7 +156,7 @@ export class MacadamProducer implements Producer {
 			return result
 		}
 
-		const audFilter: Valve<Macadam.CaptureFrame | RedioEnd, Frame[] | RedioEnd> = async (
+		const audFilter: Valve<Macadam.CaptureFrame | RedioEnd, Frame | RedioEnd> = async (
 			captureFrame
 		) => {
 			if (isValue(captureFrame) && this.audFilterer) {
@@ -168,12 +170,7 @@ export class MacadamProducer implements Producer {
 					data: [captureFrame.audio.data]
 				})
 				const ff = await this.audFilterer.filter([{ name: 'in0:a', frames: [ffFrame] }])
-				if (ff.reduce((acc, f) => acc && f.frames && f.frames.length > 0, true)) {
-					const l = ff[0].frames.length
-					const result: Frame[][] = Array.from(Array(l), () => new Array(ff.length))
-					ff.forEach((chan, c) => chan.frames.forEach((f, i) => (result[i][c] = f)))
-					return result
-				} else return nil
+				return ff[0] && ff[0].frames.length > 0 ? ff[0].frames : nil
 			} else {
 				return captureFrame as RedioEnd
 			}
@@ -234,17 +231,17 @@ export class MacadamProducer implements Producer {
 			}
 		}
 
-		const srcFormat = {
+		this.srcFormat = {
 			name: 'macadam',
 			fields: 1,
 			width: width,
 			height: height,
 			squareWidth: width,
 			squareHeight: height,
-			timescale: 50,
-			duration: 1,
-			audioSampleRate: 48000,
-			audioChannels: 8
+			timescale: this.consumerFormat.timescale,
+			duration: this.consumerFormat.duration,
+			audioSampleRate: this.consumerFormat.audioSampleRate,
+			audioChannels: this.consumerFormat.audioChannels
 		}
 
 		const macadamFrames = redio(frameSource, { bufferSizeMax: 2 })
@@ -259,7 +256,7 @@ export class MacadamProducer implements Producer {
 			.valve(vidProcess, { bufferSizeMax: 1 })
 			.valve(vidDeint, { bufferSizeMax: 1, oneToMany: true })
 
-		await this.mixer.init(this.sourceID, this.audSource.fork(), this.vidSource.fork(), srcFormat)
+		await this.mixer.init(this.sourceID, this.audSource.fork(), this.vidSource.fork())
 
 		console.log(`Created Macadam producer for channel ${this.params.channel}`)
 	}
@@ -271,7 +268,6 @@ export class MacadamProducer implements Producer {
 		return Promise.resolve({
 			audio: this.audSource,
 			video: this.vidSource,
-			format: this.srcFormat,
 			release: () => this.numForks--
 		})
 	}

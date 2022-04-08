@@ -21,12 +21,10 @@
 import { Frame } from 'beamcoder'
 import { OpenCLBuffer } from 'nodencl'
 import { RedioPipe, RedioEnd } from 'redioactive'
-import { VideoFormat } from './config'
 
 export type SourcePipes = {
-	audio: RedioPipe<Frame[] | RedioEnd>
+	audio: RedioPipe<Frame | RedioEnd>
 	video: RedioPipe<OpenCLBuffer | RedioEnd>
-	format: VideoFormat
 	release(): void
 }
 

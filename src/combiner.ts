@@ -101,7 +101,6 @@ export class Combiner implements RouteSource {
 	private combineLayers: CombineLayer[] = []
 	private audLayerPipes: RedioPipe<Frame | RedioEnd>[] = []
 	private vidLayerPipes: RedioPipe<OpenCLBuffer | RedioEnd>[] = []
-	private audRoutePipe: RedioPipe<Frame[] | RedioEnd> | undefined
 	private vidTimestamp = 0
 	private numForks = 0
 
@@ -359,62 +358,11 @@ export class Combiner implements RouteSource {
 	async getSourcePipes(): Promise<SourcePipes> {
 		if (!(this.audioPipe && this.videoPipe && this.consumerFormat))
 			throw new Error(`Combiner failed to find source pipes for route`)
-		if (this.numForks === 0) {
-			let audFilterer: Filterer | null = null
-			let filtStr = ''
-			const numAudChannels = this.consumerFormat.audioChannels
-			const sampleRate = this.consumerFormat.audioSampleRate
-			filtStr += `[in${0}:a]channelsplit=channel_layout=${numAudChannels}c`
-			for (let s = 0; s < numAudChannels; ++s) filtStr += `[out${s}:a]`
-			// console.log(filtStr)
 
-			const outParams = []
-			for (let s = 0; s < numAudChannels; ++s) {
-				outParams.push({
-					name: `out${s}:a`,
-					sampleRate: this.consumerFormat.audioSampleRate,
-					sampleFormat: 'fltp',
-					channelLayout: '1c'
-				})
-			}
-
-			audFilterer = await filterer({
-				filterType: 'audio',
-				inputParams: [
-					{
-						name: 'in0:a',
-						timeBase: [1, sampleRate],
-						sampleRate: sampleRate,
-						sampleFormat: 'fltp',
-						channelLayout: `${numAudChannels}c`
-					}
-				],
-				outputParams: outParams,
-				filterSpec: filtStr
-			})
-			// console.log('\nCombiner route source audio:\n', audFilterer.graph.dump())
-
-			const audFilter: Valve<Frame | RedioEnd, Frame[] | RedioEnd> = async (frame) => {
-				if (isValue(frame)) {
-					if (!audFilterer) return nil
-					const ff = await audFilterer.filter([{ name: 'in0:a', frames: [frame] }])
-					if (ff.reduce((acc, f) => acc && f.frames && f.frames.length > 0, true)) {
-						return ff.map((f) => f.frames[0])
-					} else return nil
-				} else {
-					return frame
-				}
-			}
-
-			this.audRoutePipe = this.audioPipe.fork().valve(audFilter)
-		}
 		this.numForks++
-
-		if (!this.audRoutePipe) throw new Error(`Combiner failed to create audio filter for route`)
 		return {
-			audio: this.audRoutePipe,
+			audio: this.audioPipe,
 			video: this.videoPipe,
-			format: this.consumerFormat,
 			release: () => this.numForks--
 		}
 	}
