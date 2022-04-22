@@ -64,10 +64,10 @@ const test = async () => {
 	const fromRGBA = new FromRGBA(clContext, colSpecWrite, new Writer(width, height, false), clJobs)
 	await fromRGBA.init()
 
-	const srcs = await toRGBA.createSources()
-	const rgbaDst = await toRGBA.createDest({ width: width, height: height })
+	const srcs = await toRGBA.createSources('')
+	const rgbaDst = await toRGBA.createDest({ width: width, height: height }, '')
 
-	const dsts = await fromRGBA.createDests()
+	const dsts = await fromRGBA.createDests('')
 
 	const numBytes = toRGBA.getNumBytes()
 	const lumaBytes = numBytes[0]
