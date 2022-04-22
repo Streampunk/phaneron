@@ -148,6 +148,7 @@ export class Transitioner {
 							transitionResult = srcFrames[0] as OpenCLBuffer
 							transitionResult.addRef()
 						} else {
+							const timestamp = (srcFrames[1] as OpenCLBuffer).timestamp
 							const transitionDest = await this.clContext.createBuffer(
 								this.consumerFormat.width * this.consumerFormat.height * 4 * 4,
 								'readwrite',
@@ -156,12 +157,10 @@ export class Transitioner {
 									width: this.consumerFormat.width,
 									height: this.consumerFormat.height
 								},
-								'transition'
+								`${this.layerID} ${timestamp}`
 							)
-
-							const timestamp = (srcFrames[1] as OpenCLBuffer).timestamp
-							// transitionDest.loadstamp = Math.min(...srcFrames.map((f) => f.loadstamp))
 							transitionDest.timestamp = timestamp
+							// transitionDest.loadstamp = Math.min(...srcFrames.map((f) => f.loadstamp))
 
 							const params: KernelParams = {
 								inputs: srcFrames.slice(0, 2),

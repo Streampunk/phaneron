@@ -71,7 +71,7 @@ export default class Yadif {
 		await this.yadifCl.init()
 	}
 
-	private async makeOutput(isSecond: boolean): Promise<void> {
+	private async makeOutput(isSecond: boolean, sourceID: string, timestamp: number): Promise<void> {
 		const numBytesRGBA = this.width * this.height * 4 * 4
 		this.out = await this.clContext.createBuffer(
 			numBytesRGBA,
@@ -81,7 +81,7 @@ export default class Yadif {
 				width: this.width,
 				height: this.height
 			},
-			`yadif ${isSecond ? '2' : '1'}`
+			`yadif ${isSecond ? '2' : '1'} ${sourceID} ${timestamp}`
 		)
 	}
 
@@ -133,12 +133,12 @@ export default class Yadif {
 			old?.release()
 		}
 
-		await this.makeOutput(false)
+		await this.makeOutput(false, sourceID, this.in[1].timestamp)
 		await this.runYadif(false, sourceID)
 		outputs.push(this.out as OpenCLBuffer)
 
 		if (this.sendField) {
-			await this.makeOutput(true)
+			await this.makeOutput(true, sourceID, this.in[1].timestamp + 1)
 			await this.runYadif(true, sourceID)
 			outputs.push(this.out as OpenCLBuffer)
 		}

@@ -502,7 +502,9 @@ export class FFmpegProducer implements Producer {
 			if (isValue(frame)) {
 				if (!this.running) return nil
 				const convert = toRGBA as ToRGBA
-				const clSources = await convert.createSources()
+				const clSources = await convert.createSources(
+					`${this.sourceID} ${progressive ? frame.pts : frame.pts * 2}`
+				)
 				// const now = process.hrtime()
 				// const nowms = now[0] * 1000.0 + now[1] / 1000000.0
 				clSources.forEach((s) => {
@@ -526,7 +528,10 @@ export class FFmpegProducer implements Producer {
 					return nil
 				}
 				const convert = toRGBA as ToRGBA
-				const clDest = await convert.createDest({ width: width, height: height })
+				const clDest = await convert.createDest(
+					{ width: width, height: height },
+					`${this.sourceID} ${clSources[0].timestamp}`
+				)
 				// clDest.loadstamp = clSources[0].loadstamp
 				clDest.timestamp = clSources[0].timestamp
 				convert.processFrame(this.sourceID, clSources, clDest)

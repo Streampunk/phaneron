@@ -58,16 +58,22 @@ export class ToRGBA {
 		return this.totalBytes
 	}
 
-	async createSources(): Promise<Array<OpenCLBuffer>> {
+	async createSources(srcID: string): Promise<Array<OpenCLBuffer>> {
 		return Promise.all(
 			this.numBytes.map((bytes) =>
-				this.clContext.createBuffer(bytes, 'readonly', 'coarse', undefined, 'ToRGBA src')
+				this.clContext.createBuffer(bytes, 'readonly', 'coarse', undefined, `ToRGBA src ${srcID}`)
 			)
 		)
 	}
 
-	async createDest(imageDims: ImageDims): Promise<OpenCLBuffer> {
-		return this.clContext.createBuffer(this.numBytesRGBA, 'readonly', 'coarse', imageDims, 'ToRGBA')
+	async createDest(imageDims: ImageDims, srcID: string): Promise<OpenCLBuffer> {
+		return this.clContext.createBuffer(
+			this.numBytesRGBA,
+			'readonly',
+			'coarse',
+			imageDims,
+			`ToRGBA ${srcID}`
+		)
 	}
 
 	async loadFrame(
@@ -136,10 +142,10 @@ export class FromRGBA {
 		return this.totalBytes
 	}
 
-	async createDests(): Promise<Array<OpenCLBuffer>> {
+	async createDests(sourceID: string): Promise<Array<OpenCLBuffer>> {
 		return Promise.all(
 			this.numBytes.map((bytes) =>
-				this.clContext.createBuffer(bytes, 'writeonly', 'coarse', undefined, 'FromRGBA')
+				this.clContext.createBuffer(bytes, 'writeonly', 'coarse', undefined, `FromRGBA ${sourceID}`)
 			)
 		)
 	}

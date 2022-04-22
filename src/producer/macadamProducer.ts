@@ -173,11 +173,11 @@ export class MacadamProducer implements Producer {
 		) => {
 			if (isValue(frame)) {
 				const convert = toRGBA as ToRGBA
-				const clSources = await convert.createSources()
 				// const now = process.hrtime()
 				// const nowms = now[0] * 1000.0 + now[1] / 1000000.0
 				const timestamp =
 					(frame.video.frameTime / frame.video.frameDuration) * (progressive ? 1 : 2)
+				const clSources = await convert.createSources(`${this.sourceID} ${timestamp}`)
 				clSources.forEach((s) => {
 					// s.loadstamp = nowms
 					s.timestamp = timestamp
@@ -195,7 +195,10 @@ export class MacadamProducer implements Producer {
 		) => {
 			if (isValue(clSources)) {
 				const convert = toRGBA as ToRGBA
-				const clDest = await convert.createDest({ width: width, height: height })
+				const clDest = await convert.createDest(
+					{ width: width, height: height },
+					`${this.sourceID} ${clSources[0].timestamp}`
+				)
 				// clDest.loadstamp = clSources[0].loadstamp
 				clDest.timestamp = clSources[0].timestamp
 				convert.processFrame(this.sourceID, clSources, clDest)

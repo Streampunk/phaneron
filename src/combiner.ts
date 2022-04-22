@@ -235,7 +235,7 @@ export class Combiner implements RouteSource {
 							width: this.consumerFormat.width,
 							height: this.consumerFormat.height
 						},
-						'combine'
+						`${this.chanID} ${timestamp}`
 					)
 					// combineDest.loadstamp = Math.min(...layerFrames.map((f) => f.loadstamp))
 					combineDest.timestamp = timestamp

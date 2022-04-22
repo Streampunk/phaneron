@@ -180,7 +180,7 @@ export class FFmpegConsumer implements Consumer {
 		const vidProcess: Valve<OpenCLBuffer | RedioEnd, OpenCLBuffer[] | RedioEnd> = async (frame) => {
 			if (isValue(frame)) {
 				const fromRGBA = this.fromRGBA as FromRGBA
-				const clDests = await fromRGBA.createDests()
+				const clDests = await fromRGBA.createDests(`${this.chanID} ${frame.timestamp}`)
 				clDests.forEach((d) => (d.timestamp = frame.timestamp))
 				fromRGBA.processFrame(this.chanID, frame, clDests, 0)
 				await this.clJobs.runQueue({ source: this.chanID, timestamp: frame.timestamp })

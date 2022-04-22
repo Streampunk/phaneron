@@ -222,7 +222,7 @@ export class MacadamConsumer implements Consumer {
 				const start = process.hrtime()
 				const fromRGBA = this.fromRGBA as FromRGBA
 				if (this.vidField === 0) {
-					this.clDests = await fromRGBA.createDests()
+					this.clDests = await fromRGBA.createDests(`${this.chanID} ${frame.timestamp}`)
 					this.clDests.forEach((d) => {
 						// d.loadstamp = frame.loadstamp
 						d.timestamp = (frame.timestamp / this.format.fields) << 0
