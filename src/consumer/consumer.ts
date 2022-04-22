@@ -18,27 +18,20 @@
   14 Ormiscaig, Aultbea, Achnasheen, IV22 2JJ  U.K.
 */
 
-import { clContext as nodenCLContext, OpenCLBuffer } from 'nodencl'
+import { clContext as nodenCLContext } from 'nodencl'
 import { MacadamConsumerFactory } from './macadamConsumer'
 import { ScreenConsumerFactory } from './screenConsumer'
 import { FFmpegConsumerFactory } from './ffmpegConsumer'
-import { RedioPipe, RedioEnd } from 'redioactive'
-import { Frame } from 'beamcoder'
 import { Channel } from '../channel'
 import { ConfigParams, VideoFormat, DeviceConfig, ConsumerConfig } from '../config'
+import { SourcePipes } from '../routeSource'
 import { ClJobs } from '../clJobQueue'
 
 export interface Consumer {
 	initialise(): Promise<void>
 	deviceConfig(): DeviceConfig
-	connect(
-		combineAudio: RedioPipe<Frame | RedioEnd>,
-		combineVideo: RedioPipe<OpenCLBuffer | RedioEnd>
-	): void
-	release(
-		combineAudio: RedioPipe<Frame | RedioEnd>,
-		combineVideo: RedioPipe<OpenCLBuffer | RedioEnd>
-	): void
+	connect(sourcePipes: SourcePipes): void
+	release(): void
 }
 
 export interface ConsumerFactory<T extends Consumer> {

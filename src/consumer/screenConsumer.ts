@@ -19,7 +19,7 @@
 */
 
 import { clContext as nodenCLContext, OpenCLBuffer } from 'nodencl'
-import { RedioPipe, RedioEnd, nil, isValue, Valve, Spout } from 'redioactive'
+import { RedioEnd, nil, isValue, Valve, Spout } from 'redioactive'
 import { Frame, Filterer, filterer } from 'beamcoder'
 import { AudioIO, IoStreamWrite, SampleFormatFloat32 } from 'naudiodon'
 import Koa from 'koa'
@@ -28,6 +28,7 @@ import { ConsumerFactory, Consumer } from './consumer'
 import { FromRGBA } from '../process/io'
 import { Writer } from '../process/rgba8'
 import { ConfigParams, VideoFormat, DeviceConfig } from '../config'
+import { SourcePipes } from '../routeSource'
 import { ClJobs } from '../clJobQueue'
 
 interface AudioBuffer {
@@ -50,8 +51,7 @@ export class ScreenConsumer implements Consumer {
 	private audFilterer: Filterer | undefined
 	private readonly kapp: Koa<Koa.DefaultState, Koa.DefaultContext>
 	private readonly lastWeb: Buffer
-	private combineAudio: RedioPipe<Frame | RedioEnd> | undefined
-	private combineVideo: RedioPipe<OpenCLBuffer | RedioEnd> | undefined
+	private sourcePipes: SourcePipes | undefined
 
 	constructor(
 		context: nodenCLContext,
@@ -141,12 +141,8 @@ export class ScreenConsumer implements Consumer {
 		return this.device
 	}
 
-	connect(
-		combineAudio: RedioPipe<Frame | RedioEnd>,
-		combineVideo: RedioPipe<OpenCLBuffer | RedioEnd>
-	): void {
-		this.combineAudio = combineAudio
-		this.combineVideo = combineVideo
+	connect(sourcePipes: SourcePipes): void {
+		this.sourcePipes = sourcePipes
 
 		const audFilter: Valve<Frame | RedioEnd, AudioBuffer | RedioEnd> = async (frame) => {
 			if (isValue(frame)) {
@@ -233,18 +229,15 @@ export class ScreenConsumer implements Consumer {
 
 		this.audioOut.start()
 
-		this.combineVideo
+		this.sourcePipes.video
 			.valve(vidProcess)
 			.valve(vidSaver)
-			.zip(this.combineAudio.valve(audFilter, { oneToMany: true }))
+			.zip(this.sourcePipes.audio.valve(audFilter, { oneToMany: true }))
 			.spout(screenSpout)
 	}
 
-	release(audio: RedioPipe<Frame | RedioEnd>, video: RedioPipe<OpenCLBuffer | RedioEnd>): void {
-		if (this.combineAudio !== undefined && this.combineVideo !== undefined) {
-			audio.unfork(this.combineAudio)
-			video.unfork(this.combineVideo)
-		}
+	release(): void {
+		this.sourcePipes?.release()
 	}
 }
 

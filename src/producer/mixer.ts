@@ -20,7 +20,7 @@
 
 import { clContext as nodenCLContext, OpenCLBuffer } from 'nodencl'
 import { RedioPipe, RedioEnd, isValue, Valve, nil } from 'redioactive'
-import { Frame, Filterer, filterer /*, FilterContext*/ } from 'beamcoder'
+import { Frame, Filterer, filterer } from 'beamcoder'
 import { VideoFormat } from '../config'
 import { ClJobs } from '../clJobQueue'
 import ImageProcess from '../process/imageProcess'
@@ -108,7 +108,7 @@ export class Mixer {
 	private mixVideo!: RedioPipe<OpenCLBuffer | RedioEnd>
 	private audMixFilterer: Filterer | null = null
 	private mixParams = JSON.parse(MixerDefaults)
-	private paused = true
+	private srcLevels: number[] = []
 	private running = true
 	private audDone = false
 	private vidDone = false
@@ -127,13 +127,23 @@ export class Mixer {
 	async init(
 		sourceID: string,
 		srcAudio: RedioPipe<Frame | RedioEnd>,
-		srcVideo: RedioPipe<OpenCLBuffer | RedioEnd>
+		srcVideo: RedioPipe<OpenCLBuffer | RedioEnd>,
+		srcFormat: VideoFormat
 	): Promise<void> {
+		const srcSampleRate = srcFormat.audioSampleRate
+		const srcAudChannels = srcFormat.audioChannels
+
 		const dstSampleRate = this.consumerFormat.audioSampleRate
 		const dstAudChannels = this.consumerFormat.audioChannels
 		const dstAudLayout = `${dstAudChannels}c`
 
-		const filtSpec = `[in${0}:a]highpass=mix=0, adelay=delays='', acompressor=threshold=1:mix=0, aformat=sample_fmts=fltp, volume=1.0:eval=frame:precision=float[out0:a]`
+		let panStr = ''
+		panStr += `pan=${dstAudChannels}c`
+		for (let c = 0; c < dstAudChannels; ++c) {
+			this.srcLevels.push(1.0)
+			panStr += `| c${c % dstAudChannels}=${this.srcLevels[c]}*c${c}`
+		}
+		const filtSpec = `[in${0}:a]${panStr}, highpass=mix=0, adelay=delays='', acompressor=threshold=1:mix=0, aformat=sample_fmts=fltp, volume=1.0:eval=frame:precision=float[out0:a]`
 		// console.log(`mixer:\n${filtSpec}`)
 
 		this.audMixFilterer = await filterer({
@@ -141,10 +151,10 @@ export class Mixer {
 			inputParams: [
 				{
 					name: 'in0:a',
-					timeBase: [1, dstSampleRate],
-					sampleRate: dstSampleRate,
+					timeBase: [1, srcSampleRate],
+					sampleRate: srcSampleRate,
 					sampleFormat: 'fltp',
-					channelLayout: `${dstAudChannels}c`
+					channelLayout: `${srcAudChannels}c`
 				}
 			],
 			outputParams: [
@@ -225,25 +235,13 @@ export class Mixer {
 			}
 		}
 
+		// eslint-disable-next-line prettier/prettier
 		this.mixAudio = srcAudio
-			.pause(() => this.paused && this.running)
 			.valve(audMixFilter, { oneToMany: true })
 
+		// eslint-disable-next-line prettier/prettier
 		this.mixVideo = srcVideo
-			.pause((frame) => {
-				if (!this.running) {
-					frame = nil
-					return false
-				}
-				if (this.paused && isValue(frame)) (frame as OpenCLBuffer).addRef()
-				return this.paused
-			})
 			.valve(mixVidValve)
-	}
-
-	setPaused(pause: boolean): void {
-		this.paused = pause
-		this.setVolume(this.mixParams.volume, this.paused)
 	}
 
 	release(): void {
@@ -255,11 +253,10 @@ export class Mixer {
 		this.setVolume(this.mixParams.volume)
 	}
 
-	setVolume(volume: number, mute?: boolean): boolean {
+	setVolume(volume: number): boolean {
 		this.mixParams.volume = volume
 		const volFilter = this.audMixFilterer?.graph.filters.find((f) => f.filter.name === 'volume')
-		if (volFilter && volFilter.priv)
-			volFilter.priv = { volume: mute ? '0.0' : this.mixParams.volume.toString() }
+		if (volFilter && volFilter.priv) volFilter.priv = { volume: this.mixParams.volume.toString() }
 		return true
 	}
 

@@ -30,7 +30,6 @@ import ImageProcess from './process/imageProcess'
 import Combine from './process/combine'
 import { Silence, Black } from './blackSilence'
 import { SourcePipes, RouteSource } from './routeSource'
-import { Consumer } from './consumer/consumer'
 
 export class CombineLayer {
 	private readonly audioPipe: RedioPipe<Frame | RedioEnd>
@@ -93,7 +92,6 @@ export class Combiner implements RouteSource {
 	private readonly clJobs: ClJobs
 	private lastNumAudLayers = 0
 	private lastNumVidLayers = 0
-	private numConsumers = 0
 	private audCombiner: Filterer | undefined
 	private vidCombiner: ImageProcess | undefined
 	private audioPipe: RedioPipe<Frame | RedioEnd> | undefined
@@ -255,8 +253,7 @@ export class Combiner implements RouteSource {
 					result = combineDest
 				}
 
-				if (isValue(result))
-					for (let d = 1; d < this.numConsumers + this.numForks; ++d) result.addRef()
+				if (isValue(result)) for (let d = 1; d < this.numForks; ++d) result.addRef()
 				frames.forEach((f) => (isValue(f) ? f.release() : {}))
 			} else {
 				if (this.vidCombiner) {
@@ -339,38 +336,25 @@ export class Combiner implements RouteSource {
 		})
 	}
 
-	connect(consumer: Consumer): void {
-		if (!(this.audioPipe !== undefined && this.videoPipe !== undefined)) {
-			throw new Error('Failed to get combiner connection pipes')
-		}
-		consumer.connect(this.audioPipe.fork(), this.videoPipe.fork())
-		this.numConsumers++
-	}
-
-	release(consumer: Consumer): void {
-		if (!(this.audioPipe !== undefined && this.videoPipe !== undefined)) {
-			throw new Error('Failed to get combiner connection pipes')
-		}
-		consumer.release(this.audioPipe, this.videoPipe)
-		this.numConsumers--
-	}
-
-	async getSourcePipes(): Promise<SourcePipes> {
+	getSourcePipes(): SourcePipes {
 		if (!(this.audioPipe && this.videoPipe && this.consumerFormat))
 			throw new Error(`Combiner failed to find source pipes for route`)
 
 		this.numForks++
+		const audFork = this.audioPipe?.fork()
+		const vidFork = this.videoPipe.fork()
 		return {
-			audio: this.audioPipe,
-			video: this.videoPipe,
-			release: () => this.numForks--
+			audio: audFork,
+			video: vidFork,
+			format: this.consumerFormat,
+			release: () => {
+				try {
+					this.audioPipe?.unfork(audFork)
+					this.videoPipe?.unfork(vidFork)
+					this.numForks--
+					// eslint-disable-next-line no-empty
+				} catch (err) {}
+			}
 		}
-	}
-
-	getAudioPipe(): RedioPipe<Frame | RedioEnd> | undefined {
-		return this.audioPipe
-	}
-	getVideoPipe(): RedioPipe<OpenCLBuffer | RedioEnd> | undefined {
-		return this.videoPipe
 	}
 }

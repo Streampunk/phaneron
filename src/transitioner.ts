@@ -27,10 +27,7 @@ import { ClJobs } from './clJobQueue'
 import ImageProcess from './process/imageProcess'
 import Transition from './process/transition'
 import { Silence, Black } from './blackSilence'
-import { Producer } from './producer/producer'
 import { EventEmitter, once } from 'events'
-
-export type TransitionSpec = { type: string; len: number; source?: Producer; mask?: Producer }
 
 export class Transitioner {
 	private readonly clContext: nodenCLContext

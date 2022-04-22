@@ -21,7 +21,7 @@
 import { ProducerFactory, Producer, InvalidProducerError } from './producer'
 import { clContext as nodenCLContext, OpenCLBuffer } from 'nodencl'
 import redio, { RedioPipe, nil, end, isValue, RedioEnd, isEnd, Generator, Valve } from 'redioactive'
-import { Frame, frame, Filterer, filterer } from 'beamcoder'
+import { Frame, frame, Filterer, filterer, FilterContext } from 'beamcoder'
 import { ClJobs } from '../clJobQueue'
 import { LoadParams } from '../chanLayer'
 import { VideoFormat } from '../config'
@@ -29,7 +29,6 @@ import * as Macadam from 'macadam'
 import { ToRGBA } from '../process/io'
 import { Reader as v210Reader } from '../process/v210'
 import Yadif from '../process/yadif'
-import { Mixer } from './mixer'
 import { SourcePipes } from '../routeSource'
 
 export class MacadamProducer implements Producer {
@@ -38,15 +37,14 @@ export class MacadamProducer implements Producer {
 	private readonly clContext: nodenCLContext
 	private readonly clJobs: ClJobs
 	private readonly consumerFormat: VideoFormat
-	private readonly mixer: Mixer
 	private capture: Macadam.CaptureChannel | null = null
-	private audFilterer: Filterer | null = null
 	private audSource: RedioPipe<Frame | RedioEnd> | undefined
 	private vidSource: RedioPipe<OpenCLBuffer | RedioEnd> | undefined
 	private srcFormat: VideoFormat | undefined
-	private srcLevels: number[] = []
 	private numForks = 0
+	private paused = true
 	private running = true
+	private volFilter: FilterContext | undefined
 
 	constructor(
 		id: number,
@@ -60,7 +58,6 @@ export class MacadamProducer implements Producer {
 		this.clContext = context
 		this.clJobs = clJobs
 		this.consumerFormat = consumerFormat
-		this.mixer = new Mixer(this.clContext, this.consumerFormat, this.clJobs)
 
 		if (this.params.url.toUpperCase() !== 'DECKLINK')
 			throw new InvalidProducerError('Macadam producer supports decklink devices')
@@ -74,6 +71,7 @@ export class MacadamProducer implements Producer {
 		const tff = true
 		let toRGBA: ToRGBA | null = null
 		let yadif: Yadif | null = null
+		let audFilterer: Filterer | null = null
 		const sampleRate = Macadam.bmdAudioSampleRate48kHz
 		const numAudChannels = this.consumerFormat.audioChannels
 		const audLayout = `${numAudChannels}c`
@@ -88,17 +86,10 @@ export class MacadamProducer implements Producer {
 				pixelFormat: Macadam.bmdFormat10BitYUV
 			})
 
-			let panStr = ''
-			panStr += `pan=${numAudChannels}c`
-			for (let c = 0; c < numAudChannels; ++c) {
-				this.srcLevels.push(1.0)
-				panStr += `| c${c % numAudChannels}=${this.srcLevels[c]}*c${c}`
-			}
-
-			const filtStr = `[in${0}:a]asetnsamples=n=1024:p=1, ${panStr}[out${0}:a]`
+			const filtStr = `[in${0}:a]asetnsamples=n=1024:p=1, volume=0.0:eval=frame:precision=float[out${0}:a]`
 			// console.log(filtStr)
 
-			this.audFilterer = await filterer({
+			audFilterer = await filterer({
 				filterType: 'audio',
 				inputParams: [
 					{
@@ -119,7 +110,8 @@ export class MacadamProducer implements Producer {
 				],
 				filterSpec: filtStr
 			})
-			// console.log('\nMacadam producer audio:\n', this.audFilterer.graph.dump())
+			// console.log('\nMacadam producer audio:\n', audFilterer.graph.dump())
+			this.volFilter = audFilterer.graph.filters.find((f) => f.filter.name === 'volume')
 
 			width = this.capture.width
 			height = this.capture.height
@@ -159,7 +151,7 @@ export class MacadamProducer implements Producer {
 		const audFilter: Valve<Macadam.CaptureFrame | RedioEnd, Frame | RedioEnd> = async (
 			captureFrame
 		) => {
-			if (isValue(captureFrame) && this.audFilterer) {
+			if (isValue(captureFrame) && audFilterer) {
 				const ffFrame = frame({
 					nb_samples: captureFrame.audio.sampleFrameCount,
 					format: 's32',
@@ -169,7 +161,7 @@ export class MacadamProducer implements Producer {
 					channel_layout: audLayout,
 					data: [captureFrame.audio.data]
 				})
-				const ff = await this.audFilterer.filter([{ name: 'in0:a', frames: [ffFrame] }])
+				const ff = await audFilterer.filter([{ name: 'in0:a', frames: [ffFrame] }])
 				return ff[0] && ff[0].frames.length > 0 ? ff[0].frames : nil
 			} else {
 				return captureFrame as RedioEnd
@@ -219,7 +211,7 @@ export class MacadamProducer implements Producer {
 				const yadifDests: OpenCLBuffer[] = []
 				await yadif?.processFrame(frame, yadifDests, this.sourceID)
 				yadifDests.forEach((d) => {
-					for (let f = 0; f < this.numForks; ++f) d.addRef()
+					for (let f = 1; f < this.numForks; ++f) d.addRef()
 				})
 				return yadifDests.length > 0 ? yadifDests : nil
 			} else {
@@ -248,6 +240,7 @@ export class MacadamProducer implements Producer {
 
 		this.audSource = macadamFrames
 			.fork({ bufferSizeMax: 1 })
+			.pause(() => this.paused && this.running)
 			.valve(audFilter, { bufferSizeMax: 2, oneToMany: true })
 
 		this.vidSource = macadamFrames
@@ -255,34 +248,52 @@ export class MacadamProducer implements Producer {
 			.valve(vidLoader, { bufferSizeMax: 1 })
 			.valve(vidProcess, { bufferSizeMax: 1 })
 			.valve(vidDeint, { bufferSizeMax: 1, oneToMany: true })
-
-		await this.mixer.init(this.sourceID, this.audSource.fork(), this.vidSource.fork())
+			.pause((frame) => {
+				if (!this.running) {
+					frame = nil
+					return false
+				}
+				if (this.paused && isValue(frame)) (frame as OpenCLBuffer).addRef()
+				return this.paused
+			})
 
 		console.log(`Created Macadam producer for channel ${this.params.channel}`)
 	}
 
-	async getSourcePipes(): Promise<SourcePipes> {
+	getSourcePipes(): SourcePipes {
 		if (!(this.audSource && this.vidSource && this.srcFormat))
-			throw new Error(`Route producer failed to find source pipes for route`)
+			throw new Error(`Macadam producer failed to find source pipes for route`)
+
 		this.numForks++
-		return Promise.resolve({
-			audio: this.audSource,
-			video: this.vidSource,
-			release: () => this.numForks--
-		})
+		const audFork = this.audSource.fork()
+		const vidFork = this.vidSource.fork()
+		return {
+			audio: audFork,
+			video: vidFork,
+			format: this.srcFormat,
+			release: () => {
+				try {
+					this.audSource?.unfork(audFork)
+					this.vidSource?.unfork(vidFork)
+					this.numForks--
+					// eslint-disable-next-line no-empty
+				} catch (err) {}
+			}
+		}
 	}
 
-	getMixer(): Mixer {
-		return this.mixer
+	srcID(): string {
+		return this.sourceID
 	}
 
 	setPaused(pause: boolean): void {
-		this.mixer.setPaused(pause)
+		this.paused = pause
+		if (this.volFilter && this.volFilter.priv)
+			this.volFilter.priv = { volume: this.paused ? '0.0' : '1.0' }
 	}
 
 	release(): void {
 		this.running = false
-		this.mixer.release()
 	}
 }
 

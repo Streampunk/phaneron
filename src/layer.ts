@@ -23,16 +23,25 @@ import { clContext as nodenCLContext, OpenCLBuffer } from 'nodencl'
 import { RedioPipe, RedioEnd } from 'redioactive'
 import { Frame } from 'beamcoder'
 import { Producer } from './producer/producer'
-import { MixerDefaults } from './producer/mixer'
-import { Transitioner, TransitionSpec } from './transitioner'
+import { Mixer, MixerDefaults } from './producer/mixer'
+import { Transitioner } from './transitioner'
 import { ConsumerConfig } from './config'
 import { ClJobs } from './clJobQueue'
 import { SourcePipes } from './routeSource'
 
+export type TransitionSpec = {
+	type: string
+	len: number
+	source?: Producer
+	sourceMixer?: Mixer
+	mask?: Producer
+	maskMixer?: Mixer
+}
 export const DefaultTransitionSpec = '{ "type": "cut", "len": 0 }'
 
 type SourceSpec = {
 	source: Producer | undefined
+	mixer: Mixer | undefined
 	transition: TransitionSpec
 	firstTs: number | undefined
 }
@@ -64,11 +73,13 @@ export class Layer {
 		this.endEvent = new EventEmitter()
 		this.curSrcSpec = {
 			source: undefined,
+			mixer: undefined,
 			transition: JSON.parse(DefaultTransitionSpec),
 			firstTs: undefined
 		}
 		this.nextSrcSpec = {
 			source: undefined,
+			mixer: undefined,
 			transition: JSON.parse(DefaultTransitionSpec),
 			firstTs: undefined
 		}
@@ -92,20 +103,22 @@ export class Layer {
 		const audioPipes: RedioPipe<Frame | RedioEnd>[] = []
 		const transitionSpec = this.curSrcSpec.transition
 
-		if (this.curSrcSpec.source) {
-			audioPipes.push(this.curSrcSpec.source.getMixer().getAudioPipe())
-			if (transitionSpec.source && transitionSpec.type !== 'cut') {
-				audioPipes.push(transitionSpec.source.getMixer().getAudioPipe())
-				// if (transitionSpec.mask) audioPipes.push(transitionSpec.mask.getMixer().getAudioPipe())
+		if (this.curSrcSpec.mixer) {
+			audioPipes.push(this.curSrcSpec.mixer.getAudioPipe())
+			if (transitionSpec.source && transitionSpec.sourceMixer && transitionSpec.type !== 'cut') {
+				audioPipes.push(transitionSpec.sourceMixer.getAudioPipe())
+				// if (transitionSpec.mask && transitionSpec.maskMixer)
+				// 	audioPipes.push(transitionSpec.maskMixer.getAudioPipe())
 			}
 		}
 
 		const videoPipes: RedioPipe<OpenCLBuffer | RedioEnd>[] = []
-		if (this.curSrcSpec.source) {
-			videoPipes.push(this.curSrcSpec.source.getMixer().getVideoPipe())
-			if (transitionSpec.source && transitionSpec.type !== 'cut') {
-				videoPipes.push(transitionSpec.source.getMixer().getVideoPipe())
-				if (transitionSpec.mask) videoPipes.push(transitionSpec.mask.getMixer().getVideoPipe())
+		if (this.curSrcSpec.mixer) {
+			videoPipes.push(this.curSrcSpec.mixer.getVideoPipe())
+			if (transitionSpec.source && transitionSpec.sourceMixer && transitionSpec.type !== 'cut') {
+				videoPipes.push(transitionSpec.sourceMixer.getVideoPipe())
+				if (transitionSpec.mask && transitionSpec.maskMixer)
+					videoPipes.push(transitionSpec.maskMixer.getVideoPipe())
 			}
 		}
 
@@ -121,11 +134,13 @@ export class Layer {
 				this.curSrcSpec.transition.mask?.release()
 				this.curSrcSpec.source?.release()
 				this.curSrcSpec.source = undefined
+				this.curSrcSpec.mixer = undefined
 			} else if (
 				(this.curSrcSpec.transition.type === 'wipe' && numEnds > 1) ||
 				(this.curSrcSpec.transition.type === 'dissolve' && numEnds > 0)
 			) {
 				this.curSrcSpec.source = this.curSrcSpec.transition.source
+				this.curSrcSpec.mixer = this.curSrcSpec.transition.sourceMixer
 				this.curSrcSpec.transition = JSON.parse(DefaultTransitionSpec)
 				this.update()
 				this.endEvent.emit('transitionComplete')
@@ -148,12 +163,18 @@ export class Layer {
 
 	async load(
 		producer: Producer,
+		mixer: Mixer,
 		transitionSpec: TransitionSpec,
 		preview: boolean,
 		autoPlay: boolean,
 		channelUpdate: () => void
 	): Promise<boolean> {
-		this.nextSrcSpec = { source: producer, transition: transitionSpec, firstTs: undefined }
+		this.nextSrcSpec = {
+			source: producer,
+			mixer: mixer,
+			transition: transitionSpec,
+			firstTs: undefined
+		}
 		this.autoPlay = autoPlay
 		this.channelUpdate = channelUpdate
 
@@ -170,10 +191,13 @@ export class Layer {
 			if (this.curSrcSpec.source) {
 				this.curSrcSpec.source.release()
 				this.curSrcSpec.source = undefined
+				this.curSrcSpec.mixer = undefined
 				await once(this.endEvent, 'end')
 			}
 			this.curSrcSpec.source = this.nextSrcSpec.source
+			this.curSrcSpec.mixer = this.nextSrcSpec.mixer
 			this.nextSrcSpec.source = undefined
+			this.nextSrcSpec.mixer = undefined
 			await this.update()
 			this.channelUpdate()
 		}
@@ -187,13 +211,16 @@ export class Layer {
 				await once(this.endEvent, 'end')
 			}
 			this.curSrcSpec.source = this.nextSrcSpec.source
+			this.curSrcSpec.mixer = this.nextSrcSpec.mixer
 		}
 
 		this.curSrcSpec.transition = this.nextSrcSpec.transition
 		if (this.curSrcSpec.transition.type !== 'cut') {
 			this.curSrcSpec.transition.source = this.nextSrcSpec.source
+			this.curSrcSpec.transition.sourceMixer = this.nextSrcSpec.mixer
 		}
 		this.nextSrcSpec.source = undefined
+		this.nextSrcSpec.mixer = undefined
 		this.nextSrcSpec.transition = JSON.parse(DefaultTransitionSpec)
 
 		this.autoPlay = false
@@ -226,9 +253,12 @@ export class Layer {
 	}
 
 	anchor(params: string[]): void {
-		const mixer = this.curSrcSpec.source
-			? this.curSrcSpec.source.getMixer()
-			: this.nextSrcSpec.source?.getMixer()
+		const mixer =
+			this.curSrcSpec && this.curSrcSpec.source && this.curSrcSpec.mixer
+				? this.curSrcSpec.mixer
+				: this.nextSrcSpec && this.nextSrcSpec.source && this.nextSrcSpec.mixer
+				? this.nextSrcSpec.mixer
+				: undefined
 		if (params.length) {
 			this.mixerParams.anchor = { x: +params[0], y: +params[1] }
 			mixer?.setMixParams(this.mixerParams)
@@ -238,9 +268,12 @@ export class Layer {
 	}
 
 	rotation(params: string[]): void {
-		const mixer = this.curSrcSpec.source
-			? this.curSrcSpec.source.getMixer()
-			: this.nextSrcSpec.source?.getMixer()
+		const mixer =
+			this.curSrcSpec && this.curSrcSpec.source && this.curSrcSpec.mixer
+				? this.curSrcSpec.mixer
+				: this.nextSrcSpec && this.nextSrcSpec.source && this.nextSrcSpec.mixer
+				? this.nextSrcSpec.mixer
+				: undefined
 		if (params.length) {
 			this.mixerParams.rotation = +params[0]
 			mixer?.setMixParams(this.mixerParams)
@@ -250,9 +283,12 @@ export class Layer {
 	}
 
 	fill(params: string[]): void {
-		const mixer = this.curSrcSpec.source
-			? this.curSrcSpec.source.getMixer()
-			: this.nextSrcSpec.source?.getMixer()
+		const mixer =
+			this.curSrcSpec && this.curSrcSpec.source && this.curSrcSpec.mixer
+				? this.curSrcSpec.mixer
+				: this.nextSrcSpec && this.nextSrcSpec.source && this.nextSrcSpec.mixer
+				? this.nextSrcSpec.mixer
+				: undefined
 		if (params.length) {
 			this.mixerParams.fill = {
 				xOffset: +params[0],
@@ -267,9 +303,12 @@ export class Layer {
 	}
 
 	volume(params: string[]): void {
-		const mixer = this.curSrcSpec.source
-			? this.curSrcSpec.source.getMixer()
-			: this.nextSrcSpec.source?.getMixer()
+		const mixer =
+			this.curSrcSpec && this.curSrcSpec.source && this.curSrcSpec.mixer
+				? this.curSrcSpec.mixer
+				: this.nextSrcSpec && this.nextSrcSpec.source && this.nextSrcSpec.mixer
+				? this.nextSrcSpec.mixer
+				: undefined
 		if (params.length) {
 			this.mixerParams.volume = +params[0]
 			mixer?.setMixParams(this.mixerParams)
@@ -278,7 +317,7 @@ export class Layer {
 		}
 	}
 
-	async getSourcePipes(): Promise<SourcePipes | undefined> {
+	getSourcePipes(): SourcePipes | undefined {
 		return this.curSrcSpec.source?.getSourcePipes()
 	}
 
@@ -294,6 +333,7 @@ export class Layer {
 
 	async release(): Promise<void> {
 		this.curSrcSpec.source = undefined
+		this.curSrcSpec.mixer = undefined
 		await this.transitioner?.release()
 		this.transitioner = null
 	}

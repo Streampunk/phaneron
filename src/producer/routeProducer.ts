@@ -21,43 +21,28 @@
 import { ProducerFactory, Producer, InvalidProducerError } from './producer'
 import { chanLayerFromString } from '../chanLayer'
 import { channels } from '../index'
-import { RedioPipe, RedioEnd, isValue, Valve } from 'redioactive'
-import { clContext as nodenCLContext, OpenCLBuffer } from 'nodencl'
-import { Frame } from 'beamcoder'
-import { ClJobs } from '../clJobQueue'
+import { RedioPipe, RedioEnd, isValue, Valve, nil } from 'redioactive'
+import { OpenCLBuffer } from 'nodencl'
+import { Frame, filterer, FilterContext } from 'beamcoder'
 import { LoadParams } from '../chanLayer'
 import { VideoFormat } from '../config'
-import { Mixer } from './mixer'
 import { SourcePipes } from '../routeSource'
 
 export class RouteProducer implements Producer {
 	private readonly sourceID: string
 	private readonly params: LoadParams
-	private readonly clContext: nodenCLContext
-	private readonly clJobs: ClJobs
-	private readonly consumerFormat: VideoFormat
-	private readonly mixer: Mixer
 	private srcPipes: SourcePipes | undefined
-	private routeAudSource: RedioPipe<Frame | RedioEnd> | undefined
-	private routeVidSource: RedioPipe<OpenCLBuffer | RedioEnd> | undefined
 	private audSource: RedioPipe<Frame | RedioEnd> | undefined
 	private vidSource: RedioPipe<OpenCLBuffer | RedioEnd> | undefined
-	private vidFork: RedioPipe<OpenCLBuffer | RedioEnd> | undefined
+	private srcFormat: VideoFormat | undefined
 	private numForks = 0
+	private paused = true
+	private running = true
+	private volFilter: FilterContext | undefined
 
-	constructor(
-		id: number,
-		params: LoadParams,
-		context: nodenCLContext,
-		clJobs: ClJobs,
-		consumerFormat: VideoFormat
-	) {
+	constructor(id: number, params: LoadParams) {
 		this.sourceID = `P${id} ${params.url} L${params.layer}`
 		this.params = params
-		this.clContext = context
-		this.clJobs = clJobs
-		this.consumerFormat = consumerFormat
-		this.mixer = new Mixer(this.clContext, this.consumerFormat, this.clJobs)
 
 		if (this.params.url.slice(0, 5).toUpperCase() !== 'ROUTE')
 			throw new InvalidProducerError('Route producer supports route command')
@@ -67,10 +52,10 @@ export class RouteProducer implements Producer {
 		const routeIndex = this.params.url.indexOf('://')
 		if (routeIndex < 0) throw new Error('Route producer failed to find route source in parameters')
 
-		const chanLayer = chanLayerFromString(this.params.url.substr(routeIndex + 3))
+		const chanLayer = chanLayerFromString(this.params.url.substring(routeIndex + 3))
 		if (!chanLayer.valid)
 			throw new Error(
-				`Route producer failed to parse channel and layer from params ${this.params.url.substr(
+				`Route producer failed to parse channel and layer from params ${this.params.url.substring(
 					routeIndex + 3
 				)}`
 			)
@@ -79,24 +64,66 @@ export class RouteProducer implements Producer {
 		if (!channel)
 			throw new Error(`Route producer failed to find source of channel ${chanLayer.channel}`)
 
-		this.srcPipes = await channel.getRoutePipes(chanLayer.layer)
+		const filtStr = `[in${0}:a]asetnsamples=n=1024:p=1, volume=0.0:eval=frame:precision=float[out${0}:a]`
+		// console.log(filtStr)
 
-		this.routeAudSource = this.srcPipes.audio
-		this.audSource = this.routeAudSource.fork()
+		this.srcPipes = await channel.getRoutePipes(chanLayer.layer)
+		this.srcFormat = this.srcPipes.format
+		const audLayout = `${this.srcFormat.audioChannels}c`
+		const audFilterer = await filterer({
+			filterType: 'audio',
+			inputParams: [
+				{
+					name: 'in0:a',
+					timeBase: [1, this.srcFormat.audioSampleRate],
+					sampleRate: this.srcFormat.audioSampleRate,
+					sampleFormat: 'fltp',
+					channelLayout: audLayout
+				}
+			],
+			outputParams: [
+				{
+					name: 'out0:a',
+					sampleRate: this.srcFormat.audioSampleRate,
+					sampleFormat: 'fltp',
+					channelLayout: audLayout
+				}
+			],
+			filterSpec: filtStr
+		})
+		// console.log('\nRoute producer audio:\n', audFilterer.graph.dump())
+		this.volFilter = audFilterer.graph.filters.find((f) => f.filter.name === 'volume')
+
+		const audFilter: Valve<Frame | RedioEnd, Frame | RedioEnd> = async (frame) => {
+			if (isValue(frame)) {
+				const ff = await audFilterer.filter([{ name: 'in0:a', frames: [frame] }])
+				return ff[0] && ff[0].frames.length > 0 ? ff[0].frames : nil
+			} else {
+				return frame
+			}
+		}
 
 		const vidForkRef: Valve<OpenCLBuffer | RedioEnd, OpenCLBuffer | RedioEnd> = async (frame) => {
 			if (isValue(frame)) {
-				for (let f = 0; f < this.numForks; ++f) frame.addRef()
+				for (let f = 1; f < this.numForks; ++f) frame.addRef()
 				return frame
 			} else {
 				return frame
 			}
 		}
-		this.routeVidSource = this.srcPipes.video
-		this.vidFork = this.routeVidSource.fork()
-		this.vidSource = this.vidFork.valve(vidForkRef)
 
-		await this.mixer.init(this.sourceID, this.audSource.fork(), this.vidSource.fork())
+		this.audSource = this.srcPipes.audio
+			.pause(() => this.paused && this.running)
+			.valve(audFilter, { bufferSizeMax: 2, oneToMany: true })
+
+		this.vidSource = this.srcPipes.video.valve(vidForkRef).pause((frame) => {
+			if (!this.running) {
+				frame = nil
+				return false
+			}
+			if (this.paused && isValue(frame)) (frame as OpenCLBuffer).addRef()
+			return this.paused
+		})
 
 		console.log(
 			`Created Route producer from channel ${chanLayer.channel}`,
@@ -104,46 +131,49 @@ export class RouteProducer implements Producer {
 		)
 	}
 
-	async getSourcePipes(): Promise<SourcePipes> {
-		if (!(this.audSource && this.vidSource))
+	getSourcePipes(): SourcePipes {
+		if (!(this.audSource && this.vidSource && this.srcFormat))
 			throw new Error(`Route producer failed to find source pipes for route`)
+
 		this.numForks++
-		return Promise.resolve({
-			audio: this.audSource,
-			video: this.vidSource,
-			release: () => this.numForks--
-		})
+		const audFork = this.audSource.fork()
+		const vidFork = this.vidSource.fork()
+		return {
+			audio: audFork,
+			video: vidFork,
+			format: this.srcFormat,
+			release: () => {
+				try {
+					this.audSource?.unfork(audFork)
+					this.vidSource?.unfork(vidFork)
+					this.numForks--
+					// eslint-disable-next-line no-empty
+				} catch (err) {}
+			}
+		}
 	}
 
-	getMixer(): Mixer {
-		return this.mixer
+	srcID(): string {
+		return this.sourceID
 	}
 
 	setPaused(pause: boolean): void {
-		this.mixer.setPaused(pause)
+		this.paused = pause
+		if (this.volFilter && this.volFilter.priv)
+			this.volFilter.priv = { volume: this.paused ? '0.0' : '1.0' }
 	}
 
 	release(): void {
-		if (this.audSource) this.routeAudSource?.unfork(this.audSource)
-		if (this.vidFork) this.routeVidSource?.unfork(this.vidFork)
 		this.srcPipes?.release()
-		this.mixer.release()
+		this.running = false
 	}
 }
 
 export class RouteProducerFactory implements ProducerFactory<RouteProducer> {
-	private clContext: nodenCLContext
+	// eslint-disable-next-line @typescript-eslint/no-empty-function
+	constructor() {}
 
-	constructor(clContext: nodenCLContext) {
-		this.clContext = clContext
-	}
-
-	createProducer(
-		id: number,
-		params: LoadParams,
-		clJobs: ClJobs,
-		consumerFormat: VideoFormat
-	): RouteProducer {
-		return new RouteProducer(id, params, this.clContext, clJobs, consumerFormat)
+	createProducer(id: number, params: LoadParams): RouteProducer {
+		return new RouteProducer(id, params)
 	}
 }

@@ -19,12 +19,13 @@
 */
 
 import { clContext as nodenCLContext, OpenCLBuffer } from 'nodencl'
-import { RedioPipe, RedioEnd, nil, isValue, Valve, Spout } from 'redioactive'
+import { RedioEnd, nil, isValue, Valve, Spout } from 'redioactive'
 import { muxer, Muxer, encoder, Encoder, Frame, frame, Filterer, filterer, Packet } from 'beamcoder'
 import { ConsumerFactory, Consumer } from './consumer'
 import { FromRGBA } from '../process/io'
 import { Writer } from '../process/yuv422p8'
 import { ConfigParams, VideoFormat, DeviceConfig } from '../config'
+import { SourcePipes } from '../routeSource'
 import { ClJobs } from '../clJobQueue'
 
 interface AudioBuffer {
@@ -47,8 +48,7 @@ export class FFmpegConsumer implements Consumer {
 	private audFilterer: Filterer | undefined
 	private muxer: Muxer
 	private encoder: Encoder
-	private combineAudio: RedioPipe<Frame | RedioEnd> | undefined
-	private combineVideo: RedioPipe<OpenCLBuffer | RedioEnd> | undefined
+	private sourcePipes: SourcePipes | undefined
 
 	constructor(
 		context: nodenCLContext,
@@ -160,12 +160,8 @@ export class FFmpegConsumer implements Consumer {
 		return this.device
 	}
 
-	connect(
-		combineAudio: RedioPipe<Frame | RedioEnd>,
-		combineVideo: RedioPipe<OpenCLBuffer | RedioEnd>
-	): void {
-		this.combineAudio = combineAudio
-		this.combineVideo = combineVideo
+	connect(sourcePipes: SourcePipes): void {
+		this.sourcePipes = sourcePipes
 
 		const audFilter: Valve<Frame | RedioEnd, AudioBuffer | RedioEnd> = async (frame) => {
 			if (isValue(frame)) {
@@ -253,19 +249,16 @@ export class FFmpegConsumer implements Consumer {
 			}
 		}
 
-		this.combineVideo
+		this.sourcePipes.video
 			.valve(vidProcess)
 			.valve(vidSaver)
 			.valve(vidEncode, { oneToMany: true })
-			.zip(this.combineAudio.valve(audFilter, { oneToMany: true }))
+			.zip(this.sourcePipes.audio.valve(audFilter, { oneToMany: true }))
 			.spout(ffmpegSpout)
 	}
 
-	release(audio: RedioPipe<Frame | RedioEnd>, video: RedioPipe<OpenCLBuffer | RedioEnd>): void {
-		if (this.combineAudio !== undefined && this.combineVideo !== undefined) {
-			audio.unfork(this.combineAudio)
-			video.unfork(this.combineVideo)
-		}
+	release(): void {
+		this.sourcePipes?.release()
 	}
 }
 

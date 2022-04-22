@@ -25,7 +25,6 @@ import { VideoFormat } from '../config'
 import { FFmpegProducerFactory } from './ffmpegProducer'
 import { MacadamProducerFactory } from './macadamProducer'
 import { RouteProducerFactory } from './routeProducer'
-import { Mixer } from './mixer'
 import { RouteSource } from '../routeSource'
 
 export type ProducerConfig = {
@@ -36,7 +35,7 @@ export type ProducerConfig = {
 
 export interface Producer extends RouteSource {
 	initialise(): void
-	getMixer(): Mixer
+	srcID(): string
 	setPaused(pause: boolean): void
 	release(): void
 }
@@ -63,12 +62,12 @@ export class InvalidProducerError extends Error {
 export class ProducerRegistry {
 	private readonly producerFactories: ProducerFactory<Producer>[]
 	private readonly config: ProducerConfig
-	private producerID = 0
+	private producerID = 1
 
 	constructor(clContext: nodenCLContext, config: ProducerConfig) {
 		this.producerFactories = []
 		this.producerFactories.push(new MacadamProducerFactory(clContext))
-		this.producerFactories.push(new RouteProducerFactory(clContext))
+		this.producerFactories.push(new RouteProducerFactory())
 		this.producerFactories.push(new FFmpegProducerFactory(clContext))
 		this.config = config
 	}
@@ -82,13 +81,14 @@ export class ProducerRegistry {
 		for (const f of this.producerFactories) {
 			try {
 				const producer = f.createProducer(
-					this.producerID++,
+					this.producerID,
 					params,
 					clJobs,
 					consumerFormat,
 					this.config
 				)
 				await producer.initialise()
+				this.producerID++
 				return producer
 			} catch (err) {
 				if (err instanceof InvalidProducerError) producerErr = err.message

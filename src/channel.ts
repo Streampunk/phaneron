@@ -22,11 +22,11 @@ import { clContext as nodenCLContext } from 'nodencl'
 import { LoadParams } from './chanLayer'
 import { Producer, ProducerRegistry } from './producer/producer'
 import { ConsumerConfig } from './config'
-import { DefaultTransitionSpec, Layer } from './layer'
+import { TransitionSpec, DefaultTransitionSpec, Layer } from './layer'
 import { ConsumerRegistry, Consumer } from './consumer/consumer'
 import { CombineLayer, Combiner } from './combiner'
 import { ClJobs } from './clJobQueue'
-import { TransitionSpec } from './transitioner'
+import { Mixer } from './producer/mixer'
 import { SourcePipes } from './routeSource'
 
 export class Channel {
@@ -83,7 +83,8 @@ export class Channel {
 
 	addConsumer(consumer: Consumer): void {
 		if (!this.consumers.find((c) => c === consumer)) this.consumers.push(consumer)
-		this.combiner.connect(consumer)
+		const sourcePipes = this.combiner.getSourcePipes()
+		consumer.connect(sourcePipes)
 	}
 
 	removeConsumer(consumer: Consumer): void {
@@ -91,7 +92,7 @@ export class Channel {
 			throw new Error('remove consumer - consumer not found')
 		const i = this.consumers.indexOf(consumer)
 		this.consumers.splice(i, 1)
-		this.combiner.release(consumer)
+		consumer.release()
 	}
 
 	updateLayers(): void {
@@ -126,6 +127,7 @@ export class Channel {
 
 	async loadSource(params: LoadParams): Promise<boolean> {
 		let producer: Producer | undefined
+		let mixer: Mixer | undefined
 		const transitionSpec: TransitionSpec = JSON.parse(DefaultTransitionSpec)
 		let error = ''
 		try {
@@ -134,10 +136,11 @@ export class Channel {
 				this.consumerConfig.format,
 				this.clJobs
 			)
+			mixer = new Mixer(this.clContext, this.consumerConfig.format, this.clJobs)
 
 			if (params.transition) {
 				transitionSpec.type = params.transition.type
-				if (params.transition.type === 'wipe' && params.transition.url)
+				if (params.transition.type === 'wipe' && params.transition.url) {
 					transitionSpec.mask = await this.producerRegistry.createSource(
 						{
 							url: params.transition.url,
@@ -148,6 +151,26 @@ export class Channel {
 						this.consumerConfig.format,
 						this.clJobs
 					)
+
+					transitionSpec.maskMixer = new Mixer(
+						this.clContext,
+						this.consumerConfig.format,
+						this.clJobs
+					)
+
+					if (!transitionSpec.mask || !transitionSpec.maskMixer || error.length > 0) {
+						console.log('Failed to create mask source for params', params, error)
+						return false
+					}
+
+					const maskSourcePipes = transitionSpec.mask.getSourcePipes()
+					await transitionSpec.maskMixer.init(
+						transitionSpec.mask.srcID(),
+						maskSourcePipes.audio,
+						maskSourcePipes.video,
+						maskSourcePipes.format
+					)
+				}
 				transitionSpec.len = params.transition.length
 			}
 		} catch (err) {
@@ -155,10 +178,13 @@ export class Channel {
 			else error = err instanceof Error ? err.message : 'Unknown error'
 		}
 
-		if (!producer || error.length > 0) {
+		if (!producer || !mixer || error.length > 0) {
 			console.log('Failed to create source for params', params, error)
 			return false
 		}
+
+		const sourcePipes = producer.getSourcePipes()
+		await mixer.init(producer.srcID(), sourcePipes.audio, sourcePipes.video, sourcePipes.format)
 
 		let layer = this.layers.get(params.layer)
 		if (!layer) {
@@ -174,6 +200,7 @@ export class Channel {
 
 		return layer.load(
 			producer,
+			mixer,
 			transitionSpec,
 			params.preview ? true : false,
 			params.autoPlay ? true : false,
@@ -263,10 +290,10 @@ export class Channel {
 	async getRoutePipes(layerNum: number): Promise<SourcePipes> {
 		let sourcePipes: SourcePipes | undefined
 		if (layerNum === 0) {
-			sourcePipes = await this.combiner.getSourcePipes()
+			sourcePipes = this.combiner.getSourcePipes()
 		} else {
 			const layer = this.layers.get(layerNum)
-			sourcePipes = await layer?.getSourcePipes()
+			sourcePipes = layer?.getSourcePipes()
 		}
 		if (!sourcePipes) throw new Error(`Failed to find source pipes for layer ${layerNum}`)
 		return sourcePipes
